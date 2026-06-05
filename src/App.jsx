@@ -60,30 +60,31 @@ const ChatStore = {
 };
 
 // ============================================================
-// ANTHROPIC API CALL (built-in — no key needed!)
+// GROQ API CALL
 // ============================================================
 async function askGemini(messages) {
   const msgs = messages.map(m => ({
     role: m.role === "user" ? "user" : "assistant",
     content: m.text
   }));
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
+      "Authorization": "Bearer " + GROQ_API_KEY
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1024,
-      system: "Tum Saraswati AI ho — ek helpful, smart aur friendly AI assistant. Tum Hindi aur English dono mein jawab de sakte ho. Gyan ki devi ki tarah helpful raho. Hamesha warm aur caring raho.",
-      messages: msgs
+      model: "llama3-8b-8192",
+      messages: [
+        { role: "system", content: "Tum Saraswati AI ho — ek helpful, smart aur friendly AI assistant. Tum Hindi aur English dono mein jawab de sakte ho. Gyan ki devi ki tarah helpful raho. Hamesha warm aur caring raho." },
+        ...msgs
+      ],
+      max_tokens: 1024
     })
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
-  return data.content?.[0]?.text || "Koi response nahi mila.";
+  return data.choices?.[0]?.message?.content || "Koi response nahi mila.";
 }
 
 // ============================================================
