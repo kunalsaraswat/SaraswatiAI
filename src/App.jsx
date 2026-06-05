@@ -74,7 +74,7 @@ async function askGemini(messages) {
       "Authorization": "Bearer " + GROQ_API_KEY
     },
     body: JSON.stringify({
-      model: "llama3-8b-8192",
+      model: "llama-3.1-8b-instant"
       messages: [
         { role: "system", content: "Tum Saraswati AI ho — ek helpful, smart aur friendly AI assistant. Tum Hindi aur English dono mein jawab de sakte ho. Gyan ki devi ki tarah helpful raho. Hamesha warm aur caring raho." },
         ...msgs
