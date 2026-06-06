@@ -1,83 +1,96 @@
 import { useState, useEffect, useRef } from "react";
 
-// ============================================================
-// CONFIG — apne keys yahan daalo
-// ============================================================
 const GROQ_API_KEY = "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";
 const ADMIN_EMAIL = "kunalsaraswat691@gmail.com";
+const FREE_CHAT_LIMIT = 49;
+const COOLDOWN_HOURS = 2;
 
-// ============================================================
-// SIMPLE AUTH STORE (localStorage-based, no Firebase needed)
-// ============================================================
+// ── AUTH ──────────────────────────────────────────────────────
 const Auth = {
-  getUsers: () => JSON.parse(localStorage.getItem("ai_users") || "[]"),
-  saveUsers: (u) => localStorage.setItem("ai_users", JSON.stringify(u)),
-  getCurrentUser: () => JSON.parse(localStorage.getItem("ai_current_user") || "null"),
-  setCurrentUser: (u) => localStorage.setItem("ai_current_user", JSON.stringify(u)),
-  logout: () => localStorage.removeItem("ai_current_user"),
-  signup: (name, email, password) => {
-    const users = Auth.getUsers();
-    if (users.find(u => u.email === email)) return { error: "Email already exists!" };
-    const user = { id: Date.now().toString(), name, email, password: btoa(password), createdAt: new Date().toISOString() };
+  getUsers: () => JSON.parse(localStorage.getItem("sw_users") || "[]"),
+  saveUsers: (u) => localStorage.setItem("sw_users", JSON.stringify(u)),
+  getCurrent: () => JSON.parse(localStorage.getItem("sw_user") || "null"),
+  setCurrent: (u) => localStorage.setItem("sw_user", JSON.stringify(u)),
+  logout: () => localStorage.removeItem("sw_user"),
+  signup(name, email, pass) {
+    const users = this.getUsers();
+    if (users.find(u => u.email === email)) return { error: "Email already registered!" };
+    const user = { id: Date.now().toString(), name, email, pass: btoa(pass), premium: false, createdAt: new Date().toISOString() };
     users.push(user);
-    Auth.saveUsers(users);
-    Auth.setCurrentUser({ id: user.id, name: user.name, email: user.email });
+    this.saveUsers(users);
+    this.setCurrent({ id: user.id, name, email, premium: false });
     return { user };
   },
-  login: (email, password) => {
-    const users = Auth.getUsers();
-    const user = users.find(u => u.email === email && u.password === btoa(password));
-    if (!user) return { error: "Invalid email or password!" };
-    Auth.setCurrentUser({ id: user.id, name: user.name, email: user.email });
+  login(email, pass) {
+    const users = this.getUsers();
+    const user = users.find(u => u.email === email && u.pass === btoa(pass));
+    if (!user) return { error: "Wrong email or password!" };
+    this.setCurrent({ id: user.id, name: user.name, email, premium: user.premium || false });
     return { user };
   },
+  upgradePremium(userId) {
+    const users = this.getUsers();
+    const u = users.find(u => u.id === userId);
+    if (u) { u.premium = true; this.saveUsers(users); }
+    const cur = this.getCurrent();
+    if (cur) { cur.premium = true; this.setCurrent(cur); }
+  }
 };
 
-// ============================================================
-// CHAT STORE
-// ============================================================
-const ChatStore = {
-  getChats: (userId) => JSON.parse(localStorage.getItem(`ai_chats_${userId}`) || "[]"),
-  saveChats: (userId, chats) => localStorage.setItem(`ai_chats_${userId}`, JSON.stringify(chats)),
-  addMessage: (userId, sessionId, role, text) => {
-    const chats = ChatStore.getChats(userId);
-    const session = chats.find(s => s.id === sessionId);
-    const msg = { id: Date.now(), role, text, time: new Date().toISOString() };
-    if (session) {
-      session.messages.push(msg);
-      session.updatedAt = msg.time;
-    } else {
-      chats.unshift({ id: sessionId, title: text.slice(0, 40), messages: [msg], createdAt: msg.time, updatedAt: msg.time });
+// ── USAGE ─────────────────────────────────────────────────────
+const Usage = {
+  get: (uid) => JSON.parse(localStorage.getItem(`sw_usage_${uid}`) || '{"count":0,"resetAt":null}'),
+  save: (uid, data) => localStorage.setItem(`sw_usage_${uid}`, JSON.stringify(data)),
+  canChat(uid, premium) {
+    if (premium) return { ok: true };
+    const d = this.get(uid);
+    if (d.resetAt && new Date() > new Date(d.resetAt)) {
+      this.save(uid, { count: 0, resetAt: null });
+      return { ok: true };
     }
-    ChatStore.saveChats(userId, chats);
+    if (d.count >= FREE_CHAT_LIMIT) {
+      const diff = d.resetAt ? Math.ceil((new Date(d.resetAt) - new Date()) / 60000) : 0;
+      return { ok: false, mins: diff };
+    }
+    return { ok: true, left: FREE_CHAT_LIMIT - d.count };
+  },
+  increment(uid) {
+    const d = this.get(uid);
+    d.count = (d.count || 0) + 1;
+    if (d.count >= FREE_CHAT_LIMIT && !d.resetAt) {
+      d.resetAt = new Date(Date.now() + COOLDOWN_HOURS * 3600000).toISOString();
+    }
+    this.save(uid, d);
+  }
+};
+
+// ── CHAT STORE ────────────────────────────────────────────────
+const CS = {
+  get: (uid) => JSON.parse(localStorage.getItem(`sw_chats_${uid}`) || "[]"),
+  save: (uid, c) => localStorage.setItem(`sw_chats_${uid}`, JSON.stringify(c)),
+  addMsg(uid, sid, role, text) {
+    const chats = this.get(uid);
+    const msg = { id: Date.now(), role, text, time: new Date().toISOString() };
+    const s = chats.find(s => s.id === sid);
+    if (s) { s.msgs.push(msg); s.updatedAt = msg.time; }
+    else chats.unshift({ id: sid, title: text.slice(0, 45), msgs: [msg], createdAt: msg.time, updatedAt: msg.time });
+    this.save(uid, chats);
     return msg;
   },
-  deleteSession: (userId, sessionId) => {
-    const chats = ChatStore.getChats(userId).filter(s => s.id !== sessionId);
-    ChatStore.saveChats(userId, chats);
-  },
-  clearAll: (userId) => localStorage.removeItem(`ai_chats_${userId}`),
+  delSession(uid, sid) { this.save(uid, this.get(uid).filter(s => s.id !== sid)); },
+  clearAll(uid) { localStorage.removeItem(`sw_chats_${uid}`); }
 };
 
-// ============================================================
-// GROQ API CALL
-// ============================================================
-async function askGemini(messages) {
-  const msgs = messages.map(m => ({
-    role: m.role === "user" ? "user" : "assistant",
-    content: m.text
-  }));
+// ── GROQ API ──────────────────────────────────────────────────
+async function askAI(messages) {
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + GROQ_API_KEY
-    },
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ_API_KEY },
     body: JSON.stringify({
       model: "llama-3.1-8b-instant",
       messages: [
-        { role: "system", content: "Tum Saraswati AI ho — ek helpful, smart aur friendly AI assistant. Tum Hindi aur English dono mein jawab de sakte ho. Gyan ki devi ki tarah helpful raho. Hamesha warm aur caring raho." },
-        ...msgs
+        { role: "system", content: "Tum Saraswati AI ho — ek helpful, smart aur friendly AI assistant. User jis bhi language mein baat kare — Hindi, English, Marathi, Punjabi, Urdu, Bengali, Tamil, Telugu, Gujarati, Kannada, ya koi bhi bhasha — tum usi language mein jawab do. Hamesha warm, helpful aur accurate raho." },
+        ...messages.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }))
       ],
       max_tokens: 1024
     })
@@ -87,345 +100,425 @@ async function askGemini(messages) {
   return data.choices?.[0]?.message?.content || "Koi response nahi mila.";
 }
 
-// ============================================================
-// STYLES
-// ============================================================
+// ── STYLES ────────────────────────────────────────────────────
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg: #0a0a0f;
-    --surface: #12121a;
-    --surface2: #1a1a26;
-    --border: #2a2a40;
-    --accent: #f59e0b;
-    --accent2: #ef4444;
-    --text: #f0ebe8;
-    --muted: #9ca3af;
-    --danger: #dc2626;
-    --success: #10b981;
-    --user-bubble: #b45309;
-    --ai-bubble: #1a1a26;
-    --radius: 16px;
-    --font: 'Sora', sans-serif;
-    --mono: 'JetBrains Mono', monospace;
-  }
-  body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
-  .app { display: flex; flex-direction: column; height: 100dvh; max-width: 480px; margin: 0 auto; position: relative; overflow: hidden; background: var(--bg); }
-  
-  /* AUTH */
-  .auth-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; gap: 24px; background: radial-gradient(ellipse at 50% 0%, #f59e0b22 0%, transparent 60%); }
-  .auth-logo { font-size: 48px; margin-bottom: 4px; }
-  .auth-title { font-size: 28px; font-weight: 700; background: linear-gradient(135deg, #fbbf24, #ef4444); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-  .auth-sub { color: var(--muted); font-size: 14px; text-align: center; }
-  .auth-card { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px 24px; display: flex; flex-direction: column; gap: 16px; }
-  .input-group { display: flex; flex-direction: column; gap: 6px; }
-  .input-group label { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.05em; }
-  .inp { background: var(--bg); border: 1.5px solid var(--border); border-radius: 10px; color: var(--text); font-family: var(--font); font-size: 15px; padding: 12px 14px; outline: none; transition: border-color 0.2s; width: 100%; }
-  .inp:focus { border-color: var(--accent); }
-  .btn { border: none; border-radius: 10px; cursor: pointer; font-family: var(--font); font-size: 15px; font-weight: 600; padding: 13px 20px; transition: all 0.2s; width: 100%; }
-  .btn-primary { background: linear-gradient(135deg, #f59e0b, #b45309); color: #fff; }
-  .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
-  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
-  .btn-danger { background: var(--danger); color: #fff; }
-  .btn-sm { padding: 8px 14px; font-size: 13px; width: auto; border-radius: 8px; }
-  .auth-switch { text-align: center; font-size: 14px; color: var(--muted); }
-  .auth-switch span { color: var(--accent2); cursor: pointer; font-weight: 600; }
-  .error-msg { color: var(--danger); font-size: 13px; text-align: center; background: #ef444420; padding: 10px; border-radius: 8px; }
-  
-  /* HEADER */
-  .header { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--surface); position: relative; z-index: 10; }
-  .header-title { flex: 1; font-size: 16px; font-weight: 700; }
-  .header-sub { font-size: 11px; color: var(--success); font-weight: 400; }
-  .icon-btn { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; color: var(--text); cursor: pointer; font-size: 18px; padding: 8px 10px; transition: all 0.2s; }
-  .icon-btn:hover { background: var(--border); }
-  .avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; color: #fff; flex-shrink: 0; }
-  
-  /* CHAT */
-  .chat-wrap { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; scroll-behavior: smooth; }
-  .chat-wrap::-webkit-scrollbar { width: 4px; }
-  .chat-wrap::-webkit-scrollbar-track { background: transparent; }
-  .chat-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-  .bubble-row { display: flex; gap: 10px; animation: fadeUp 0.3s ease; }
-  .bubble-row.user { flex-direction: row-reverse; }
-  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-  .bubble { max-width: 78%; padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.6; word-break: break-word; white-space: pre-wrap; }
-  .bubble.user { background: var(--user-bubble); color: #fff; border-bottom-right-radius: 4px; }
-  .bubble.ai { background: var(--ai-bubble); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-  .bubble-time { font-size: 10px; color: var(--muted); margin-top: 4px; font-family: var(--mono); }
-  .ai-avatar { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, #f59e0b, #ef4444); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; margin-top: 4px; }
-  .typing { display: flex; gap: 5px; padding: 14px 16px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2); animation: bounce 1.2s infinite; }
-  .dot:nth-child(2) { animation-delay: 0.2s; }
-  .dot:nth-child(3) { animation-delay: 0.4s; }
-  @keyframes bounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-8px); } }
-  .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--muted); padding: 40px; text-align: center; }
-  .empty-icon { font-size: 52px; }
-  .empty-state h3 { font-size: 18px; color: var(--text); font-weight: 600; }
-  .suggestions { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 8px; }
-  .suggestion { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 13px; color: var(--text); cursor: pointer; text-align: left; transition: all 0.2s; }
-  .suggestion:hover { border-color: var(--accent); color: var(--accent2); }
-  
-  /* INPUT */
-  .input-bar { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--surface); display: flex; gap: 10px; align-items: flex-end; }
-  .msg-inp { flex: 1; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 12px; color: var(--text); font-family: var(--font); font-size: 14px; padding: 12px 14px; outline: none; resize: none; max-height: 120px; min-height: 44px; transition: border-color 0.2s; }
-  .msg-inp:focus { border-color: var(--accent); }
-  .send-btn { background: linear-gradient(135deg, #f59e0b, #b45309); border: none; border-radius: 12px; color: #fff; cursor: pointer; font-size: 20px; padding: 10px 14px; transition: all 0.2s; flex-shrink: 0; }
-  .send-btn:hover { opacity: 0.9; transform: scale(1.05); }
-  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  
-  /* BOTTOM NAV */
-  .bottom-nav { display: flex; border-top: 1px solid var(--border); background: var(--surface); }
-  .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 4px; cursor: pointer; font-size: 11px; color: var(--muted); transition: all 0.2s; border: none; background: none; }
-  .nav-item.active { color: var(--accent2); }
-  .nav-item .nav-icon { font-size: 20px; }
-  
-  /* HISTORY */
-  .page-wrap { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-  .page-title { font-size: 18px; font-weight: 700; }
-  .history-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all 0.2s; }
-  .history-card:hover { border-color: var(--accent); }
-  .history-info { flex: 1; overflow: hidden; }
-  .history-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .history-meta { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
-  .del-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; padding: 4px; border-radius: 6px; transition: all 0.2s; }
-  .del-btn:hover { color: var(--danger); background: #ef444420; }
-  
-  /* SETTINGS */
-  .setting-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-  .setting-row { display: flex; align-items: center; gap: 14px; padding: 16px; border-bottom: 1px solid var(--border); }
-  .setting-row:last-child { border-bottom: none; }
-  .setting-icon { font-size: 22px; }
-  .setting-text { flex: 1; }
-  .setting-label { font-size: 14px; font-weight: 600; }
-  .setting-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .badge { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
-  
-  /* ADMIN */
-  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
-  .stat-val { font-size: 28px; font-weight: 700; background: linear-gradient(135deg, #fbbf24, #ef4444); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-family: var(--mono); }
-  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
-  .user-row { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
-  .user-info { flex: 1; }
-  .user-email { font-size: 12px; color: var(--muted); }
-  .section-title { font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; margin-top: 16px; }
-  
-  /* PREMIUM BANNER */
-  .premium-banner { background: linear-gradient(135deg, #f59e0b, #ef4444); border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 4px; }
-  .premium-text { flex: 1; }
-  .premium-title { font-weight: 700; font-size: 15px; }
-  .premium-sub { font-size: 12px; opacity: 0.85; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#0f0f0f;--surface:#1a1a1a;--surface2:#222;--border:#2a2a2a;
+  --accent:#f97316;--accent2:#fb923c;--text:#f5f5f5;--muted:#6b7280;
+  --user:#f97316;--ai:#1e1e1e;--radius:18px;
+}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);height:100dvh;overflow:hidden;}
+.app{display:flex;flex-direction:column;height:100dvh;max-width:480px;margin:0 auto;background:var(--bg);position:relative;}
+
+/* AUTH */
+.auth{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:20px;background:radial-gradient(ellipse at 50% -10%,#f9731620 0%,transparent 60%);}
+.auth-logo{font-size:52px;}
+.auth-title{font-size:26px;font-weight:700;color:#fff;}
+.auth-sub{font-size:13px;color:var(--muted);text-align:center;}
+.auth-card{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;display:flex;flex-direction:column;gap:14px;}
+.auth-head{font-size:18px;font-weight:700;text-align:center;}
+.inp-wrap{display:flex;flex-direction:column;gap:5px;}
+.inp-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.05em;}
+.inp{background:#111;border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;padding:13px 14px;outline:none;width:100%;transition:border-color .2s;}
+.inp:focus{border-color:var(--accent);}
+.btn{border:none;border-radius:12px;cursor:pointer;font-family:'Inter',sans-serif;font-size:15px;font-weight:600;padding:14px;transition:all .2s;width:100%;}
+.btn-primary{background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;}
+.btn-primary:hover{opacity:.9;transform:translateY(-1px);}
+.btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border);}
+.btn-danger{background:#ef4444;color:#fff;}
+.btn-sm{padding:8px 14px;font-size:13px;width:auto;border-radius:10px;}
+.auth-switch{font-size:13px;color:var(--muted);text-align:center;}
+.auth-switch span{color:var(--accent2);cursor:pointer;font-weight:600;}
+.err{color:#ef4444;font-size:13px;text-align:center;background:#ef444415;padding:10px;border-radius:10px;}
+
+/* HEADER */
+.header{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--bg);border-bottom:1px solid var(--border);position:relative;z-index:20;}
+.header-logo{font-size:24px;}
+.header-info{flex:1;}
+.header-name{font-size:16px;font-weight:700;}
+
+.dots-btn{background:none;border:none;color:var(--text);cursor:pointer;font-size:22px;padding:6px;border-radius:10px;transition:background .2s;}
+.dots-btn:hover{background:var(--surface2);}
+
+/* DROPDOWN MENU */
+.dropdown{position:absolute;top:56px;right:12px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:8px;min-width:200px;z-index:100;box-shadow:0 8px 32px #0008;animation:fadeIn .15s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-8px);}to{opacity:1;transform:translateY(0);}}
+.drop-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;transition:background .15s;}
+.drop-item:hover{background:var(--surface2);}
+.drop-item.danger{color:#ef4444;}
+.drop-divider{height:1px;background:var(--border);margin:4px 0;}
+.drop-user{padding:12px 14px;border-radius:10px;}
+.drop-name{font-size:15px;font-weight:700;}
+.drop-email{font-size:11px;color:var(--muted);margin-top:2px;}
+.premium-tag{background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;margin-top:4px;display:inline-block;}
+
+/* CHAT */
+.chat-area{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:16px;scroll-behavior:smooth;}
+.chat-area::-webkit-scrollbar{width:0;}
+.welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:32px 20px;}
+.welcome-icon{font-size:56px;}
+.welcome h2{font-size:22px;font-weight:700;}
+.welcome p{font-size:13px;color:var(--muted);line-height:1.6;}
+.suggestions{display:flex;flex-direction:column;gap:8px;width:100%;margin-top:8px;}
+.sug{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:11px 14px;font-size:13px;color:var(--text);cursor:pointer;text-align:left;transition:all .2s;font-family:'Inter',sans-serif;}
+.sug:hover{border-color:var(--accent);color:var(--accent2);}
+
+/* MESSAGES */
+.msg-wrap{display:flex;flex-direction:column;gap:4px;animation:slideUp .25s ease;}
+@keyframes slideUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+.msg-row{display:flex;gap:8px;align-items:flex-end;}
+.msg-row.user{flex-direction:row-reverse;}
+.bubble{max-width:80%;padding:12px 16px;font-size:14px;line-height:1.65;word-break:break-word;white-space:pre-wrap;}
+.bubble.user{background:var(--user);color:#fff;border-radius:20px 20px 4px 20px;}
+.bubble.ai{background:var(--ai);color:var(--text);border:1px solid var(--border);border-radius:20px 20px 20px 4px;}
+.msg-time{font-size:10px;color:var(--muted);padding:0 4px;font-variant-numeric:tabular-nums;}
+.msg-time.user{text-align:right;}
+.ai-av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+.typing-bubble{background:var(--ai);border:1px solid var(--border);border-radius:20px 20px 20px 4px;padding:14px 18px;display:flex;gap:5px;width:fit-content;}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:bounce 1.2s infinite;}
+.dot:nth-child(2){animation-delay:.2s;}
+.dot:nth-child(3){animation-delay:.4s;}
+@keyframes bounce{0%,80%,100%{transform:translateY(0);}40%{transform:translateY(-6px);}}
+
+/* INPUT */
+.input-bar{padding:10px 14px;border-top:1px solid var(--border);background:var(--bg);display:flex;gap:10px;align-items:flex-end;}
+.msg-input{flex:1;background:var(--surface);border:1.5px solid var(--border);border-radius:24px;color:var(--text);font-family:'Inter',sans-serif;font-size:14px;padding:12px 18px;outline:none;resize:none;max-height:120px;min-height:48px;transition:border-color .2s;line-height:1.5;}
+.msg-input:focus{border-color:var(--accent);}
+.send{background:linear-gradient(135deg,#f97316,#ea580c);border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:18px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0;}
+.send:hover{transform:scale(1.05);}
+.send:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+.usage-bar{padding:6px 16px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--muted);}
+.usage-pill{background:var(--surface2);border-radius:20px;padding:3px 10px;font-weight:600;}
+
+/* HISTORY PAGE */
+.page{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;}
+.page-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+.page-title{font-size:18px;font-weight:700;}
+.hist-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:all .2s;}
+.hist-card:hover{border-color:var(--accent);}
+.hist-info{flex:1;overflow:hidden;}
+.hist-title{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hist-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+.del-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px 6px;border-radius:8px;transition:all .2s;}
+.del-btn:hover{color:#ef4444;background:#ef444415;}
+
+/* SETTINGS */
+.set-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:4px;}
+.set-row{display:flex;align-items:center;gap:14px;padding:15px 16px;border-bottom:1px solid var(--border);}
+.set-row:last-child{border-bottom:none;}
+.set-icon{font-size:20px;width:28px;text-align:center;}
+.set-text{flex:1;}
+.set-label{font-size:14px;font-weight:600;}
+.set-desc{font-size:12px;color:var(--muted);margin-top:2px;}
+.section-lbl{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:16px 0 6px;}
+
+/* PREMIUM CARD */
+.premium-card{background:linear-gradient(135deg,#f97316,#ea580c);border-radius:16px;padding:18px;margin-bottom:4px;cursor:pointer;}
+.premium-card h3{font-size:18px;font-weight:700;color:#fff;}
+.premium-card p{font-size:13px;color:#fff9;margin-top:4px;}
+.premium-features{display:flex;flex-direction:column;gap:6px;margin-top:12px;}
+.pf{font-size:13px;color:#fff;display:flex;align-items:center;gap:8px;}
+
+/* LIMIT MODAL */
+.modal-bg{position:fixed;inset:0;background:#000a;z-index:200;display:flex;align-items:flex-end;padding:16px;}
+.modal{background:var(--surface);border-radius:24px 24px 16px 16px;padding:28px 24px;width:100%;max-width:480px;margin:0 auto;display:flex;flex-direction:column;gap:14px;}
+.modal h3{font-size:20px;font-weight:700;text-align:center;}
+.modal p{font-size:14px;color:var(--muted);text-align:center;line-height:1.6;}
+.modal-icon{font-size:52px;text-align:center;}
+
+/* ADMIN */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px;}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;}
+.stat-val{font-size:30px;font-weight:800;color:var(--accent);}
+.stat-lbl{font-size:12px;color:var(--muted);margin-top:2px;}
+.user-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;}
+.user-av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#ea580c);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:15px;flex-shrink:0;}
+.user-info{flex:1;}
+.user-name{font-size:14px;font-weight:600;}
+.user-email{font-size:11px;color:var(--muted);}
+.badge{background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;}
+.admin-note{background:#f9731615;border:1px solid var(--accent);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--accent2);margin-bottom:4px;}
+
+/* NEW CHAT BTN */
+.new-chat-btn{background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer;font-size:13px;font-weight:600;padding:8px 14px;display:flex;align-items:center;gap:6px;transition:all .2s;}
+.new-chat-btn:hover{border-color:var(--accent);}
 `;
 
-// ============================================================
-// HELPERS
-// ============================================================
 function fmtTime(iso) {
-  const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 function fmtDate(iso) {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
-// ============================================================
-// MAIN APP
-// ============================================================
+// AI Text renderer — bold, code, lists support
+function AIText({ text }) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  return (
+    <span style={{display:"flex",flexDirection:"column",gap:4}}>
+      {lines.map((line, i) => {
+        if (!line.trim()) return <span key={i} style={{height:6}} />;
+        // Bold: **text**
+        const parts = line.split(/(\*\*[^*]+\*\*)/g).map((p, j) => {
+          if (p.startsWith("**") && p.endsWith("**"))
+            return <strong key={j}>{p.slice(2,-2)}</strong>;
+          // Inline code: `code`
+          const codeParts = p.split(/(`[^`]+`)/g).map((c, k) => {
+            if (c.startsWith("`") && c.endsWith("`"))
+              return <code key={k} style={{background:"#ffffff18",borderRadius:4,padding:"1px 6px",fontFamily:"monospace",fontSize:12}}>{c.slice(1,-1)}</code>;
+            return c;
+          });
+          return <span key={j}>{codeParts}</span>;
+        });
+        // List items
+        if (line.trim().startsWith("- ") || line.trim().startsWith("• "))
+          return <span key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}><span style={{color:"#f97316",marginTop:2}}>•</span><span>{parts}</span></span>;
+        // Numbered list
+        if (/^\d+\.\s/.test(line.trim()))
+          return <span key={i} style={{display:"flex",gap:8}}><span style={{color:"#f97316",minWidth:16}}>{line.match(/^\d+/)[0]}.</span><span>{parts}</span></span>;
+        // Heading: ### 
+        if (line.startsWith("### "))
+          return <strong key={i} style={{fontSize:15,color:"#f97316"}}>{line.slice(4)}</strong>;
+        if (line.startsWith("## "))
+          return <strong key={i} style={{fontSize:16,color:"#f97316"}}>{line.slice(3)}</strong>;
+        return <span key={i}>{parts}</span>;
+      })}
+    </span>
+  );
+}
+
 export default function App() {
-  const [user, setUser] = useState(Auth.getCurrentUser);
+  const [user, setUser] = useState(Auth.getCurrent);
   const [page, setPage] = useState("chat");
   const [authMode, setAuthMode] = useState("login");
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", pass: "" });
   const [formErr, setFormErr] = useState("");
   const [sessionId, setSessionId] = useState(() => Date.now().toString());
-  const [messages, setMessages] = useState([]);
+  const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [histories, setHistories] = useState([]);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showLimit, setShowLimit] = useState(false);
+  const [limitMins, setLimitMins] = useState(0);
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const bottomRef = useRef(null);
 
-  useEffect(() => { if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
-  useEffect(() => { if (user) setHistories(ChatStore.getChats(user.id)); }, [user, page]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, loading]);
+  useEffect(() => { if (user) setHistories(CS.get(user.id)); }, [user, page]);
 
   const isAdmin = user?.email === ADMIN_EMAIL;
+  const allUsers = Auth.getUsers();
+  const totalChats = allUsers.reduce((s, u) => s + CS.get(u.id).length, 0);
 
   function handleAuth() {
     setFormErr("");
-    if (!form.email || !form.password) { setFormErr("Sabhi fields bharo!"); return; }
+    if (!form.email || !form.pass) { setFormErr("Please fill all fields!"); return; }
+    if (authMode === "signup" && !form.name) { setFormErr("Please enter your name!"); return; }
     const res = authMode === "signup"
-      ? Auth.signup(form.name, form.email, form.password)
-      : Auth.login(form.email, form.password);
+      ? Auth.signup(form.name, form.email, form.pass)
+      : Auth.login(form.email, form.pass);
     if (res.error) { setFormErr(res.error); return; }
-    setUser(Auth.getCurrentUser());
-    setForm({ name: "", email: "", password: "" });
+    setUser(Auth.getCurrent());
+    setForm({ name: "", email: "", pass: "" });
   }
 
-  async function sendMessage(text) {
+  async function sendMsg(text) {
     const txt = text || input.trim();
     if (!txt || loading) return;
+    const check = Usage.canChat(user.id, user.premium);
+    if (!check.ok) { setLimitMins(check.mins); setShowLimit(true); return; }
     setInput("");
-    const userMsg = ChatStore.addMessage(user.id, sessionId, "user", txt);
-    const newMsgs = [...messages, { ...userMsg, role: "user" }];
-    setMessages(newMsgs);
+    const uMsg = CS.addMsg(user.id, sessionId, "user", txt);
+    const newMsgs = [...msgs, { ...uMsg, role: "user" }];
+    setMsgs(newMsgs);
     setLoading(true);
+    Usage.increment(user.id);
     try {
-      const aiText = await askGemini(newMsgs.map(m => ({ role: m.role, text: m.text })));
-      const aiMsg = ChatStore.addMessage(user.id, sessionId, "ai", aiText);
-      setMessages(prev => [...prev, { ...aiMsg, role: "ai" }]);
+      const aiText = await askAI(newMsgs);
+      // Typing effect — stream text char by char
+      const tempId = Date.now();
+      setLoading(false);
+      setMsgs(prev => [...prev, { id: tempId, role: "ai", text: "", time: new Date().toISOString() }]);
+      let displayed = "";
+      for (let i = 0; i < aiText.length; i++) {
+        displayed += aiText[i];
+        const snap = displayed;
+        setMsgs(prev => prev.map(m => m.id === tempId ? { ...m, text: snap } : m));
+        await new Promise(r => setTimeout(r, 8));
+      }
+      CS.addMsg(user.id, sessionId, "ai", aiText);
     } catch (e) {
-      const errMsg = ChatStore.addMessage(user.id, sessionId, "ai", "❌ Error: " + e.message);
-      setMessages(prev => [...prev, { ...errMsg, role: "ai" }]);
+      setLoading(false);
+      const eMsg = CS.addMsg(user.id, sessionId, "ai", "❌ Error: " + e.message);
+      setMsgs(prev => [...prev, { ...eMsg, role: "ai" }]);
     }
-    setLoading(false);
-  }
-
-  function loadSession(session) {
-    setSessionId(session.id);
-    setMessages(session.messages);
-    setPage("chat");
+    setHistories(CS.get(user.id));
   }
 
   function newChat() {
     setSessionId(Date.now().toString());
-    setMessages([]);
+    setMsgs([]);
+    setPage("chat");
+    setShowMenu(false);
+  }
+
+  function loadSession(s) {
+    setSessionId(s.id);
+    setMsgs(s.msgs);
     setPage("chat");
   }
 
-  function deleteSession(id) {
-    ChatStore.deleteSession(user.id, id);
-    setHistories(ChatStore.getChats(user.id));
-    if (id === sessionId) newChat();
+  function handleKey(e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); }
   }
 
-  function handleKeyDown(e) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-  }
+  const usage = user ? Usage.get(user.id) : null;
+  const chatsLeft = user && !user.premium ? Math.max(0, FREE_CHAT_LIMIT - (usage?.count || 0)) : null;
 
-  // ---- AUTH SCREEN ----
+  // ── AUTH SCREEN ───────────────────────────────────────────
   if (!user) return (
     <div className="app">
       <style>{css}</style>
-      <div className="auth-wrap">
+      <div className="auth">
         <div className="auth-logo">🪷</div>
         <div className="auth-title">Saraswati AI</div>
-        <div className="auth-sub">Apna intelligent AI assistant — free mein</div>
+        <div className="auth-sub">Intelligent AI — Hindi, English, aur 10+ bhashao mein</div>
         <div className="auth-card">
-          <div style={{ fontSize: 20, fontWeight: 700, textAlign: "center" }}>{authMode === "login" ? "Welcome Back 👋" : "Create Account ✨"}</div>
+          <div className="auth-head">{authMode === "login" ? "Welcome Back 👋" : "Create Account ✨"}</div>
           {authMode === "signup" && (
-            <div className="input-group">
-              <label>Full Name</label>
-              <input className="inp" placeholder="Tumhara naam" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            <div className="inp-wrap">
+              <div className="inp-label">FULL NAME</div>
+              <input className="inp" placeholder="Your name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
           )}
-          <div className="input-group">
-            <label>Email</label>
+          <div className="inp-wrap">
+            <div className="inp-label">EMAIL</div>
             <input className="inp" type="email" placeholder="email@example.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
           </div>
-          <div className="input-group">
-            <label>Password</label>
-            <input className="inp" type="password" placeholder="••••••••" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
+          <div className="inp-wrap">
+            <div className="inp-label">PASSWORD</div>
+            <input className="inp" type="password" placeholder="••••••••" value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
           </div>
-          {formErr && <div className="error-msg">{formErr}</div>}
+          {formErr && <div className="err">{formErr}</div>}
           <button className="btn btn-primary" onClick={handleAuth}>{authMode === "login" ? "Login →" : "Create Account →"}</button>
         </div>
         <div className="auth-switch">
-          {authMode === "login" ? <>Account nahi hai? <span onClick={() => { setAuthMode("signup"); setFormErr(""); }}>Signup karo</span></> : <>Already account hai? <span onClick={() => { setAuthMode("login"); setFormErr(""); }}>Login karo</span></>}
+          {authMode === "login"
+            ? <>Don't have an account? <span onClick={() => { setAuthMode("signup"); setFormErr(""); }}>Sign up</span></>
+            : <>Already have an account? <span onClick={() => { setAuthMode("login"); setFormErr(""); }}>Login</span></>}
         </div>
       </div>
     </div>
   );
 
-  // ---- MAIN APP ----
-  const allUsers = Auth.getUsers();
-  const totalChats = allUsers.reduce((sum, u) => sum + ChatStore.getChats(u.id).length, 0);
-
+  // ── MAIN APP ─────────────────────────────────────────────
   return (
-    <div className="app">
+    <div className="app" onClick={() => showMenu && setShowMenu(false)}>
       <style>{css}</style>
 
       {/* HEADER */}
       <div className="header">
-        {page === "chat" ? (
-          <>
-            <div className="ai-avatar" style={{ width: 36, height: 36, fontSize: 18, marginTop: 0 }}>🪷</div>
-            <div style={{ flex: 1 }}>
-              <div className="header-title">Saraswati AI</div>
-              <div className="header-sub">● Online — Ready</div>
-            </div>
-            <button className="icon-btn" onClick={newChat} title="New Chat">✏️</button>
-          </>
-        ) : (
-          <>
-            <div style={{ flex: 1 }} className="header-title">{page === "history" ? "📂 History" : page === "settings" ? "⚙️ Settings" : "🛡️ Admin"}</div>
-            <div className="avatar">{user.name[0].toUpperCase()}</div>
-          </>
+        <div className="header-logo">🪷</div>
+        <div className="header-info">
+          <div className="header-name">Saraswati AI</div>
+
+        </div>
+        {page === "chat" && (
+          <button className="new-chat-btn" onClick={newChat}>✏️ New</button>
         )}
+        <button className="dots-btn" onClick={e => { e.stopPropagation(); setShowMenu(v => !v); }}>⋯</button>
       </div>
+
+      {/* DROPDOWN MENU */}
+      {showMenu && (
+        <div className="dropdown" onClick={e => e.stopPropagation()}>
+          <div className="drop-user">
+            <div className="drop-name">{user.name}</div>
+            <div className="drop-email">{user.email}</div>
+            {user.premium && <div className="premium-tag">⭐ PREMIUM</div>}
+          </div>
+          <div className="drop-divider" />
+          <div className="drop-item" onClick={() => { setPage("chat"); setShowMenu(false); }}>💬 Chat</div>
+          <div className="drop-item" onClick={() => { setPage("history"); setShowMenu(false); }}>📂 History</div>
+          <div className="drop-item" onClick={() => { setPage("settings"); setShowMenu(false); }}>⚙️ Settings</div>
+          {isAdmin && <div className="drop-item" onClick={() => { setPage("admin"); setShowMenu(false); }}>🛡️ Admin Panel</div>}
+          <div className="drop-divider" />
+          {!user.premium && <div className="drop-item" onClick={() => { setShowUpgrade(true); setShowMenu(false); }}>⭐ Upgrade to Premium</div>}
+          <div className="drop-item danger" onClick={() => { Auth.logout(); setUser(null); setShowMenu(false); }}>🚪 Logout</div>
+        </div>
+      )}
+
+      {/* USAGE BAR */}
+      {page === "chat" && !user.premium && (
+        <div className="usage-bar">
+          <span>Free Plan</span>
+          <span className="usage-pill">{chatsLeft} chats left</span>
+        </div>
+      )}
+      {page === "chat" && user.premium && (
+        <div className="usage-bar">
+          <span>⭐ Premium</span>
+          <span className="usage-pill">Unlimited</span>
+        </div>
+      )}
 
       {/* CHAT PAGE */}
       {page === "chat" && (
         <>
-          <div className="chat-wrap">
-            {messages.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-icon">🪷</div>
-                <h3>Namaste! Kya poochna chahte ho?</h3>
-                <p style={{ fontSize: 13 }}>Main Saraswati AI hoon — Gyan ki devi. Kuch bhi poocho!</p>
-                <div className="suggestions">
-                  {["Mujhe Python sikhao 🐍", "Ek kahani likho 📖", "Mera CV improve karo 📄", "Koi joke sunao 😄"].map(s => (
-                    <button key={s} className="suggestion" onClick={() => sendMessage(s)}>{s}</button>
-                  ))}
-                </div>
+          <div className="chat-area">
+            {msgs.length === 0 ? (
+              <div className="welcome">
+                <div className="welcome-icon">🪷</div>
+                <h2>Saraswati AI</h2>
+                <p style={{color:"var(--muted)",fontSize:14,marginTop:4}}>Hey! I'm Saraswati AI</p>
               </div>
-            ) : messages.map(m => (
-              <div key={m.id} className={`bubble-row ${m.role}`}>
-                {m.role === "ai" && <div className="ai-avatar">🪷</div>}
-                <div>
-                  <div className={`bubble ${m.role}`}>{m.text}</div>
-                  <div className="bubble-time">{fmtTime(m.time)}</div>
+            ) : msgs.map(m => (
+              <div key={m.id} className="msg-wrap">
+                <div className={`msg-row ${m.role}`}>
+                  {m.role === "ai" && <div className="ai-av">🪷</div>}
+                  <div className={`bubble ${m.role}`}>
+                    {m.role === "ai" ? <AIText text={m.text} /> : m.text}
+                  </div>
                 </div>
-                {m.role === "user" && <div className="avatar">{user.name[0].toUpperCase()}</div>}
+                <div className={`msg-time ${m.role}`}>{fmtTime(m.time)}</div>
               </div>
             ))}
             {loading && (
-              <div className="bubble-row">
-                <div className="ai-avatar">🪷</div>
-                <div className="bubble ai"><div className="typing"><div className="dot" /><div className="dot" /><div className="dot" /></div></div>
+              <div className="msg-row">
+                <div className="ai-av">🪷</div>
+                <div className="typing-bubble"><div className="dot"/><div className="dot"/><div className="dot"/></div>
               </div>
             )}
             <div ref={bottomRef} />
           </div>
           <div className="input-bar">
-            <textarea className="msg-inp" placeholder="Kuch bhi poocho..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} rows={1} />
-            <button className="send-btn" onClick={() => sendMessage()} disabled={!input.trim() || loading}>➤</button>
+            <textarea className="msg-input" placeholder="Ask me anything..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey} rows={1} />
+            <button className="send" onClick={() => sendMsg()} disabled={!input.trim() || loading}>➤</button>
           </div>
         </>
       )}
 
       {/* HISTORY PAGE */}
       {page === "history" && (
-        <div className="page-wrap">
-          <div className="page-header">
-            <div className="page-title">Chat History</div>
-            {histories.length > 0 && <button className="btn btn-danger btn-sm" onClick={() => { ChatStore.clearAll(user.id); setHistories([]); newChat(); }}>Clear All</button>}
+        <div className="page">
+          <div className="page-top">
+            <div className="page-title">📂 Chat History</div>
+            {histories.length > 0 && <button className="btn btn-danger btn-sm" onClick={() => { CS.clearAll(user.id); setHistories([]); newChat(); }}>Clear All</button>}
           </div>
           {histories.length === 0 ? (
-            <div className="empty-state" style={{ flex: 1 }}>
-              <div className="empty-icon">📭</div>
-              <h3>Koi history nahi</h3>
-              <p style={{ fontSize: 13 }}>Abhi chat karo aur yahan save hogi!</p>
-            </div>
+            <div className="welcome"><div className="welcome-icon">📭</div><h2>No history yet</h2><p>Start chatting!</p></div>
           ) : histories.map(h => (
-            <div key={h.id} className="history-card" onClick={() => loadSession(h)}>
-              <div style={{ fontSize: 22 }}>💬</div>
-              <div className="history-info">
-                <div className="history-title">{h.title || "Chat"}</div>
-                <div className="history-meta">{h.messages.length} msgs · {fmtDate(h.updatedAt)}</div>
+            <div key={h.id} className="hist-card" onClick={() => loadSession(h)}>
+              <div style={{ fontSize: 20 }}>💬</div>
+              <div className="hist-info">
+                <div className="hist-title">{h.title}</div>
+                <div className="hist-meta">{h.msgs.length} messages · {fmtDate(h.updatedAt)}</div>
               </div>
-              <button className="del-btn" onClick={e => { e.stopPropagation(); deleteSession(h.id); }}>🗑️</button>
+              <button className="del-btn" onClick={e => { e.stopPropagation(); CS.delSession(user.id, h.id); setHistories(CS.get(user.id)); }}>🗑️</button>
             </div>
           ))}
         </div>
@@ -433,64 +526,52 @@ export default function App() {
 
       {/* SETTINGS PAGE */}
       {page === "settings" && (
-        <div className="page-wrap">
-          <div className="premium-banner" onClick={() => alert("🚀 Premium coming soon! Unlimited AI, faster responses, priority support.")}>
-            <div style={{ fontSize: 28 }}>⚡</div>
-            <div className="premium-text">
-              <div className="premium-title">Saraswati AI Premium</div>
-              <div className="premium-sub">Unlimited chats · Priority AI · No ads</div>
-            </div>
-            <div className="badge">UPGRADE</div>
-          </div>
-          <div className="section-title">Account</div>
-          <div className="setting-card">
-            <div className="setting-row">
-              <div className="setting-icon">👤</div>
-              <div className="setting-text">
-                <div className="setting-label">{user.name}</div>
-                <div className="setting-desc">{user.email}</div>
+        <div className="page">
+          {!user.premium && (
+            <div className="premium-card" onClick={() => setShowUpgrade(true)}>
+              <h3>⭐ Upgrade to Premium</h3>
+              <p>Unlimited chats, No Ads, Faster AI</p>
+              <div className="premium-features">
+                <div className="pf">✅ Unlimited Chats</div>
+                <div className="pf">✅ No Ads</div>
+                <div className="pf">✅ Priority AI Response</div>
+                <div className="pf">✅ Premium Badge</div>
               </div>
+            </div>
+          )}
+          <div className="section-lbl">Account</div>
+          <div className="set-card">
+            <div className="set-row">
+              <div style={{width:48,height:48,borderRadius:"50%",background:"linear-gradient(135deg,#f97316,#ea580c)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"#fff",flexShrink:0}}>{user.name?.[0]?.toUpperCase()}</div>
+              <div className="set-text">
+                <div className="set-label">{user.name}</div>
+                <div className="set-desc">{user.email}</div>
+              </div>
+              {user.premium && <div className="badge">PREMIUM</div>}
               {isAdmin && <div className="badge">ADMIN</div>}
             </div>
-            <div className="setting-row">
-              <div className="setting-icon">📊</div>
-              <div className="setting-text">
-                <div className="setting-label">Total Chats</div>
-                <div className="setting-desc">{ChatStore.getChats(user.id).length} conversations saved</div>
+            <div className="set-row">
+              <div className="set-icon">📊</div>
+              <div className="set-text">
+                <div className="set-label">Usage</div>
+                <div className="set-desc">{user.premium ? "Unlimited" : `${chatsLeft} free chats remaining`}</div>
               </div>
             </div>
           </div>
-          <div className="section-title">App</div>
-          <div className="setting-card">
-            <div className="setting-row" style={{ cursor: "pointer" }} onClick={() => { ChatStore.clearAll(user.id); newChat(); alert("History delete ho gai!"); }}>
-              <div className="setting-icon">🗑️</div>
-              <div className="setting-text">
-                <div className="setting-label">Delete All History</div>
-                <div className="setting-desc">Saari chats permanently delete</div>
+          <div className="section-lbl">Data</div>
+          <div className="set-card">
+            <div className="set-row" style={{ cursor: "pointer" }} onClick={() => { CS.clearAll(user.id); setHistories([]); newChat(); alert("History deleted!"); }}>
+              <div className="set-icon">🗑️</div>
+              <div className="set-text">
+                <div className="set-label">Delete All History</div>
+                <div className="set-desc">Permanently delete all chats</div>
               </div>
             </div>
-            <div className="setting-row" style={{ cursor: "pointer" }} onClick={() => { Auth.logout(); setUser(null); }}>
-              <div className="setting-icon">🚪</div>
-              <div className="setting-text">
-                <div className="setting-label" style={{ color: "var(--danger)" }}>Logout</div>
-                <div className="setting-desc">Account se bahar jao</div>
-              </div>
-            </div>
-          </div>
-          <div className="section-title">Monetization</div>
-          <div className="setting-card">
-            <div className="setting-row">
-              <div className="setting-icon">💰</div>
-              <div className="setting-text">
-                <div className="setting-label">Ads by Google AdSense</div>
-                <div className="setting-desc">Apna AdSense ID yahan add karo (code mein)</div>
-              </div>
-            </div>
-            <div className="setting-row">
-              <div className="setting-icon">🌟</div>
-              <div className="setting-text">
-                <div className="setting-label">Premium Subscription</div>
-                <div className="setting-desc">Razorpay/PayPal se integrate karo</div>
+            <div className="set-row" style={{ cursor: "pointer" }} onClick={() => { Auth.logout(); setUser(null); }}>
+              <div className="set-icon">🚪</div>
+              <div className="set-text">
+                <div className="set-label" style={{ color: "#ef4444" }}>Logout</div>
+                <div className="set-desc">Logout</div>
               </div>
             </div>
           </div>
@@ -499,48 +580,67 @@ export default function App() {
 
       {/* ADMIN PAGE */}
       {page === "admin" && isAdmin && (
-        <div className="page-wrap">
-          <div style={{ background: "linear-gradient(135deg,#f59e0b22,#ef444422)", border: "1px solid var(--accent)", borderRadius: 12, padding: "14px 16px", marginBottom: 8, fontSize: 13, color: "#fbbf24" }}>
-            🛡️ Secret Admin Panel — Sirf tum dekh sakte ho
-          </div>
-          <div className="section-title">Platform Stats</div>
+        <div className="page">
+          <div className="admin-note">🛡️ Secret Admin Panel — Sirf tumhare liye</div>
           <div className="stat-grid">
-            <div className="stat-card"><div className="stat-val">{allUsers.length}</div><div className="stat-label">Total Users</div></div>
-            <div className="stat-card"><div className="stat-val">{totalChats}</div><div className="stat-label">Total Chats</div></div>
-            <div className="stat-card"><div className="stat-val">₹0</div><div className="stat-label">Revenue</div></div>
-            <div className="stat-card"><div className="stat-val">{allUsers.length}</div><div className="stat-label">Active</div></div>
+            <div className="stat-card"><div className="stat-val">{allUsers.length}</div><div className="stat-lbl">Total Users</div></div>
+            <div className="stat-card"><div className="stat-val">{totalChats}</div><div className="stat-lbl">Total Chats</div></div>
+            <div className="stat-card"><div className="stat-val">{allUsers.filter(u => u.premium).length}</div><div className="stat-lbl">Premium Users</div></div>
+            <div className="stat-card"><div className="stat-val">₹{allUsers.filter(u => u.premium).length * 99}</div><div className="stat-lbl">Revenue</div></div>
           </div>
-          <div className="section-title">All Users ({allUsers.length})</div>
+          <div className="section-lbl">All Users</div>
           {allUsers.map(u => (
-            <div key={u.id} className="user-row">
-              <div className="avatar" style={{ width: 32, height: 32, fontSize: 13 }}>{u.name[0]?.toUpperCase()}</div>
+            <div key={u.id} className="user-card">
+              <div className="user-av">{u.name?.[0]?.toUpperCase()}</div>
               <div className="user-info">
-                <div style={{ fontSize: 14, fontWeight: 600 }}>{u.name}</div>
+                <div className="user-name">{u.name}</div>
                 <div className="user-email">{u.email}</div>
-                <div className="user-email">{ChatStore.getChats(u.id).length} chats · Joined {fmtDate(u.createdAt)}</div>
+                <div className="user-email">{CS.get(u.id).length} chats</div>
               </div>
+              {u.premium && <div className="badge">PREMIUM</div>}
               {u.email === ADMIN_EMAIL && <div className="badge">ADMIN</div>}
             </div>
           ))}
         </div>
       )}
 
-      {/* BOTTOM NAV */}
-      <div className="bottom-nav">
-        {[
-          { id: "chat", icon: "💬", label: "Chat" },
-          { id: "history", icon: "📂", label: "History" },
-          { id: "settings", icon: "⚙️", label: "Settings" },
-          ...(isAdmin ? [{ id: "admin", icon: "🛡️", label: "Admin" }] : []),
-        ].map(n => (
-          <button key={n.id} className={`nav-item ${page === n.id ? "active" : ""}`} onClick={() => setPage(n.id)}>
-            <span className="nav-icon">{n.icon}</span>
-            {n.label}
-          </button>
-        ))}
-      </div>
+      {/* LIMIT MODAL */}
+      {showLimit && (
+        <div className="modal-bg" onClick={() => setShowLimit(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-icon">⏳</div>
+            <h3>Free Limit Reached!</h3>
+            <p>Tumne {FREE_CHAT_LIMIT} free chats use kar li hain।<br />{limitMins > 0 ? `${limitMins} minutes remaining!` : `${COOLDOWN_HOURS} hours cooldown remaining!`}</p>
+            <button className="btn btn-primary" onClick={() => { setShowLimit(false); setShowUpgrade(true); }}>⭐ Premium Lo — ₹99/month</button>
+            <button className="btn btn-secondary" onClick={() => setShowLimit(false)}>Maybe later</button>
+          </div>
+        </div>
+      )}
+
+      {/* UPGRADE MODAL */}
+      {showUpgrade && (
+        <div className="modal-bg" onClick={() => setShowUpgrade(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-icon">⭐</div>
+            <h3>Saraswati AI Premium</h3>
+            <p>Sirf ₹99/month mein unlimited access!</p>
+            <div style={{ background: "var(--surface2)", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 8, margin: "4px 0" }}>
+              <div className="pf" style={{ color: "var(--text)" }}>✅ Unlimited Chats</div>
+              <div className="pf" style={{ color: "var(--text)" }}>✅ No Ads</div>
+              <div className="pf" style={{ color: "var(--text)" }}>✅ Faster AI Response</div>
+              <div className="pf" style={{ color: "var(--text)" }}>✅ Premium Badge</div>
+              <div className="pf" style={{ color: "var(--text)" }}>✅ Priority Support</div>
+            </div>
+            <button className="btn btn-primary" onClick={() => {
+              Auth.upgradePremium(user.id);
+              setUser(Auth.getCurrent());
+              setShowUpgrade(false);
+              alert("🎉 Welcome to Premium! Enjoy unlimited chats!");
+            }}>🚀 Upgrade Now — ₹99/month</button>
+            <button className="btn btn-secondary" onClick={() => setShowUpgrade(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-              
