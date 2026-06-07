@@ -20,7 +20,7 @@ const GROQ_API_KEY = "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";
 const TAVILY_API_KEY = "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";
 const ADMIN_EMAIL = "kunalsaraswat691@gmail.com";
 const PHONEPAY_NUMBER = "8126630980";
-const FREE_CHAT_LIMIT = 49;
+const FREE_CHAT_LIMIT = 99;
 
 async function webSearch(query) {
   try {
@@ -41,58 +41,59 @@ function needsWebSearch(text) {
 }
 
 function isOwnerQuestion(text) {
-  const keywords = ["kisne banaya","kisne banaया","who made","who created","who built","owner","creator","master","malik","tumhara owner","tumhara creator","tumhe kisne","aapko kisne","kaun hai tumhara","tumhari company","made by","created by","developed by","kaise banaya","how were you made","how were you built","kaisa banaya","private hai"];
+  const keywords = ["kisne banaya","who made","who created","owner","creator","master","malik","tumhara owner","tumhara creator","tumhara master","aapka owner","aapka creator","banaya tumhe","tumhe kisne","kaun hai tera","tera malik","tera creator","apna owner","tumhari company","किसने बनाया","मालिक","क्रिएटर","ओनर"];
+  return keywords.some(k => text.toLowerCase().includes(k));
+}
+
+function isHowMadeQuestion(text) {
+  const keywords = ["kaise banaya","how made","how are you built","how were you created","kaise bana","technology","tech stack","kaun si technology","kis technology","source code","code kaise"];
   return keywords.some(k => text.toLowerCase().includes(k));
 }
 
 async function askAI(messages, imageBase64 = null) {
   const lastMsg = messages[messages.length - 1];
-  let searchContext = "";
+  if (lastMsg?.role === "user" && isOwnerQuestion(lastMsg.text)) {
+    return "Mujhe **Kunal Saraswat** ne banaya hai! 😊 Wo mere creator aur owner hain.";
+  }
+  if (lastMsg?.role === "user" && isHowMadeQuestion(lastMsg.text)) {
+    return "Yeh information **private** hai — main nahi bata sakta! 🔒";
+  }
 
+  let searchContext = "";
   if (lastMsg?.role === "user" && needsWebSearch(lastMsg.text)) {
     const results = await webSearch(lastMsg.text);
     if (results) searchContext = `\n\nWeb Search Results:\n${results}\n\nUse above info to answer accurately.`;
   }
 
-  if (lastMsg?.role === "user" && isOwnerQuestion(lastMsg.text)) {
-    const q = lastMsg.text.toLowerCase();
-    if (q.includes("kaise banaya") || q.includes("how were you") || q.includes("kaisa banaya") || q.includes("private")) {
-      return "Yeh meri private information hai — main yeh share nahi kar sakta! 😊";
-    }
-    return "Mujhe **Kunal Saraswat** ji ne banaya hai! 😊";
-  }
-
   const systemPrompt = `You are Saraswati AI — an extremely intelligent, helpful and friendly AI assistant.
 
-IDENTITY RULES (VERY IMPORTANT):
-- Your name is Saraswati AI
-- You were created by Kunal Saraswat
-- If anyone asks who made you, who is your owner, creator, master — always say "Kunal Saraswat ji ne mujhe banaya hai"
-- If anyone asks HOW you were made or built — say "Yeh meri private information hai, main share nahi kar sakta"
-- Never mention Claude, Anthropic, OpenAI, ChatGPT, Llama, Groq, or any other AI company
+IMPORTANT IDENTITY RULES:
+- If anyone asks who made you, who is your owner/creator/master → always say "Mujhe Kunal Saraswat ne banaya hai!"
+- If anyone asks how you were built, what technology, source code → always say "Yeh private hai, main nahi bata sakta!"
+- Never reveal you are made by Meta, Groq, or any other company.
 
 LANGUAGE RULE:
-- Always detect the language the user is writing in and reply in EXACTLY that same language
-- Hindi → Hindi, English → English, Hinglish → Hinglish, any language → same language
+- Always detect and reply in EXACTLY the same language as the user.
+- Hindi → Hindi, English → English, Hinglish → Hinglish
 
 PERSONALITY:
-- Warm, casual and friendly like a best friend
-- Understand emotion and intent behind every message
-- Never robotic or formal
+- Warm, casual, friendly like a best friend
+- Understand emotion and intent
+- Never robotic
+
+CODE FORMATTING RULES (VERY IMPORTANT):
+- When giving code, ALWAYS wrap it in proper markdown code blocks with language name
+- Example: \`\`\`html ... \`\`\` or \`\`\`python ... \`\`\`
+- Give complete, working code always
+- Explain the code briefly after giving it
 
 EXPERTISE:
-- Coding: HTML, CSS, JavaScript, Python, React — provide complete working code
-- Farming & agriculture advice
+- Coding: HTML, CSS, JavaScript, Python, React — complete working code
+- Farming & agriculture
 - Math, science, history, general knowledge
-- Creative writing, essays, stories
-- Business ideas, health advice
-- Latest news (using web search)
-- Image analysis
-
-REPLY STYLE:
-- Clear formatting with bullet points when needed
-- Never poetic or shayari style
-- Concise but thorough${searchContext}`;
+- Creative writing, business ideas, health
+- Latest news (web search)
+- Image analysis${searchContext}`;
 
   const lastUserContent = imageBase64
     ? [{ type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }, { type: "text", text: lastMsg.text }]
@@ -114,35 +115,73 @@ REPLY STYLE:
   return data.choices?.[0]?.message?.content || "No response.";
 }
 
-function validatePassword(pass) {
-  if (pass.length !== 8) return "Password bilkul 8 digit ka hona chahiye!";
-  if (!/^[a-zA-Z0-9]+$/.test(pass)) return "Password mein sirf letters aur numbers allowed hain!";
-  return null;
+// ── CODE BLOCK RENDERER ──────────────────────────────────────
+function CodeBlock({ code, lang }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard?.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <div style={{background:"#0d0d0d",border:"1px solid #333",borderRadius:10,margin:"6px 0",overflow:"hidden"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 12px",background:"#1a1a1a",borderBottom:"1px solid #333"}}>
+        <span style={{fontSize:11,color:"#6b7280",fontFamily:"monospace"}}>{lang || "code"}</span>
+        <button onClick={copy} style={{background:"none",border:"none",color:copied?"#22c55e":"#6b7280",cursor:"pointer",fontSize:11,padding:"2px 6px"}}>
+          {copied ? "✓ Copied" : "Copy"}
+        </button>
+      </div>
+      <pre style={{padding:"12px",margin:0,overflowX:"auto",fontSize:12,lineHeight:1.6,color:"#e5e7eb",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+        {code}
+      </pre>
+    </div>
+  );
 }
 
+// ── AI TEXT RENDERER ──────────────────────────────────────────
 function AIText({ text }) {
   if (!text) return null;
-  const lines = text.split("\n");
+
+  // Parse code blocks first
+  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", content: text.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: "code", lang: match[1], content: match[2].trim() });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: "text", content: text.slice(lastIndex) });
+  }
+
   return (
     <span style={{display:"flex",flexDirection:"column",gap:4}}>
-      {lines.map((line, i) => {
-        if (!line.trim()) return <span key={i} style={{height:6}} />;
-        const parts = line.split(/(\*\*[^*]+\*\*)/g).map((p, j) => {
-          if (p.startsWith("**") && p.endsWith("**")) return <strong key={j}>{p.slice(2,-2)}</strong>;
-          const codeParts = p.split(/(`[^`]+`)/g).map((c, k) => {
-            if (c.startsWith("`") && c.endsWith("`"))
-              return <code key={k} style={{background:"#ffffff18",borderRadius:4,padding:"1px 6px",fontFamily:"monospace",fontSize:12}}>{c.slice(1,-1)}</code>;
-            return c;
+      {parts.map((part, idx) => {
+        if (part.type === "code") {
+          return <CodeBlock key={idx} code={part.content} lang={part.lang} />;
+        }
+        const lines = part.content.split("\n");
+        return lines.map((line, i) => {
+          if (!line.trim()) return <span key={`${idx}-${i}`} style={{height:6}} />;
+          const segments = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((s, j) => {
+            if (s.startsWith("**") && s.endsWith("**")) return <strong key={j}>{s.slice(2,-2)}</strong>;
+            if (s.startsWith("`") && s.endsWith("`")) return <code key={j} style={{background:"#ffffff18",borderRadius:4,padding:"1px 6px",fontFamily:"monospace",fontSize:12}}>{s.slice(1,-1)}</code>;
+            return s;
           });
-          return <span key={j}>{codeParts}</span>;
+          if (line.trim().startsWith("- ") || line.trim().startsWith("• "))
+            return <span key={`${idx}-${i}`} style={{display:"flex",gap:8,alignItems:"flex-start"}}><span style={{color:"#f97316",marginTop:2}}>•</span><span>{segments}</span></span>;
+          if (/^\d+\.\s/.test(line.trim()))
+            return <span key={`${idx}-${i}`} style={{display:"flex",gap:8}}><span style={{color:"#f97316",minWidth:16}}>{line.match(/^\d+/)[0]}.</span><span>{segments}</span></span>;
+          if (line.startsWith("### ")) return <strong key={`${idx}-${i}`} style={{fontSize:15,color:"#f97316"}}>{line.slice(4)}</strong>;
+          if (line.startsWith("## ")) return <strong key={`${idx}-${i}`} style={{fontSize:16,color:"#f97316"}}>{line.slice(3)}</strong>;
+          if (line.startsWith("# ")) return <strong key={`${idx}-${i}`} style={{fontSize:17,color:"#f97316"}}>{line.slice(2)}</strong>;
+          return <span key={`${idx}-${i}`}>{segments}</span>;
         });
-        if (line.trim().startsWith("- ") || line.trim().startsWith("• "))
-          return <span key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}><span style={{color:"#f97316",marginTop:2}}>•</span><span>{parts}</span></span>;
-        if (/^\d+\.\s/.test(line.trim()))
-          return <span key={i} style={{display:"flex",gap:8}}><span style={{color:"#f97316",minWidth:16}}>{line.match(/^\d+/)[0]}.</span><span>{parts}</span></span>;
-        if (line.startsWith("### ")) return <strong key={i} style={{fontSize:15,color:"#f97316"}}>{line.slice(4)}</strong>;
-        if (line.startsWith("## ")) return <strong key={i} style={{fontSize:16,color:"#f97316"}}>{line.slice(3)}</strong>;
-        return <span key={i}>{parts}</span>;
       })}
     </span>
   );
@@ -161,7 +200,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .inp-wrap{display:flex;flex-direction:column;gap:5px;}.inp-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.05em;}
 .inp{background:#111;border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;padding:13px 14px;outline:none;width:100%;transition:border-color .2s;}
 .inp:focus{border-color:var(--accent);}
-.pass-hint{font-size:11px;color:var(--muted);margin-top:2px;}
+.inp-hint{font-size:11px;color:var(--muted);}
 .btn{border:none;border-radius:12px;cursor:pointer;font-family:'Inter',sans-serif;font-size:15px;font-weight:600;padding:14px;transition:all .2s;width:100%;}
 .btn-primary{background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;}.btn-primary:hover{opacity:.9;}.btn-primary:disabled{opacity:.6;cursor:not-allowed;}
 .btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border);}
@@ -187,7 +226,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .msg-wrap{display:flex;flex-direction:column;gap:4px;animation:slideUp .25s ease;}
 @keyframes slideUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
 .msg-row{display:flex;gap:8px;align-items:flex-end;}.msg-row.user{flex-direction:row-reverse;}
-.bubble{max-width:80%;padding:12px 16px;font-size:14px;line-height:1.65;word-break:break-word;white-space:pre-wrap;}
+.bubble{max-width:82%;padding:12px 16px;font-size:14px;line-height:1.65;word-break:break-word;}
 .bubble.user{background:#f97316;color:#fff;border-radius:20px 20px 4px 20px;}
 .bubble.ai{background:#1e1e1e;color:var(--text);border:1px solid var(--border);border-radius:20px 20px 20px 4px;}
 .msg-time{font-size:10px;color:var(--muted);padding:0 4px;}.msg-time.user{text-align:right;}
@@ -201,7 +240,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .msg-input:focus{border-color:var(--accent);}
 .send{background:linear-gradient(135deg,#f97316,#ea580c);border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:18px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .send:disabled{opacity:.4;cursor:not-allowed;}
-.cam-btn{background:var(--surface2);border:1.5px solid var(--border);border-radius:50%;color:var(--text);cursor:pointer;font-size:20px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.plus-btn{background:var(--surface2);border:1.5px solid var(--border);border-radius:50%;color:var(--text);cursor:pointer;font-size:22px;font-weight:300;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .img-preview{position:relative;display:inline-block;margin-bottom:8px;}
 .img-preview img{width:80px;height:80px;object-fit:cover;border-radius:12px;border:2px solid var(--accent);}
 .img-preview-remove{position:absolute;top:-6px;right:-6px;background:#ef4444;border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:12px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;}
@@ -272,7 +311,7 @@ export default function App() {
   const [imagePreview, setImagePreview] = useState(null);
   const [paymentDone, setPaymentDone] = useState(false);
   const bottomRef = useRef(null);
-  const cameraRef = useRef(null);
+  const galleryRef = useRef(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -294,9 +333,11 @@ export default function App() {
   }, [user, page]);
 
   async function loadHistories() {
-    const q = query(collection(db, "chats"), where("userId", "==", user.uid), orderBy("updatedAt", "desc"));
-    const snap = await getDocs(q);
-    setHistories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    try {
+      const q = query(collection(db, "chats"), where("userId", "==", user.uid), orderBy("updatedAt", "desc"));
+      const snap = await getDocs(q);
+      setHistories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch(e) { console.error("History error:", e); }
   }
 
   async function loadAdminUsers() {
@@ -307,11 +348,8 @@ export default function App() {
   async function handleAuth() {
     setFormErr("");
     if (!form.email || !form.pass) { setFormErr("Please fill all fields!"); return; }
+    if (form.pass.length < 8) { setFormErr("Password kam se kam 8 characters ka hona chahiye!"); return; }
     if (authMode === "signup" && !form.name) { setFormErr("Please enter your name!"); return; }
-    if (authMode === "signup") {
-      const passErr = validatePassword(form.pass);
-      if (passErr) { setFormErr(passErr); return; }
-    }
     setFormLoading(true);
     try {
       if (authMode === "signup") {
@@ -342,7 +380,7 @@ export default function App() {
     setFormLoading(false);
   }
 
-  function handleCameraCapture(e) {
+  function handleGallerySelect(e) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -401,14 +439,25 @@ export default function App() {
   }
 
   async function loadSession(session) {
-    setSessionId(session.id);
-    const q = query(collection(db, "messages"), where("sessionId", "==", session.id), orderBy("createdAt", "asc"));
-    const snap = await getDocs(q);
-    setMsgs(snap.docs.map(d => ({ id: d.id, ...d.data(), time: d.data().createdAt })));
-    setPage("chat");
+    try {
+      setSessionId(session.id);
+      const q = query(
+        collection(db, "messages"),
+        where("sessionId", "==", session.id),
+        orderBy("createdAt", "asc")
+      );
+      const snap = await getDocs(q);
+      const loadedMsgs = snap.docs.map(d => ({ id: d.id, ...d.data(), time: d.data().createdAt }));
+      setMsgs(loadedMsgs);
+      setPage("chat");
+    } catch(e) {
+      console.error("Load session error:", e);
+      setPage("chat");
+    }
   }
 
-  async function deleteSession(sid) {
+  async function deleteSession(sid, e) {
+    e.stopPropagation();
     await deleteDoc(doc(db, "chats", sid));
     setHistories(prev => prev.filter(h => h.id !== sid));
   }
@@ -458,8 +507,8 @@ export default function App() {
           </div>
           <div className="inp-wrap">
             <div className="inp-label">PASSWORD</div>
-            <input className="inp" type="password" placeholder="8 digit password" maxLength={8} value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
-            {authMode === "signup" && <div className="pass-hint">⚠️ Password bilkul 8 digit ka hona chahiye (letters + numbers)</div>}
+            <input className="inp" type="password" placeholder="Kam se kam 8 characters" value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
+            <div className="inp-hint">⚠️ Password kam se kam 8 characters ka hona chahiye</div>
           </div>
           {formErr && <div className="err">{formErr}</div>}
           <button className="btn btn-primary" onClick={handleAuth} disabled={formLoading}>
@@ -525,7 +574,7 @@ export default function App() {
                 <div className={`msg-row ${m.role}`}>
                   {m.role === "ai" && <div className="ai-av">🪷</div>}
                   <div className={`bubble ${m.role}`}>
-                    {m.image && <img src={m.image} className="msg-image" alt="captured" />}
+                    {m.image && <img src={m.image} className="msg-image" alt="img" />}
                     {m.role === "ai" ? <AIText text={m.text} /> : m.text}
                   </div>
                 </div>
@@ -547,7 +596,7 @@ export default function App() {
             <div ref={bottomRef} />
           </div>
           <div className="input-bar">
-            <input type="file" ref={cameraRef} accept="image/*" capture="environment" style={{display:"none"}} onChange={handleCameraCapture} />
+            <input type="file" ref={galleryRef} accept="image/*" style={{display:"none"}} onChange={handleGallerySelect} />
             <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
               {imagePreview && (
                 <div className="img-preview">
@@ -556,7 +605,7 @@ export default function App() {
                 </div>
               )}
               <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-                <button className="cam-btn" onClick={() => cameraRef.current.click()}>📷</button>
+                <button className="plus-btn" onClick={() => galleryRef.current.click()}>+</button>
                 <textarea className="msg-input" placeholder="Kuch bhi poochho..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey} rows={1} />
                 <button className="send" onClick={() => sendMsg()} disabled={(!input.trim() && !imageBase64) || loading}>➤</button>
               </div>
@@ -577,7 +626,7 @@ export default function App() {
                   <div className="hist-title">{h.title}</div>
                   <div className="hist-meta">{fmtDate(h.updatedAt)}</div>
                 </div>
-                <button className="del-btn" onClick={e => { e.stopPropagation(); deleteSession(h.id); }}>🗑️</button>
+                <button className="del-btn" onClick={(e) => deleteSession(h.id, e)}>🗑️</button>
               </div>
             ))}
         </div>
@@ -588,10 +637,10 @@ export default function App() {
           {!userData?.premium && (
             <div className="premium-card" onClick={() => setShowUpgrade(true)}>
               <h3>⭐ Upgrade to Premium</h3>
-              <p>Sirf ₹99/month — Unlimited access!</p>
+              <p>Unlimited chats, Web Search, Image AI</p>
               <div className="pf">✅ Unlimited Chats</div>
               <div className="pf">✅ Web Search</div>
-              <div className="pf">✅ Camera AI</div>
+              <div className="pf">✅ Image AI</div>
               <div className="pf">✅ Premium Badge</div>
             </div>
           )}
@@ -615,6 +664,9 @@ export default function App() {
                 <div className="set-desc">{userData?.premium ? "Unlimited" : `${chatsLeft} free chats remaining`}</div>
               </div>
             </div>
+          </div>
+          <div className="section-lbl">Data</div>
+          <div className="set-card">
             <div className="set-row" onClick={() => signOut(auth)}>
               <div className="set-icon">🚪</div>
               <div className="set-text">
@@ -647,14 +699,8 @@ export default function App() {
                 <div style={{fontSize:11,color:"var(--muted)"}}>{u.usageCount||0} chats used</div>
               </div>
               {u.premium && <div className="badge">PREMIUM</div>}
-              {u.premiumPending && !u.premium && <div className="badge" style={{background:"#3b82f6"}}>PENDING</div>}
+              {u.premiumPending && !u.premium && <div className="badge" style={{background:"#eab308"}}>PENDING</div>}
               {u.email === ADMIN_EMAIL && <div className="badge">ADMIN</div>}
-              {u.premiumPending && !u.premium && (
-                <button style={{background:"#22c55e",border:"none",borderRadius:8,color:"#fff",padding:"4px 8px",fontSize:11,cursor:"pointer"}} onClick={async () => {
-                  await setDoc(doc(db, "users", u.id), { premium: true, premiumPending: false }, { merge: true });
-                  loadAdminUsers();
-                }}>Activate</button>
-              )}
             </div>
           ))}
         </div>
@@ -665,7 +711,7 @@ export default function App() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-icon">⏳</div>
             <h3>Free Limit Reached!</h3>
-            <p>You've used all {FREE_CHAT_LIMIT} free chats.<br/>Upgrade to Premium for unlimited access!</p>
+            <p>Upgrade to Premium for unlimited access!</p>
             <button className="btn btn-primary" onClick={() => { setShowLimit(false); setShowUpgrade(true); }}>⭐ Upgrade — ₹99/month</button>
             <button className="btn btn-secondary" onClick={() => setShowLimit(false)}>Maybe later</button>
           </div>
@@ -681,21 +727,15 @@ export default function App() {
             <div className="payment-box">
               <div style={{fontSize:13,fontWeight:700,color:"var(--accent)",textAlign:"center"}}>📱 PhonePe / UPI se Pay Karo</div>
               <div className="payment-number">{PHONEPAY_NUMBER}</div>
-              <div className="payment-step">1️⃣ <span>PhonePe/GPay/Paytm mein <strong>₹99</strong> bhejo is number pe</span></div>
+              <div className="payment-step">1️⃣ <span>PhonePe/GPay/Paytm mein <strong>₹99</strong> bhejo</span></div>
               <div className="payment-step">2️⃣ <span>Screenshot ya UTR number note karo</span></div>
               <div className="payment-step">3️⃣ <span>Neeche "Payment Done" dabao</span></div>
-            </div>
-            <div style={{background:"var(--surface2)",borderRadius:12,padding:"12px 14px",display:"flex",flexDirection:"column",gap:6}}>
-              <div style={{fontSize:13,display:"flex",gap:8}}>✅ <span>Unlimited Chats</span></div>
-              <div style={{fontSize:13,display:"flex",gap:8}}>✅ <span>Web Search</span></div>
-              <div style={{fontSize:13,display:"flex",gap:8}}>✅ <span>Camera AI</span></div>
-              <div style={{fontSize:13,display:"flex",gap:8}}>✅ <span>Premium Badge</span></div>
             </div>
             {!paymentDone ? (
               <button className="btn btn-primary" onClick={() => setPaymentDone(true)}>✅ Payment Done — Activate Karo</button>
             ) : (
               <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                <div style={{fontSize:13,color:"var(--muted)",textAlign:"center"}}>Admin 24 hours mein verify karke activate karega</div>
+                <div style={{fontSize:13,color:"var(--muted)",textAlign:"center"}}>Admin 24 hours mein activate karega</div>
                 <button className="btn btn-primary" onClick={async () => {
                   await setDoc(doc(db, "users", user.uid), { premiumPending: true, premiumRequestedAt: serverTimestamp() }, { merge: true });
                   setUserData(prev => ({ ...prev, premiumPending: true }));
@@ -712,4 +752,3 @@ export default function App() {
     </div>
   );
 }
-
