@@ -20,7 +20,7 @@ const GROQ_API_KEY = "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";
 const TAVILY_API_KEY = "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";
 const ADMIN_EMAIL = "kunalsaraswat691@gmail.com";
 const PHONEPAY_NUMBER = "8126630980";
-const FREE_CHAplaceholde 99;
+const FREE_CHAT_LIMIT = 49;
 
 async function webSearch(query) {
   try {
@@ -59,7 +59,7 @@ async function askAI(messages, imageBase64 = null) {
     if (q.includes("kaise banaya") || q.includes("how were you") || q.includes("kaisa banaya") || q.includes("private")) {
       return "Yeh meri private information hai — main yeh share nahi kar sakta! 😊";
     }
-    return "Mujhe **Kunal Saraswat** G ne banaya hai! 😊";
+    return "Mujhe **Kunal Saraswat** ji ne banaya hai! 😊";
   }
 
   const systemPrompt = `You are Saraswati AI — an extremely intelligent, helpful and friendly AI assistant.
