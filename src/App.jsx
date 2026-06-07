@@ -20,7 +20,7 @@ const GROQ_API_KEY = "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";
 const TAVILY_API_KEY = "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";
 const ADMIN_EMAIL = "kunalsaraswat691@gmail.com";
 const PHONEPAY_NUMBER = "8126630980";
-const FREE_CHAT_LIMIT = 99;
+const FREE_CHAT_LIMIT = 49;
 
 async function webSearch(query) {
   try {
@@ -142,7 +142,6 @@ function CodeBlock({ code, lang }) {
 function AIText({ text }) {
   if (!text) return null;
 
-  // Parse code blocks first
   const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
   const parts = [];
   let lastIndex = 0;
@@ -275,6 +274,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .payment-box{background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;}
 .payment-number{font-size:22px;font-weight:800;color:var(--accent);text-align:center;letter-spacing:2px;}
 .payment-step{font-size:13px;color:var(--text);display:flex;gap:8px;align-items:flex-start;}
+.loading-hist{text-align:center;color:var(--muted);padding:20px;font-size:14px;}
 `;
 
 function fmtTime(ts) {
@@ -302,6 +302,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [histories, setHistories] = useState([]);
+  const [histLoading, setHistLoading] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showLimit, setShowLimit] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
@@ -333,11 +334,30 @@ export default function App() {
   }, [user, page]);
 
   async function loadHistories() {
+    setHistLoading(true);
     try {
-      const q = query(collection(db, "chats"), where("userId", "==", user.uid), orderBy("updatedAt", "desc"));
+      const q = query(
+        collection(db, "chats"),
+        where("userId", "==", user.uid),
+        orderBy("updatedAt", "desc")
+      );
       const snap = await getDocs(q);
       setHistories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch(e) { console.error("History error:", e); }
+    } catch(e) {
+      console.error("History error:", e);
+      // Fallback: try without orderBy
+      try {
+        const q2 = query(collection(db, "chats"), where("userId", "==", user.uid));
+        const snap2 = await getDocs(q2);
+        const sorted = snap2.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+        setHistories(sorted);
+      } catch(e2) {
+        console.error("Fallback history error:", e2);
+      }
+    }
+    setHistLoading(false);
   }
 
   async function loadAdminUsers() {
@@ -438,21 +458,33 @@ export default function App() {
     }
   }
 
+  // ✅ FIXED loadSession — no orderBy, client-side sort
   async function loadSession(session) {
     try {
+      setPage("chat");
       setSessionId(session.id);
+      setMsgs([]);
+
       const q = query(
         collection(db, "messages"),
-        where("sessionId", "==", session.id),
-        orderBy("createdAt", "asc")
+        where("sessionId", "==", session.id)
       );
+
       const snap = await getDocs(q);
-      const loadedMsgs = snap.docs.map(d => ({ id: d.id, ...d.data(), time: d.data().createdAt }));
+
+      const loadedMsgs = snap.docs
+        .map(d => ({ id: d.id, ...d.data(), time: d.data().createdAt }))
+        .sort((a, b) => {
+          const aTime = a.createdAt?.seconds || 0;
+          const bTime = b.createdAt?.seconds || 0;
+          return aTime - bTime;
+        });
+
       setMsgs(loadedMsgs);
-      setPage("chat");
     } catch(e) {
       console.error("Load session error:", e);
       setPage("chat");
+      alert("❌ Chat load nahi hui: " + e.message);
     }
   }
 
@@ -567,6 +599,7 @@ export default function App() {
               <div className="welcome">
                 <div className="welcome-icon">🪷</div>
                 <h2>Saraswati AI</h2>
+                <p style={{color:"var(--muted)",fontSize:14}}>Kuch bhi poochho, main hoon na! 😊</p>
               </div>
             )}
             {msgs.map(m => (
@@ -617,18 +650,21 @@ export default function App() {
       {page === "history" && (
         <div className="page">
           <div className="page-top"><div className="page-title">📂 History</div></div>
-          {histories.length === 0
-            ? <div className="welcome"><div className="welcome-icon">📭</div><h2>No history yet</h2></div>
-            : histories.map(h => (
-              <div key={h.id} className="hist-card" onClick={() => loadSession(h)}>
-                <div style={{fontSize:20}}>💬</div>
-                <div className="hist-info">
-                  <div className="hist-title">{h.title}</div>
-                  <div className="hist-meta">{fmtDate(h.updatedAt)}</div>
+          {histLoading
+            ? <div className="loading-hist">⏳ Loading history...</div>
+            : histories.length === 0
+              ? <div className="welcome"><div className="welcome-icon">📭</div><h2>No history yet</h2></div>
+              : histories.map(h => (
+                <div key={h.id} className="hist-card" onClick={() => loadSession(h)}>
+                  <div style={{fontSize:20}}>💬</div>
+                  <div className="hist-info">
+                    <div className="hist-title">{h.title}</div>
+                    <div className="hist-meta">{fmtDate(h.updatedAt)}</div>
+                  </div>
+                  <button className="del-btn" onClick={(e) => deleteSession(h.id, e)}>🗑️</button>
                 </div>
-                <button className="del-btn" onClick={(e) => deleteSession(h.id, e)}>🗑️</button>
-              </div>
-            ))}
+              ))
+          }
         </div>
       )}
 
