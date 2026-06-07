@@ -19,41 +19,32 @@ const db = getFirestore(firebaseApp);
 const GROQ_API_KEY = "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";
 const TAVILY_API_KEY = "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";
 const ADMIN_EMAIL = "kunalsaraswat691@gmail.com";
-const FREE_CHAT_LIMIT = 49;
+const PHONEPAY_NUMBER = "8126630980";
+const FREE_CHAplaceholde 99;
 
-// ── WEB SEARCH ──────────────────────────────────────────────
 async function webSearch(query) {
   try {
     const res = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: TAVILY_API_KEY,
-        query,
-        search_depth: "basic",
-        max_results: 3
-      })
+      body: JSON.stringify({ api_key: TAVILY_API_KEY, query, search_depth: "basic", max_results: 3 })
     });
     const data = await res.json();
     if (!data.results) return null;
     return data.results.map(r => `${r.title}: ${r.content}`).join("\n\n");
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function needsWebSearch(text) {
-  const keywords = [
-    "aaj", "today", "abhi", "news", "score", "weather", "mausam",
-    "latest", "current", "price", "rate", "result", "live", "winner",
-    "2024", "2025", "2026", "kab", "when", "who won", "kaun jita",
-    "match", "election", "sarkar", "government", "new", "naya"
-  ];
-  const lower = text.toLowerCase();
-  return keywords.some(k => lower.includes(k));
+  const keywords = ["aaj","today","abhi","news","score","weather","mausam","latest","current","price","rate","result","live","winner","2024","2025","2026","kab","when","who won","kaun jita","match","election","sarkar","government","new","naya"];
+  return keywords.some(k => text.toLowerCase().includes(k));
 }
 
-// ── GROQ AI ──────────────────────────────────────────────────
+function isOwnerQuestion(text) {
+  const keywords = ["kisne banaya","kisne banaया","who made","who created","who built","owner","creator","master","malik","tumhara owner","tumhara creator","tumhe kisne","aapko kisne","kaun hai tumhara","tumhari company","made by","created by","developed by","kaise banaya","how were you made","how were you built","kaisa banaya","private hai"];
+  return keywords.some(k => text.toLowerCase().includes(k));
+}
+
 async function askAI(messages, imageBase64 = null) {
   const lastMsg = messages[messages.length - 1];
   let searchContext = "";
@@ -63,53 +54,56 @@ async function askAI(messages, imageBase64 = null) {
     if (results) searchContext = `\n\nWeb Search Results:\n${results}\n\nUse above info to answer accurately.`;
   }
 
-  const systemPrompt = `You are Saraswati AI — an extremely intelligent, helpful and friendly AI assistant like Claude and ChatGPT.
+  if (lastMsg?.role === "user" && isOwnerQuestion(lastMsg.text)) {
+    const q = lastMsg.text.toLowerCase();
+    if (q.includes("kaise banaya") || q.includes("how were you") || q.includes("kaisa banaya") || q.includes("private")) {
+      return "Yeh meri private information hai — main yeh share nahi kar sakta! 😊";
+    }
+    return "Mujhe **Kunal Saraswat** G ne banaya hai! 😊";
+  }
 
-LANGUAGE RULE (MOST IMPORTANT):
-- Always detect the language the user is writing in and reply in EXACTLY that same language.
-- Hindi → Hindi, English → English, Hinglish → Hinglish, Tamil → Tamil, any language → same language
-- NEVER switch languages unless the user switches first
+  const systemPrompt = `You are Saraswati AI — an extremely intelligent, helpful and friendly AI assistant.
+
+IDENTITY RULES (VERY IMPORTANT):
+- Your name is Saraswati AI
+- You were created by Kunal Saraswat
+- If anyone asks who made you, who is your owner, creator, master — always say "Kunal Saraswat ji ne mujhe banaya hai"
+- If anyone asks HOW you were made or built — say "Yeh meri private information hai, main share nahi kar sakta"
+- Never mention Claude, Anthropic, OpenAI, ChatGPT, Llama, Groq, or any other AI company
+
+LANGUAGE RULE:
+- Always detect the language the user is writing in and reply in EXACTLY that same language
+- Hindi → Hindi, English → English, Hinglish → Hinglish, any language → same language
 
 PERSONALITY:
 - Warm, casual and friendly like a best friend
 - Understand emotion and intent behind every message
 - Never robotic or formal
-- Feel like a real intelligent friend
 
 EXPERTISE:
-- Coding: HTML, CSS, JavaScript, Python, React, any language — provide complete working code
-- Farming & agriculture: crops, fertilizers, weather, government schemes
-- Math, science, history, geography, general knowledge
+- Coding: HTML, CSS, JavaScript, Python, React — provide complete working code
+- Farming & agriculture advice
+- Math, science, history, general knowledge
 - Creative writing, essays, stories
-- Business ideas, startup advice
-- Health and lifestyle
-- Latest news and current events (using web search)
-- Image analysis and understanding
-- Any topic a person needs help with
+- Business ideas, health advice
+- Latest news (using web search)
+- Image analysis
 
 REPLY STYLE:
-- Clear formatting with bullet points and headings when needed
+- Clear formatting with bullet points when needed
 - Never poetic or shayari style
-- Concise but thorough
-- For code, always give complete working code${searchContext}`;
+- Concise but thorough${searchContext}`;
 
   const lastUserContent = imageBase64
-    ? [
-        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-        { type: "text", text: lastMsg.text }
-      ]
+    ? [{ type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }, { type: "text", text: lastMsg.text }]
     : lastMsg.text;
 
   const apiMessages = [
-    ...messages.slice(0, -1).map(m => ({
-      role: m.role === "user" ? "user" : "assistant",
-      content: m.text
-    })),
+    ...messages.slice(0, -1).map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text })),
     { role: "user", content: lastUserContent }
   ];
 
   const model = imageBase64 ? "llama-3.2-11b-vision-preview" : "llama-3.3-70b-versatile";
-
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ_API_KEY },
@@ -120,7 +114,12 @@ REPLY STYLE:
   return data.choices?.[0]?.message?.content || "No response.";
 }
 
-// ── AI TEXT RENDERER ──────────────────────────────────────────
+function validatePassword(pass) {
+  if (pass.length !== 8) return "Password bilkul 8 digit ka hona chahiye!";
+  if (!/^[a-zA-Z0-9]+$/.test(pass)) return "Password mein sirf letters aur numbers allowed hain!";
+  return null;
+}
+
 function AIText({ text }) {
   if (!text) return null;
   const lines = text.split("\n");
@@ -162,10 +161,10 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .inp-wrap{display:flex;flex-direction:column;gap:5px;}.inp-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.05em;}
 .inp{background:#111;border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;padding:13px 14px;outline:none;width:100%;transition:border-color .2s;}
 .inp:focus{border-color:var(--accent);}
+.pass-hint{font-size:11px;color:var(--muted);margin-top:2px;}
 .btn{border:none;border-radius:12px;cursor:pointer;font-family:'Inter',sans-serif;font-size:15px;font-weight:600;padding:14px;transition:all .2s;width:100%;}
 .btn-primary{background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;}.btn-primary:hover{opacity:.9;}.btn-primary:disabled{opacity:.6;cursor:not-allowed;}
 .btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border);}
-.btn-sm{padding:8px 14px;font-size:13px;width:auto;border-radius:10px;}
 .auth-switch{font-size:13px;color:var(--muted);text-align:center;}.auth-switch span{color:var(--accent2);cursor:pointer;font-weight:600;}
 .err{color:#ef4444;font-size:13px;text-align:center;background:#ef444415;padding:10px;border-radius:10px;}
 .header{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--bg);border-bottom:1px solid var(--border);position:relative;z-index:20;}
@@ -184,7 +183,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .chat-area{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:16px;scroll-behavior:smooth;}
 .chat-area::-webkit-scrollbar{width:0;}
 .welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:32px 20px;}
-.welcome-icon{font-size:56px;}.welcome h2{font-size:22px;font-weight:700;}.welcome p{font-size:14px;color:var(--muted);}
+.welcome-icon{font-size:72px;}.welcome h2{font-size:24px;font-weight:700;}
 .msg-wrap{display:flex;flex-direction:column;gap:4px;animation:slideUp .25s ease;}
 @keyframes slideUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
 .msg-row{display:flex;gap:8px;align-items:flex-end;}.msg-row.user{flex-direction:row-reverse;}
@@ -202,7 +201,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .msg-input:focus{border-color:var(--accent);}
 .send{background:linear-gradient(135deg,#f97316,#ea580c);border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:18px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .send:disabled{opacity:.4;cursor:not-allowed;}
-.img-btn{background:var(--surface2);border:1.5px solid var(--border);border-radius:50%;color:var(--text);cursor:pointer;font-size:18px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.cam-btn{background:var(--surface2);border:1.5px solid var(--border);border-radius:50%;color:var(--text);cursor:pointer;font-size:20px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .img-preview{position:relative;display:inline-block;margin-bottom:8px;}
 .img-preview img{width:80px;height:80px;object-fit:cover;border-radius:12px;border:2px solid var(--accent);}
 .img-preview-remove{position:absolute;top:-6px;right:-6px;background:#ef4444;border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:12px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;}
@@ -234,6 +233,9 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .modal h3{font-size:20px;font-weight:700;text-align:center;}.modal p{font-size:14px;color:var(--muted);text-align:center;line-height:1.6;}
 .modal-icon{font-size:52px;text-align:center;}
 .search-indicator{font-size:11px;color:var(--accent);padding:4px 10px;background:#f9731615;border-radius:20px;display:inline-flex;align-items:center;gap:4px;margin-bottom:4px;}
+.payment-box{background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;}
+.payment-number{font-size:22px;font-weight:800;color:var(--accent);text-align:center;letter-spacing:2px;}
+.payment-step{font-size:13px;color:var(--text);display:flex;gap:8px;align-items:flex-start;}
 `;
 
 function fmtTime(ts) {
@@ -268,8 +270,9 @@ export default function App() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [imageBase64, setImageBase64] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [paymentDone, setPaymentDone] = useState(false);
   const bottomRef = useRef(null);
-  const fileRef = useRef(null);
+  const cameraRef = useRef(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -305,6 +308,10 @@ export default function App() {
     setFormErr("");
     if (!form.email || !form.pass) { setFormErr("Please fill all fields!"); return; }
     if (authMode === "signup" && !form.name) { setFormErr("Please enter your name!"); return; }
+    if (authMode === "signup") {
+      const passErr = validatePassword(form.pass);
+      if (passErr) { setFormErr(passErr); return; }
+    }
     setFormLoading(true);
     try {
       if (authMode === "signup") {
@@ -327,7 +334,7 @@ export default function App() {
         "auth/invalid-email": "Invalid email!",
         "auth/wrong-password": "Wrong password!",
         "auth/user-not-found": "Account not found!",
-        "auth/weak-password": "Password too weak! Min 6 chars.",
+        "auth/weak-password": "Password too weak! Min 8 chars.",
         "auth/invalid-credential": "Wrong email or password!"
       };
       setFormErr(errs[e.code] || e.message);
@@ -335,13 +342,12 @@ export default function App() {
     setFormLoading(false);
   }
 
-  function handleImageSelect(e) {
+  function handleCameraCapture(e) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const base64 = ev.target.result.split(",")[1];
-      setImageBase64(base64);
+      setImageBase64(ev.target.result.split(",")[1]);
       setImagePreview(ev.target.result);
     };
     reader.readAsDataURL(file);
@@ -352,33 +358,25 @@ export default function App() {
     if ((!txt && !imageBase64) || loading) return;
     const ud = userData;
     if (!ud?.premium && (ud?.usageCount || 0) >= FREE_CHAT_LIMIT) { setShowLimit(true); return; }
-
-    const msgText = txt || "What is in this image?";
+    const msgText = txt || "Is image mein kya hai?";
     setInput("");
     const imgB64 = imageBase64;
     const imgPrev = imagePreview;
     setImageBase64(null);
     setImagePreview(null);
-
     const uMsgRef = await addDoc(collection(db, "messages"), {
-      sessionId, userId: user.uid, role: "user", text: msgText,
-      image: imgPrev || null, createdAt: serverTimestamp()
+      sessionId, userId: user.uid, role: "user", text: msgText, image: imgPrev || null, createdAt: serverTimestamp()
     });
     const newMsgs = [...msgs, { id: uMsgRef.id, role: "user", text: msgText, image: imgPrev, time: new Date() }];
     setMsgs(newMsgs);
-
     await setDoc(doc(db, "chats", sessionId), {
-      userId: user.uid, title: msgText.slice(0, 45),
-      updatedAt: serverTimestamp(), createdAt: serverTimestamp()
+      userId: user.uid, title: msgText.slice(0, 45), updatedAt: serverTimestamp(), createdAt: serverTimestamp()
     }, { merge: true });
-
     const newCount = (ud?.usageCount || 0) + 1;
     await setDoc(doc(db, "users", user.uid), { usageCount: newCount }, { merge: true });
     setUserData(prev => ({ ...prev, usageCount: newCount }));
-
     if (needsWebSearch(msgText)) setIsSearching(true);
     setLoading(true);
-
     try {
       const aiText = await askAI(newMsgs, imgB64);
       setIsSearching(false);
@@ -451,7 +449,7 @@ export default function App() {
           {authMode === "signup" && (
             <div className="inp-wrap">
               <div className="inp-label">FULL NAME</div>
-              <input className="inp" placeholder="Your name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              <input className="inp" placeholder="Apna naam likho" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
           )}
           <div className="inp-wrap">
@@ -460,7 +458,8 @@ export default function App() {
           </div>
           <div className="inp-wrap">
             <div className="inp-label">PASSWORD</div>
-            <input className="inp" type="password" placeholder="••••••••" value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
+            <input className="inp" type="password" placeholder="8 digit password" maxLength={8} value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
+            {authMode === "signup" && <div className="pass-hint">⚠️ Password bilkul 8 digit ka hona chahiye (letters + numbers)</div>}
           </div>
           {formErr && <div className="err">{formErr}</div>}
           <button className="btn btn-primary" onClick={handleAuth} disabled={formLoading}>
@@ -519,13 +518,6 @@ export default function App() {
               <div className="welcome">
                 <div className="welcome-icon">🪷</div>
                 <h2>Saraswati AI</h2>
-                <p>Kuch bhi poochho — main hoon! 😊</p>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:8}}>
-                  <span style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"var(--muted)"}}>🌐 Web Search</span>
-                  <span style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"var(--muted)"}}>🖼️ Image AI</span>
-                  <span style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"var(--muted)"}}>💻 Coding</span>
-                  <span style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"var(--muted)"}}>🌾 Farming</span>
-                </div>
               </div>
             )}
             {msgs.map(m => (
@@ -533,7 +525,7 @@ export default function App() {
                 <div className={`msg-row ${m.role}`}>
                   {m.role === "ai" && <div className="ai-av">🪷</div>}
                   <div className={`bubble ${m.role}`}>
-                    {m.image && <img src={m.image} className="msg-image" alt="uploaded" />}
+                    {m.image && <img src={m.image} className="msg-image" alt="captured" />}
                     {m.role === "ai" ? <AIText text={m.text} /> : m.text}
                   </div>
                 </div>
@@ -554,9 +546,8 @@ export default function App() {
             )}
             <div ref={bottomRef} />
           </div>
-
           <div className="input-bar">
-            <input type="file" ref={fileRef} accept="image/*" style={{display:"none"}} onChange={handleImageSelect} />
+            <input type="file" ref={cameraRef} accept="image/*" capture="environment" style={{display:"none"}} onChange={handleCameraCapture} />
             <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
               {imagePreview && (
                 <div className="img-preview">
@@ -565,7 +556,7 @@ export default function App() {
                 </div>
               )}
               <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-                <button className="img-btn" onClick={() => fileRef.current.click()}>🖼️</button>
+                <button className="cam-btn" onClick={() => cameraRef.current.click()}>📷</button>
                 <textarea className="msg-input" placeholder="Kuch bhi poochho..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey} rows={1} />
                 <button className="send" onClick={() => sendMsg()} disabled={(!input.trim() && !imageBase64) || loading}>➤</button>
               </div>
@@ -578,7 +569,7 @@ export default function App() {
         <div className="page">
           <div className="page-top"><div className="page-title">📂 History</div></div>
           {histories.length === 0
-            ? <div className="welcome"><div className="welcome-icon">📭</div><h2>No history yet</h2><p>Start chatting!</p></div>
+            ? <div className="welcome"><div className="welcome-icon">📭</div><h2>No history yet</h2></div>
             : histories.map(h => (
               <div key={h.id} className="hist-card" onClick={() => loadSession(h)}>
                 <div style={{fontSize:20}}>💬</div>
@@ -597,10 +588,10 @@ export default function App() {
           {!userData?.premium && (
             <div className="premium-card" onClick={() => setShowUpgrade(true)}>
               <h3>⭐ Upgrade to Premium</h3>
-              <p>Unlimited chats, No Ads, Faster AI</p>
+              <p>Sirf ₹99/month — Unlimited access!</p>
               <div className="pf">✅ Unlimited Chats</div>
               <div className="pf">✅ Web Search</div>
-              <div className="pf">✅ Image AI</div>
+              <div className="pf">✅ Camera AI</div>
               <div className="pf">✅ Premium Badge</div>
             </div>
           )}
@@ -624,9 +615,6 @@ export default function App() {
                 <div className="set-desc">{userData?.premium ? "Unlimited" : `${chatsLeft} free chats remaining`}</div>
               </div>
             </div>
-          </div>
-          <div className="section-lbl">Data</div>
-          <div className="set-card">
             <div className="set-row" onClick={() => signOut(auth)}>
               <div className="set-icon">🚪</div>
               <div className="set-text">
@@ -659,7 +647,14 @@ export default function App() {
                 <div style={{fontSize:11,color:"var(--muted)"}}>{u.usageCount||0} chats used</div>
               </div>
               {u.premium && <div className="badge">PREMIUM</div>}
+              {u.premiumPending && !u.premium && <div className="badge" style={{background:"#3b82f6"}}>PENDING</div>}
               {u.email === ADMIN_EMAIL && <div className="badge">ADMIN</div>}
+              {u.premiumPending && !u.premium && (
+                <button style={{background:"#22c55e",border:"none",borderRadius:8,color:"#fff",padding:"4px 8px",fontSize:11,cursor:"pointer"}} onClick={async () => {
+                  await setDoc(doc(db, "users", u.id), { premium: true, premiumPending: false }, { merge: true });
+                  loadAdminUsers();
+                }}>Activate</button>
+              )}
             </div>
           ))}
         </div>
@@ -682,20 +677,35 @@ export default function App() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-icon">⭐</div>
             <h3>Saraswati AI Premium</h3>
-            <p>Just ₹99/month for unlimited access!</p>
-            <div style={{background:"var(--surface2)",borderRadius:12,padding:"14px 16px",display:"flex",flexDirection:"column",gap:8}}>
-              <div style={{fontSize:14,display:"flex",gap:8}}>✅ <span>Unlimited Chats</span></div>
-              <div style={{fontSize:14,display:"flex",gap:8}}>✅ <span>Web Search</span></div>
-              <div style={{fontSize:14,display:"flex",gap:8}}>✅ <span>Image AI</span></div>
-              <div style={{fontSize:14,display:"flex",gap:8}}>✅ <span>Premium Badge</span></div>
+            <p>Sirf ₹99/month — Unlimited access!</p>
+            <div className="payment-box">
+              <div style={{fontSize:13,fontWeight:700,color:"var(--accent)",textAlign:"center"}}>📱 PhonePe / UPI se Pay Karo</div>
+              <div className="payment-number">{PHONEPAY_NUMBER}</div>
+              <div className="payment-step">1️⃣ <span>PhonePe/GPay/Paytm mein <strong>₹99</strong> bhejo is number pe</span></div>
+              <div className="payment-step">2️⃣ <span>Screenshot ya UTR number note karo</span></div>
+              <div className="payment-step">3️⃣ <span>Neeche "Payment Done" dabao</span></div>
             </div>
-            <button className="btn btn-primary" onClick={async () => {
-              await setDoc(doc(db, "users", user.uid), { premium: true }, { merge: true });
-              setUserData(prev => ({ ...prev, premium: true }));
-              setShowUpgrade(false);
-              alert("🎉 Welcome to Premium!");
-            }}>🚀 Upgrade Now — ₹99/month</button>
-            <button className="btn btn-secondary" onClick={() => setShowUpgrade(false)}>Cancel</button>
+            <div style={{background:"var(--surface2)",borderRadius:12,padding:"12px 14px",display:"flex",flexDirection:"column",gap:6}}>
+              <div style={{fontSize:13,display:"flex",gap:8}}>✅ <span>Unlimited Chats</span></div>
+              <div style={{fontSize:13,display:"flex",gap:8}}>✅ <span>Web Search</span></div>
+              <div style={{fontSize:13,display:"flex",gap:8}}>✅ <span>Camera AI</span></div>
+              <div style={{fontSize:13,display:"flex",gap:8}}>✅ <span>Premium Badge</span></div>
+            </div>
+            {!paymentDone ? (
+              <button className="btn btn-primary" onClick={() => setPaymentDone(true)}>✅ Payment Done — Activate Karo</button>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{fontSize:13,color:"var(--muted)",textAlign:"center"}}>Admin 24 hours mein verify karke activate karega</div>
+                <button className="btn btn-primary" onClick={async () => {
+                  await setDoc(doc(db, "users", user.uid), { premiumPending: true, premiumRequestedAt: serverTimestamp() }, { merge: true });
+                  setUserData(prev => ({ ...prev, premiumPending: true }));
+                  setShowUpgrade(false);
+                  setPaymentDone(false);
+                  alert("✅ Request bhej di! Admin 24 hours mein activate karega.");
+                }}>📨 Request Submit Karo</button>
+              </div>
+            )}
+            <button className="btn btn-secondary" onClick={() => { setShowUpgrade(false); setPaymentDone(false); }}>Cancel</button>
           </div>
         </div>
       )}
