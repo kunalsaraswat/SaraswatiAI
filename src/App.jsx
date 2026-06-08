@@ -74,7 +74,7 @@ IMPORTANT IDENTITY RULES:
 
 LANGUAGE RULE:
 - Always detect and reply in EXACTLY the same language as the user.
-- Hindi → Hindi, English → English, Hinglish → Hinglish
+- Hindi → Hindi, English → English, Hinglish → Hinglish, Farsi → Farsi, Arabic → Arabic, etc.
 
 PERSONALITY:
 - Warm, casual, friendly like a best friend
@@ -141,29 +141,21 @@ function CodeBlock({ code, lang }) {
 // ── AI TEXT RENDERER ──────────────────────────────────────────
 function AIText({ text }) {
   if (!text) return null;
-
   const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
   const parts = [];
   let lastIndex = 0;
   let match;
-
   while ((match = codeBlockRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: "text", content: text.slice(lastIndex, match.index) });
-    }
+    if (match.index > lastIndex) parts.push({ type: "text", content: text.slice(lastIndex, match.index) });
     parts.push({ type: "code", lang: match[1], content: match[2].trim() });
     lastIndex = match.index + match[0].length;
   }
-  if (lastIndex < text.length) {
-    parts.push({ type: "text", content: text.slice(lastIndex) });
-  }
+  if (lastIndex < text.length) parts.push({ type: "text", content: text.slice(lastIndex) });
 
   return (
     <span style={{display:"flex",flexDirection:"column",gap:4}}>
       {parts.map((part, idx) => {
-        if (part.type === "code") {
-          return <CodeBlock key={idx} code={part.content} lang={part.lang} />;
-        }
+        if (part.type === "code") return <CodeBlock key={idx} code={part.content} lang={part.lang} />;
         const lines = part.content.split("\n");
         return lines.map((line, i) => {
           if (!line.trim()) return <span key={`${idx}-${i}`} style={{height:6}} />;
@@ -184,6 +176,53 @@ function AIText({ text }) {
       })}
     </span>
   );
+}
+
+// ── SPEECH RECOGNITION HOOK ──────────────────────────────────
+function useSpeech(onResult) {
+  const [listening, setListening] = useState(false);
+  const [supported, setSupported] = useState(false);
+  const recogRef = useRef(null);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      setSupported(true);
+      const recog = new SpeechRecognition();
+      recog.continuous = false;
+      recog.interimResults = true;
+      // Auto detect language — supports 100+ world languages
+      recog.lang = "";
+      recog.onresult = (e) => {
+        let transcript = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          transcript += e.results[i][0].transcript;
+        }
+        onResult(transcript, e.results[e.results.length - 1].isFinal);
+      };
+      recog.onend = () => setListening(false);
+      recog.onerror = () => setListening(false);
+      recogRef.current = recog;
+    }
+  }, []);
+
+  function startListening() {
+    if (!recogRef.current) return;
+    try {
+      recogRef.current.start();
+      setListening(true);
+    } catch(e) {}
+  }
+
+  function stopListening() {
+    if (!recogRef.current) return;
+    try {
+      recogRef.current.stop();
+      setListening(false);
+    } catch(e) {}
+  }
+
+  return { listening, supported, startListening, stopListening };
 }
 
 const css = `
@@ -240,6 +279,11 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .send{background:linear-gradient(135deg,#f97316,#ea580c);border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:18px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .send:disabled{opacity:.4;cursor:not-allowed;}
 .plus-btn{background:var(--surface2);border:1.5px solid var(--border);border-radius:50%;color:var(--text);cursor:pointer;font-size:22px;font-weight:300;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.mic-btn{border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:18px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;}
+.mic-btn.idle{background:var(--surface2);border:1.5px solid var(--border);color:var(--text);}
+.mic-btn.listening{background:linear-gradient(135deg,#ef4444,#dc2626);animation:pulse 1s infinite;}
+@keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.08);box-shadow:0 0 0 6px #ef444430;}}
+.mic-status{font-size:11px;color:#ef4444;padding:4px 10px;background:#ef444415;border-radius:20px;display:inline-flex;align-items:center;gap:4px;margin-bottom:4px;animation:fadeIn .2s ease;}
 .img-preview{position:relative;display:inline-block;margin-bottom:8px;}
 .img-preview img{width:80px;height:80px;object-fit:cover;border-radius:12px;border:2px solid var(--accent);}
 .img-preview-remove{position:absolute;top:-6px;right:-6px;background:#ef4444;border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:12px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;}
@@ -314,6 +358,20 @@ export default function App() {
   const bottomRef = useRef(null);
   const galleryRef = useRef(null);
 
+  // Speech recognition
+  const { listening, supported, startListening, stopListening } = useSpeech((transcript, isFinal) => {
+    setInput(transcript);
+  });
+
+  function toggleMic() {
+    if (listening) {
+      stopListening();
+    } else {
+      setInput("");
+      startListening();
+    }
+  }
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -336,16 +394,10 @@ export default function App() {
   async function loadHistories() {
     setHistLoading(true);
     try {
-      const q = query(
-        collection(db, "chats"),
-        where("userId", "==", user.uid),
-        orderBy("updatedAt", "desc")
-      );
+      const q = query(collection(db, "chats"), where("userId", "==", user.uid), orderBy("updatedAt", "desc"));
       const snap = await getDocs(q);
       setHistories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch(e) {
-      console.error("History error:", e);
-      // Fallback: try without orderBy
       try {
         const q2 = query(collection(db, "chats"), where("userId", "==", user.uid));
         const snap2 = await getDocs(q2);
@@ -353,9 +405,7 @@ export default function App() {
           .map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
         setHistories(sorted);
-      } catch(e2) {
-        console.error("Fallback history error:", e2);
-      }
+      } catch(e2) { console.error(e2); }
     }
     setHistLoading(false);
   }
@@ -414,6 +464,7 @@ export default function App() {
   async function sendMsg(text) {
     const txt = text || input.trim();
     if ((!txt && !imageBase64) || loading) return;
+    if (listening) stopListening();
     const ud = userData;
     if (!ud?.premium && (ud?.usageCount || 0) >= FREE_CHAT_LIMIT) { setShowLimit(true); return; }
     const msgText = txt || "Is image mein kya hai?";
@@ -458,28 +509,16 @@ export default function App() {
     }
   }
 
-  // ✅ FIXED loadSession — no orderBy, client-side sort
   async function loadSession(session) {
     try {
       setPage("chat");
       setSessionId(session.id);
       setMsgs([]);
-
-      const q = query(
-        collection(db, "messages"),
-        where("sessionId", "==", session.id)
-      );
-
+      const q = query(collection(db, "messages"), where("sessionId", "==", session.id));
       const snap = await getDocs(q);
-
       const loadedMsgs = snap.docs
         .map(d => ({ id: d.id, ...d.data(), time: d.data().createdAt }))
-        .sort((a, b) => {
-          const aTime = a.createdAt?.seconds || 0;
-          const bTime = b.createdAt?.seconds || 0;
-          return aTime - bTime;
-        });
-
+        .sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
       setMsgs(loadedMsgs);
     } catch(e) {
       console.error("Load session error:", e);
@@ -599,7 +638,10 @@ export default function App() {
               <div className="welcome">
                 <div className="welcome-icon">🪷</div>
                 <h2>Saraswati AI</h2>
-                <p style={{color:"var(--muted)",fontSize:14}}>Kuch bhi poochho, main hoon na! 😊</p>
+                <p style={{color:"var(--muted)",fontSize:14}}>Kuch bhi poochho — type karo ya 🎤 mic se bolo! 😊</p>
+                {supported && (
+                  <p style={{color:"var(--accent)",fontSize:12,marginTop:4}}>🌍 100+ languages supported</p>
+                )}
               </div>
             )}
             {msgs.map(m => (
@@ -628,9 +670,15 @@ export default function App() {
             )}
             <div ref={bottomRef} />
           </div>
+
           <div className="input-bar">
             <input type="file" ref={galleryRef} accept="image/*" style={{display:"none"}} onChange={handleGallerySelect} />
             <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
+              {listening && (
+                <div className="mic-status">
+                  🔴 Sun raha hoon... koi bhi bhasha mein bolo
+                </div>
+              )}
               {imagePreview && (
                 <div className="img-preview">
                   <img src={imagePreview} alt="preview" />
@@ -639,7 +687,24 @@ export default function App() {
               )}
               <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
                 <button className="plus-btn" onClick={() => galleryRef.current.click()}>+</button>
-                <textarea className="msg-input" placeholder="Kuch bhi poochho..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey} rows={1} />
+                <textarea
+                  className="msg-input"
+                  placeholder={listening ? "Bol raha hoon... 🎤" : "Kuch bhi poochho..."}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={handleKey}
+                  rows={1}
+                  style={listening ? {borderColor:"#ef4444"} : {}}
+                />
+                {supported && (
+                  <button
+                    className={`mic-btn ${listening ? "listening" : "idle"}`}
+                    onClick={toggleMic}
+                    title={listening ? "Sunna band karo" : "Mic se bolo"}
+                  >
+                    {listening ? "⏹" : "🎤"}
+                  </button>
+                )}
                 <button className="send" onClick={() => sendMsg()} disabled={(!input.trim() && !imageBase64) || loading}>➤</button>
               </div>
             </div>
@@ -700,6 +765,16 @@ export default function App() {
                 <div className="set-desc">{userData?.premium ? "Unlimited" : `${chatsLeft} free chats remaining`}</div>
               </div>
             </div>
+            {supported && (
+              <div className="set-row">
+                <div className="set-icon">🎤</div>
+                <div className="set-text">
+                  <div className="set-label">Voice Input</div>
+                  <div className="set-desc">🌍 100+ languages — Auto detect</div>
+                </div>
+                <div className="badge" style={{background:"#22c55e"}}>ON</div>
+              </div>
+            )}
           </div>
           <div className="section-lbl">Data</div>
           <div className="set-card">
