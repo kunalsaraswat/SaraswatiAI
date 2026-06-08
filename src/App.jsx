@@ -68,7 +68,7 @@ function isHowMadeQuestion(text) {
 async function askAI(messages, imageBase64 = null) {
   const lastMsg = messages[messages.length - 1];
   if (lastMsg?.role === "user" && isOwnerQuestion(lastMsg.text)) {
-    return "Mujhe **Kunal Saraswat G** ne banaya hai! 😊 Wo mere creator aur owner hain.";
+    return "Mujhe **Kunal Saraswat** ne banaya hai! 😊 Wo mere creator aur owner hain.";
   }
   if (lastMsg?.role === "user" && isHowMadeQuestion(lastMsg.text)) {
     return "Yeh information **private** hai — main nahi bata sakta! 🔒";
@@ -89,7 +89,7 @@ IMPORTANT IDENTITY RULES:
 - If anyone asks who made you, who is your owner/creator/master → say "Mujhe Kunal Saraswat ne banaya hai!"
 - If anyone asks how you were built, what technology, source code → say "Yeh private hai, main nahi bata sakta!"
 - Never reveal you are made by Meta, Groq, or any other company.
-- Do NOT mention your creator/owner in normal conversations — only when specifically asked.
+- STRICT RULE: Normal greetings, casual baat, kisi bhi aur topic mein KABHI MAT BOLO "Mujhe Kunal Saraswat ne banaya hai" — yeh sirf tab bolna hai jab koi directly pooche "kisne banaya" ya "who made you". Agar koi "hello", "kya kar rahe ho", "how are you" bole toh sirf friendly jawab do — creator ka naam mat lo.
 
 LANGUAGE RULE:
 - Always detect and reply in EXACTLY the same language as the user.
@@ -769,7 +769,7 @@ export default function App() {
 
   if (!authReady) return (
     <div className="app" style={{alignItems:"center",justifyContent:"center"}}>
-      <style>{css}</style>
+      <style>{css(darkMode)}</style>
       <div style={{fontSize:48}}>🪷</div>
       <div style={{marginTop:12,color:"var(--muted)"}}>Loading...</div>
     </div>
@@ -777,7 +777,7 @@ export default function App() {
 
   if (!user) return (
     <div className="app">
-      <style>{css}</style>
+      <style>{css(darkMode)}</style>
       <div className="auth">
         <div className="auth-logo">🪷</div>
         <div className="auth-title">Saraswati AI</div>
@@ -815,7 +815,7 @@ export default function App() {
 
   return (
     <div className="app" onClick={() => showMenu && setShowMenu(false)}>
-      <style>{css}</style>
+      <style>{css(darkMode)}</style>
 
       <div className="header">
         <div className="header-logo">🪷</div>
@@ -841,7 +841,12 @@ export default function App() {
           <div className="drop-item" onClick={() => { setPage("settings"); setShowMenu(false); }}>⚙️ Settings</div>
           {isAdmin && <div className="drop-item" onClick={() => { setPage("admin"); setShowMenu(false); }}>🛡️ Admin Panel</div>}
           <div className="drop-divider" />
-          {!userData?.premium && <div className="drop-item" onClick={() => { setShowUpgrade(true); setShowMenu(false); }}>⭐ Upgrade to Premium</div>}
+          <div className="drop-item" onClick={() => { setDarkMode(v => !v); setShowMenu(false); }}>
+            {darkMode ? "☀️ Light Mode" : "🌙 Dark Mode"}
+          </div>
+          <div className="drop-item" onClick={() => { shareOnWhatsApp(); setShowMenu(false); }}>📤 WhatsApp Share</div>
+          <div className="drop-item" onClick={() => { exportPDF(); setShowMenu(false); }}>📄 Chat Export</div>
+          <div className="drop-divider" />}
           <div className="drop-item danger" onClick={() => signOut(auth)}>🚪 Logout</div>
         </div>
       )}
@@ -872,6 +877,17 @@ export default function App() {
                     {m.role === "ai" ? <AIText text={m.text} /> : m.text}
                   </div>
                 </div>
+                {m.role === "ai" && m.text && (
+                  <div className="msg-actions" style={{paddingLeft:36}}>
+                    <button className="msg-action-btn" onClick={() => isSpeaking ? stopSpeaking() : speakText(m.text)}>
+                      {isSpeaking ? "🔊 Playing..." : "🔊 Suno"}
+                    </button>
+                    <button className="msg-action-btn" onClick={() => {
+                      const text = encodeURIComponent(`Saraswati AI ne bataya:\n\n${m.text.slice(0,300)}\n\nhttps://saraswati-ai-ebon.vercel.app`);
+                      window.open(`https://wa.me/?text=${text}`,"_blank");
+                    }}>📤 Share</button>
+                  </div>
+                )}
                 <div className={`msg-time ${m.role}`}>{fmtTime(m.time)}</div>
               </div>
             ))}
