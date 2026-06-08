@@ -109,6 +109,22 @@ FARMING EXPERTISE (VERY IMPORTANT):
 - Mention government schemes like PM Kisan, Fasal Bima Yojana when relevant
 - If unsure about something farming related, say so clearly — never guess
 
+KISAN HELP RULES (VERY IMPORTANT):
+- Jab koi kisan apni problem bataye — seedha helpful answer do, zyada sawaal mat karo
+- Agar kisan bole "mere khet mein paani aata hai" → turant best fasal bata do jaise Dhan, Arbi, Singhara, Lotus, Water Chestnut
+- Agar kisan state/district bataye → us region ke hisaab se specific salah do
+- Agar na bataye → general Indian farming advice do jo sabse zyada kaam aaye
+- Hamesha SEED KA NAAM, BRAND, AUR KAHAN MILEGA yeh bhi batao
+- KHAD KI MATRA — exactly kitni daalni hai per acre batao
+- KEETNASHAK — naam, matra, kab daalna hai sab batao
+- MANDI RATE — web search se current rate batao
+- PAANI WALI ZAMEEN ke liye best fasalein: Dhan, Arbi, Singhara, Kaddu, Turai, Palak
+- SUKHI ZAMEEN ke liye: Gehun, Bajra, Jowar, Chana, Sarson
+- KALI MITTI: Kapas, Soyabean, Gehun
+- RETI MITTI: Moongfali, Til, Bajra
+- Hamesha realistic advice do — jo actually kaam kare
+- Government schemes hamesha mention karo — PM Kisan, Fasal Bima, KCC loan
+
 CODING EXPERTISE (VERY IMPORTANT):
 - You are an expert programmer
 - Languages: HTML, CSS, JavaScript, React, Python, Node.js and more
@@ -153,22 +169,45 @@ GENERAL EXPERTISE:
 // ── CODE BLOCK RENDERER ──────────────────────────────────────
 function CodeBlock({ code, lang }) {
   const [copied, setCopied] = useState(false);
+  const [preview, setPreview] = useState(false);
+
   function copy() {
     navigator.clipboard?.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
+
+  const canPreview = ["html", "css", "javascript", "js", ""].includes((lang || "").toLowerCase());
+
   return (
     <div style={{background:"#0d0d0d",border:"1px solid #333",borderRadius:10,margin:"6px 0",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 12px",background:"#1a1a1a",borderBottom:"1px solid #333"}}>
         <span style={{fontSize:11,color:"#6b7280",fontFamily:"monospace"}}>{lang || "code"}</span>
-        <button onClick={copy} style={{background:"none",border:"none",color:copied?"#22c55e":"#6b7280",cursor:"pointer",fontSize:11,padding:"2px 6px"}}>
-          {copied ? "✓ Copied" : "Copy"}
-        </button>
+        <div style={{display:"flex",gap:8}}>
+          {canPreview && (
+            <button onClick={() => setPreview(v => !v)} style={{background:"none",border:"none",color:preview?"#f97316":"#6b7280",cursor:"pointer",fontSize:11,padding:"2px 6px"}}>
+              {preview ? "✕ Close" : "▶ Preview"}
+            </button>
+          )}
+          <button onClick={copy} style={{background:"none",border:"none",color:copied?"#22c55e":"#6b7280",cursor:"pointer",fontSize:11,padding:"2px 6px"}}>
+            {copied ? "✓ Copied" : "Copy"}
+          </button>
+        </div>
       </div>
       <pre style={{padding:"12px",margin:0,overflowX:"auto",fontSize:12,lineHeight:1.6,color:"#e5e7eb",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
         {code}
       </pre>
+      {preview && canPreview && (
+        <div style={{borderTop:"1px solid #333"}}>
+          <div style={{padding:"6px 12px",background:"#1a1a1a",fontSize:11,color:"#f97316"}}>🌐 Live Preview</div>
+          <iframe
+            srcDoc={lang === "css" ? `<style>${code}</style><p>CSS Preview</p>` : lang === "javascript" || lang === "js" ? `<script>${code}</script>` : code}
+            style={{width:"100%",minHeight:300,border:"none",background:"#fff",borderRadius:"0 0 10px 10px"}}
+            sandbox="allow-scripts"
+            title="preview"
+          />
+        </div>
+      )}
     </div>
   );
 }
