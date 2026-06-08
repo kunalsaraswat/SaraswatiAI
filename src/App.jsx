@@ -68,7 +68,7 @@ function isHowMadeQuestion(text) {
 async function askAI(messages, imageBase64 = null) {
   const lastMsg = messages[messages.length - 1];
   if (lastMsg?.role === "user" && isOwnerQuestion(lastMsg.text)) {
-    return "Mujhe **Kunal Saraswat** ne banaya hai! 😊 Wo mere creator aur owner hain.";
+    return "Mujhe **Kunal Saraswat G** ne banaya hai! 😊 Wo mere creator aur owner hain.";
   }
   if (lastMsg?.role === "user" && isHowMadeQuestion(lastMsg.text)) {
     return "Yeh information **private** hai — main nahi bata sakta! 🔒";
