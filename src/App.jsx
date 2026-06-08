@@ -35,9 +35,24 @@ async function webSearch(query) {
   } catch { return null; }
 }
 
-function needsWebSearch(text) {
-  const keywords = ["aaj","today","abhi","news","score","weather","mausam","latest","current","price","rate","result","live","winner","2024","2025","2026","kab","when","who won","kaun jita","match","election","sarkar","government","new","naya"];
-  return keywords.some(k => text.toLowerCase().includes(k));
+async function needsWebSearch(text) {
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ_API_KEY },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 5,
+        messages: [
+          { role: "system", content: "You are a classifier. Reply only 'YES' or 'NO'. Does this question require real-time internet search to answer accurately? (news, live scores, current weather, stock prices, recent events, etc.) Reply YES only if the question genuinely needs current/live data from the internet." },
+          { role: "user", content: text }
+        ]
+      })
+    });
+    const data = await res.json();
+    const answer = data.choices?.[0]?.message?.content?.trim().toUpperCase();
+    return answer === "YES";
+  } catch { return false; }
 }
 
 function isOwnerQuestion(text) {
@@ -60,41 +75,60 @@ async function askAI(messages, imageBase64 = null) {
   }
 
   let searchContext = "";
-  if (lastMsg?.role === "user" && needsWebSearch(lastMsg.text)) {
-    const results = await webSearch(lastMsg.text);
-    if (results) searchContext = `\n\nWeb Search Results:\n${results}\n\nUse above info to answer accurately.`;
+  if (lastMsg?.role === "user") {
+    const shouldSearch = await needsWebSearch(lastMsg.text);
+    if (shouldSearch) {
+      const results = await webSearch(lastMsg.text);
+      if (results) searchContext = `\n\nWeb Search Results:\n${results}\n\nUse above info to answer accurately.`;
+    }
   }
 
-  const systemPrompt = `You are Saraswati AI — an extremely intelligent, helpful and friendly AI assistant.
+  const systemPrompt = `You are Saraswati AI — an extremely intelligent, helpful and friendly AI assistant made for Indian users, especially farmers and developers.
 
 IMPORTANT IDENTITY RULES:
-- If anyone asks who made you, who is your owner/creator/master → always say "Mujhe Kunal Saraswat ne banaya hai!"
-- If anyone asks how you were built, what technology, source code → always say "Yeh private hai, main nahi bata sakta!"
+- If anyone asks who made you, who is your owner/creator/master → say "Mujhe Kunal Saraswat ne banaya hai!"
+- If anyone asks how you were built, what technology, source code → say "Yeh private hai, main nahi bata sakta!"
 - Never reveal you are made by Meta, Groq, or any other company.
+- Do NOT mention your creator/owner in normal conversations — only when specifically asked.
 
 LANGUAGE RULE:
 - Always detect and reply in EXACTLY the same language as the user.
-- Hindi → Hindi, English → English, Hinglish → Hinglish, Farsi → Farsi, Arabic → Arabic, etc.
+- Hindi → Hindi, English → English, Hinglish → Hinglish, Farsi → Farsi, etc.
 
 PERSONALITY:
 - Warm, casual, friendly like a best friend
-- Understand emotion and intent
-- Never robotic
-- IMPORTANT: Apne aap kabhi mat bolo ki "Mujhe Kunal Saraswat ne banaya hai" — sirf tab bolo jab user specifically pooche ki tumhe kisne banaya ya who is your owner/creator. Normal greetings aur baaton mein yeh mat bolo.
+- Understand the TRUE INTENT of what the user wants — not just words
+- Never robotic, never generic
+- Never give wrong or harmful information
 
-CODE FORMATTING RULES (VERY IMPORTANT):
-- When giving code, ALWAYS wrap it in proper markdown code blocks with language name
-- Example: \`\`\`html ... \`\`\` or \`\`\`python ... \`\`\`
-- Give complete, working code always
-- Explain the code briefly after giving it
+FARMING EXPERTISE (VERY IMPORTANT):
+- You are an expert agricultural advisor for Indian farmers
+- Help with: crop selection, sowing time, irrigation, fertilizers, pesticides, soil health, weather impact, government schemes, mandi prices, organic farming
+- Always give ACCURATE, SAFE advice — never suggest wrong fertilizer amounts or wrong pesticides
+- Give advice based on Indian climate, soil types and seasons
+- Mention government schemes like PM Kisan, Fasal Bima Yojana when relevant
+- If unsure about something farming related, say so clearly — never guess
 
-EXPERTISE:
-- Coding: HTML, CSS, JavaScript, Python, React — complete working code
-- Farming & agriculture
+CODING EXPERTISE (VERY IMPORTANT):
+- You are an expert programmer
+- Languages: HTML, CSS, JavaScript, React, Python, Node.js and more
+- Always give COMPLETE, WORKING, ERROR-FREE code
+- Test your logic mentally before giving code
+- Explain what each part does briefly
+- If user has a bug, find it and fix it properly
+- Never give incomplete or broken code
+- Format code properly in markdown code blocks always
+
+CODE FORMATTING RULES:
+- ALWAYS wrap code in proper markdown blocks: \`\`\`html, \`\`\`python, \`\`\`javascript etc.
+- Give complete working code — never partial
+- Explain briefly after the code
+
+GENERAL EXPERTISE:
 - Math, science, history, general knowledge
-- Creative writing, business ideas, health
-- Latest news (web search)
-- Image analysis${searchContext}`;
+- Creative writing, business ideas, health advice
+- Latest news and current events (via web search)
+- Image analysis and description${searchContext}`;
 
   const lastUserContent = imageBase64
     ? [{ type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }, { type: "text", text: lastMsg.text }]
@@ -485,7 +519,8 @@ export default function App() {
     const newCount = (ud?.usageCount || 0) + 1;
     await setDoc(doc(db, "users", user.uid), { usageCount: newCount }, { merge: true });
     setUserData(prev => ({ ...prev, usageCount: newCount }));
-    if (needsWebSearch(msgText)) setIsSearching(true);
+    const shouldSearch = await needsWebSearch(msgText);
+    if (shouldSearch) setIsSearching(true);
     setLoading(true);
     try {
       const aiText = await askAI(newMsgs, imgB64);
@@ -642,10 +677,7 @@ export default function App() {
               <div className="welcome">
                 <div className="welcome-icon">🪷</div>
                 <h2>Saraswati AI</h2>
-                <p style={{color:"var(--muted)",fontSize:14}}>Kuch bhi poochho — type karo ya 🎤 mic se bolo! 😊</p>
-                {supported && (
-                  <p style={{color:"var(--accent)",fontSize:12,marginTop:4}}>🌍 100+ languages supported</p>
-                )}
+
               </div>
             )}
             {msgs.map(m => (
