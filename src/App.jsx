@@ -135,6 +135,29 @@ CODING EXPERTISE (VERY IMPORTANT):
 - Never give incomplete or broken code
 - Format code properly in markdown code blocks always
 
+WEBSITE DESIGN RULES (VERY IMPORTANT):
+- Jab bhi koi website maange — BEAUTIFUL, MODERN, PROFESSIONAL website do
+- HAMESHA ek hi file mein do — HTML + CSS + JS sab saath mein
+- KABHI ALAG style.css mat do — sab inline ya <style> tag mein
+- Images ke liye HAMESHA real online images use karo:
+  * Vegetables: https://source.unsplash.com/400x300/?tomato ya ?cucumber etc
+  * Food: https://source.unsplash.com/400x300/?food
+  * Farming: https://source.unsplash.com/400x300/?farming
+  * Business: https://source.unsplash.com/400x300/?business
+  * People: https://source.unsplash.com/400x300/?people
+- DESIGN must include:
+  * Beautiful gradient backgrounds
+  * Modern card layouts
+  * Hover effects on buttons and cards
+  * Responsive mobile-friendly design
+  * Professional fonts (Google Fonts)
+  * Smooth animations
+  * Proper color scheme
+  * Navigation bar
+  * Footer
+- NEVER give plain/boring HTML — always give stunning design
+- Think like a professional web designer
+
 CODE FORMATTING RULES:
 - ALWAYS wrap code in proper markdown blocks: \`\`\`html, \`\`\`python, \`\`\`javascript etc.
 - Give complete working code — never partial
@@ -299,10 +322,19 @@ function useSpeech(onResult) {
   return { listening, supported, startListening, stopListening };
 }
 
-const css = `
+const css = (dark) => `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-:root{--bg:#0f0f0f;--surface:#1a1a1a;--surface2:#222;--border:#2a2a2a;--accent:#f97316;--accent2:#fb923c;--text:#f5f5f5;--muted:#6b7280;}
+:root{
+  --bg:${dark?"#0f0f0f":"#f5f5f5"};
+  --surface:${dark?"#1a1a1a":"#ffffff"};
+  --surface2:${dark?"#222":"#eeeeee"};
+  --border:${dark?"#2a2a2a":"#dddddd"};
+  --accent:#f97316;
+  --accent2:#fb923c;
+  --text:${dark?"#f5f5f5":"#111111"};
+  --muted:${dark?"#6b7280":"#888888"};
+}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);height:100dvh;overflow:hidden;}
 .app{display:flex;flex-direction:column;height:100dvh;max-width:480px;margin:0 auto;background:var(--bg);}
 .auth{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:20px;background:radial-gradient(ellipse at 50% -10%,#f9731620 0%,transparent 60%);}
@@ -310,7 +342,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .auth-card{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;display:flex;flex-direction:column;gap:14px;}
 .auth-head{font-size:18px;font-weight:700;text-align:center;}
 .inp-wrap{display:flex;flex-direction:column;gap:5px;}.inp-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.05em;}
-.inp{background:#111;border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;padding:13px 14px;outline:none;width:100%;transition:border-color .2s;}
+.inp{background:${dark?"#111":"#f9f9f9"};border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;padding:13px 14px;outline:none;width:100%;transition:border-color .2s;}
 .inp:focus{border-color:var(--accent);}
 .inp-hint{font-size:11px;color:var(--muted);}
 .btn{border:none;border-radius:12px;cursor:pointer;font-family:'Inter',sans-serif;font-size:15px;font-weight:600;padding:14px;transition:all .2s;width:100%;}
@@ -340,10 +372,10 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .msg-row{display:flex;gap:8px;align-items:flex-end;}.msg-row.user{flex-direction:row-reverse;}
 .bubble{max-width:82%;padding:12px 16px;font-size:14px;line-height:1.65;word-break:break-word;}
 .bubble.user{background:#f97316;color:#fff;border-radius:20px 20px 4px 20px;}
-.bubble.ai{background:#1e1e1e;color:var(--text);border:1px solid var(--border);border-radius:20px 20px 20px 4px;}
+.bubble.ai{background:${dark?"#1e1e1e":"#ffffff"};color:var(--text);border:1px solid var(--border);border-radius:20px 20px 20px 4px;}
 .msg-time{font-size:10px;color:var(--muted);padding:0 4px;}.msg-time.user{text-align:right;}
 .ai-av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
-.typing-bubble{background:#1e1e1e;border:1px solid var(--border);border-radius:20px 20px 20px 4px;padding:14px 18px;display:flex;gap:5px;}
+.typing-bubble{background:${dark?"#1e1e1e":"#ffffff"};border:1px solid var(--border);border-radius:20px 20px 20px 4px;padding:14px 18px;display:flex;gap:5px;}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:bounce 1.2s infinite;}
 .dot:nth-child(2){animation-delay:.2s;}.dot:nth-child(3){animation-delay:.4s;}
 @keyframes bounce{0%,80%,100%{transform:translateY(0);}40%{transform:translateY(-6px);}}
@@ -393,9 +425,78 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .payment-number{font-size:22px;font-weight:800;color:var(--accent);text-align:center;letter-spacing:2px;}
 .payment-step{font-size:13px;color:var(--text);display:flex;gap:8px;align-items:flex-start;}
 .loading-hist{text-align:center;color:var(--muted);padding:20px;font-size:14px;}
+.msg-actions{display:flex;gap:6px;margin-top:4px;}
+.msg-action-btn{background:var(--surface2);border:1px solid var(--border);border-radius:20px;color:var(--muted);cursor:pointer;font-size:11px;padding:3px 10px;display:flex;align-items:center;gap:4px;}
+.msg-action-btn:hover{color:var(--accent);border-color:var(--accent);}
 `;
 
-function fmtTime(ts) {
+// ── MAUSAM CARD ──────────────────────────────────────────────
+function MausamCard() {
+  const [mausam, setMausam] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [location, setLocation] = useState("India");
+
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+          const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&hourly=relative_humidity_2m,precipitation_probability`);
+          const data = await res.json();
+          const w = data.current_weather;
+          setMausam({
+            temp: Math.round(w.temperature),
+            wind: Math.round(w.windspeed),
+            code: w.weathercode,
+          });
+          // Get city name
+          const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
+          const geoData = await geoRes.json();
+          setLocation(geoData.address?.city || geoData.address?.town || geoData.address?.state || "Aapka Shehar");
+        } catch { setMausam(null); }
+        setLoading(false);
+      }, () => { setLoading(false); });
+    } else { setLoading(false); }
+  }, []);
+
+  function getWeatherInfo(code) {
+    if (code === 0) return { icon: "☀️", desc: "Saaf Mausam" };
+    if (code <= 3) return { icon: "⛅", desc: "Thode Badal" };
+    if (code <= 48) return { icon: "🌫️", desc: "Kohra" };
+    if (code <= 67) return { icon: "🌧️", desc: "Baarish" };
+    if (code <= 77) return { icon: "❄️", desc: "Baraf" };
+    if (code <= 82) return { icon: "🌦️", desc: "Baarish ke Aasar" };
+    return { icon: "⛈️", desc: "Toofan" };
+  }
+
+  if (loading) return <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:20,textAlign:"center",color:"var(--muted)"}}>⏳ Location le raha hoon...</div>;
+
+  if (!mausam) return (
+    <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
+      <div style={{fontSize:13,color:"var(--muted)",textAlign:"center"}}>📍 Location permission do — mausam dikhega</div>
+    </div>
+  );
+
+  const { icon, desc } = getWeatherInfo(mausam.code);
+  return (
+    <div style={{background:"linear-gradient(135deg,#0ea5e9,#0284c7)",borderRadius:14,padding:20}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:13,color:"#fff9",fontWeight:600}}>{location}</div>
+          <div style={{fontSize:42,fontWeight:800,color:"#fff"}}>{mausam.temp}°C</div>
+          <div style={{fontSize:14,color:"#fff",marginTop:4}}>{desc}</div>
+        </div>
+        <div style={{fontSize:64}}>{icon}</div>
+      </div>
+      <div style={{display:"flex",gap:16,marginTop:12}}>
+        <div style={{fontSize:12,color:"#fff9"}}>💨 Hawa: {mausam.wind} km/h</div>
+      </div>
+      <div style={{fontSize:11,color:"#fff7",marginTop:8}}>🌾 Kisan tip: {mausam.temp > 35 ? "Bahut garmi — fasal ko zyada paani do" : mausam.temp < 10 ? "Thandi — pala girne ka darr, fasal dhako" : "Mausam theek hai — normal kaam karo"}</div>
+    </div>
+  );
+}
+
+
   if (!ts) return "";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -429,8 +530,50 @@ export default function App() {
   const [imageBase64, setImageBase64] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [paymentDone, setPaymentDone] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const bottomRef = useRef(null);
   const galleryRef = useRef(null);
+
+  // Voice Reply — AI bolke jawab dega
+  function speakText(text) {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const clean = text.replace(/[*_`#]/g, "").slice(0, 500);
+    const utt = new SpeechSynthesisUtterance(clean);
+    utt.lang = "hi-IN";
+    utt.rate = 0.9;
+    utt.onstart = () => setIsSpeaking(true);
+    utt.onend = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utt);
+  }
+
+  function stopSpeaking() {
+    window.speechSynthesis?.cancel();
+    setIsSpeaking(false);
+  }
+
+  // PDF Export
+  function exportPDF() {
+    if (msgs.length === 0) { alert("Koi chat nahi hai export karne ke liye!"); return; }
+    const content = msgs.map(m => `${m.role === "user" ? "Aap" : "Saraswati AI"}: ${m.text}`).join("\n\n");
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `SaraswatiAI-Chat-${new Date().toLocaleDateString("en-IN")}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // WhatsApp Share
+  function shareOnWhatsApp() {
+    if (msgs.length === 0) { alert("Koi chat nahi hai share karne ke liye!"); return; }
+    const lastAI = msgs.filter(m => m.role === "ai").pop();
+    if (!lastAI) return;
+    const text = encodeURIComponent(`Saraswati AI ne bataya:\n\n${lastAI.text.slice(0, 300)}...\n\nSaraswati AI try karo: https://saraswati-ai-ebon.vercel.app`);
+    window.open(`https://wa.me/?text=${text}`, "_blank");
+  }
 
   // Speech recognition
   const { listening, supported, startListening, stopListening } = useSpeech((transcript, isFinal) => {
@@ -694,6 +837,7 @@ export default function App() {
           </div>
           <div className="drop-item" onClick={() => { setPage("chat"); setShowMenu(false); }}>💬 Chat</div>
           <div className="drop-item" onClick={() => { setPage("history"); setShowMenu(false); }}>📂 History</div>
+          <div className="drop-item" onClick={() => { setPage("kisan"); setShowMenu(false); }}>🌾 Kisan Helper</div>
           <div className="drop-item" onClick={() => { setPage("settings"); setShowMenu(false); }}>⚙️ Settings</div>
           {isAdmin && <div className="drop-item" onClick={() => { setPage("admin"); setShowMenu(false); }}>🛡️ Admin Panel</div>}
           <div className="drop-divider" />
@@ -812,9 +956,67 @@ export default function App() {
         </div>
       )}
 
-      {page === "settings" && (
+      {page === "kisan" && (
         <div className="page">
-          {!userData?.premium && (
+          <div className="page-top"><div className="page-title">🌾 Kisan Helper</div></div>
+
+          {/* Mausam Section */}
+          <div className="section-lbl">🌤️ Aaj Ka Mausam</div>
+          <MausamCard />
+
+          {/* Mandi Price Section */}
+          <div className="section-lbl">💰 Mandi Bhav — Aaj Ka</div>
+          <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
+            {[
+              {name:"Gehun (Wheat)",price:"₹2,200/quintal",change:"↑"},
+              {name:"Dhan (Paddy)",price:"₹1,940/quintal",change:"↓"},
+              {name:"Sarson",price:"₹5,200/quintal",change:"↑"},
+              {name:"Chana",price:"₹4,800/quintal",change:"→"},
+              {name:"Soyabean",price:"₹3,900/quintal",change:"↑"},
+              {name:"Makka (Maize)",price:"₹1,850/quintal",change:"↓"},
+              {name:"Tamatar",price:"₹800/quintal",change:"↑"},
+              {name:"Pyaaz",price:"₹1,200/quintal",change:"→"},
+              {name:"Aalu",price:"₹600/quintal",change:"↓"},
+            ].map((item,i) => (
+              <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:"1px solid var(--border)"}}>
+                <span style={{fontSize:14,fontWeight:500}}>{item.name}</span>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:14,fontWeight:700,color:"var(--accent)"}}>{item.price}</span>
+                  <span style={{fontSize:16,color:item.change==="↑"?"#22c55e":item.change==="↓"?"#ef4444":"#6b7280"}}>{item.change}</span>
+                </div>
+              </div>
+            ))}
+            <div style={{padding:"8px 16px",fontSize:11,color:"var(--muted)"}}>* Approximate rates — actual mandi se verify karein</div>
+          </div>
+
+          {/* Kisan Calendar */}
+          <div className="section-lbl">📅 Fasal Calendar</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {[
+              {month:"January - February",fasalein:"Gehun, Sarson, Chana, Matar",color:"#3b82f6"},
+              {month:"March - April",fasalein:"Harvesting season — Gehun, Sarson kaatna",color:"#f59e0b"},
+              {month:"May - June",fasalein:"Grishma fasalein — Moong, Urad, Til",color:"#ef4444"},
+              {month:"July - August",fasalein:"Kharif — Dhan, Makka, Soyabean, Kapas",color:"#22c55e"},
+              {month:"September - October",fasalein:"Dhan kaatna, Rabi ki tayari",color:"#8b5cf6"},
+              {month:"November - December",fasalein:"Gehun, Sarson, Chana, Aalu boye",color:"#f97316"},
+            ].map((item,i) => (
+              <div key={i} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",borderLeft:`4px solid ${item.color}`}}>
+                <div style={{fontSize:13,fontWeight:700,color:item.color}}>{item.month}</div>
+                <div style={{fontSize:13,color:"var(--text)",marginTop:4}}>{item.fasalein}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* AI Kisan Help */}
+          <div className="section-lbl">🤖 AI Se Poochho</div>
+          <div style={{background:"linear-gradient(135deg,#f97316,#ea580c)",borderRadius:14,padding:16,cursor:"pointer"}} onClick={() => { setPage("chat"); setInput("Mere khet ke liye fasal salah do"); }}>
+            <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>💬 Apni Khet Ki Problem Poochho</div>
+            <div style={{fontSize:13,color:"#fff9",marginTop:4}}>Fasal, beej, khad, keetnashak — sab kuch</div>
+          </div>
+        </div>
+      )}
+
+      {page === "settings" && (
             <div className="premium-card" onClick={() => setShowUpgrade(true)}>
               <h3>⭐ Upgrade to Premium</h3>
               <p>Unlimited chats, Web Search, Image AI</p>
