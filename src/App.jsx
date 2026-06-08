@@ -497,6 +497,7 @@ function MausamCard() {
 }
 
 
+function fmtTime(ts) {
   if (!ts) return "";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -1091,24 +1092,102 @@ export default function App() {
           <div style={{background:"#f9731615",border:"1px solid #f97316",borderRadius:12,padding:"12px 14px",fontSize:13,color:"#fb923c",marginBottom:4}}>
             🛡️ Admin Panel — Only visible to you
           </div>
+
+          {/* Stats Grid */}
           <div className="stat-grid">
-            <div className="stat-card"><div className="stat-val">{adminUsers.length}</div><div className="stat-lbl">Total Users</div></div>
-            <div className="stat-card"><div className="stat-val">{adminUsers.filter(u => u.premium).length}</div><div className="stat-lbl">Premium</div></div>
-            <div className="stat-card"><div className="stat-val">₹{adminUsers.filter(u => u.premium).length * 99}</div><div className="stat-lbl">Revenue</div></div>
-            <div className="stat-card"><div className="stat-val">{adminUsers.reduce((s,u) => s+(u.usageCount||0), 0)}</div><div className="stat-lbl">Total Chats</div></div>
+            <div className="stat-card"><div className="stat-val">{adminUsers.length}</div><div className="stat-lbl">👥 Total Users</div></div>
+            <div className="stat-card"><div className="stat-val">{adminUsers.filter(u => u.premium).length}</div><div className="stat-lbl">⭐ Premium</div></div>
+            <div className="stat-card"><div className="stat-val">₹{adminUsers.filter(u => u.premium).length * 99}</div><div className="stat-lbl">💰 Revenue</div></div>
+            <div className="stat-card"><div className="stat-val">{adminUsers.reduce((s,u) => s+(u.usageCount||0), 0)}</div><div className="stat-lbl">💬 Total Chats</div></div>
           </div>
-          <div className="section-lbl">All Users ({adminUsers.length})</div>
-          {adminUsers.map(u => (
-            <div key={u.id} className="user-card">
-              <div className="user-av">{u.name?.[0]?.toUpperCase()}</div>
-              <div style={{flex:1}}>
-                <div style={{fontSize:14,fontWeight:600}}>{u.name}</div>
-                <div style={{fontSize:11,color:"var(--muted)"}}>{u.email}</div>
-                <div style={{fontSize:11,color:"var(--muted)"}}>{u.usageCount||0} chats used</div>
+
+          {/* Revenue Graph */}
+          <div className="section-lbl">📊 Revenue Graph</div>
+          <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
+            <div style={{fontSize:13,color:"var(--muted)",marginBottom:12}}>Monthly Revenue (₹)</div>
+            {[
+              {month:"Jan",val:0},
+              {month:"Feb",val:0},
+              {month:"Mar",val:0},
+              {month:"Apr",val:adminUsers.filter(u=>u.premium).length*99},
+            ].map((item,i) => (
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                <div style={{fontSize:12,color:"var(--muted)",width:30}}>{item.month}</div>
+                <div style={{flex:1,background:"var(--surface2)",borderRadius:20,height:20,overflow:"hidden"}}>
+                  <div style={{
+                    width: item.val > 0 ? `${Math.min(100, (item.val/500)*100)}%` : "2%",
+                    background:"linear-gradient(135deg,#f97316,#ea580c)",
+                    height:"100%",
+                    borderRadius:20,
+                    minWidth:4
+                  }}/>
+                </div>
+                <div style={{fontSize:12,color:"var(--accent)",fontWeight:700,width:50}}>₹{item.val}</div>
               </div>
-              {u.premium && <div className="badge">PREMIUM</div>}
-              {u.premiumPending && !u.premium && <div className="badge" style={{background:"#eab308"}}>PENDING</div>}
-              {u.email === ADMIN_EMAIL && <div className="badge">ADMIN</div>}
+            ))}
+          </div>
+
+          {/* Pending Requests */}
+          {adminUsers.filter(u => u.premiumPending && !u.premium).length > 0 && (
+            <>
+              <div className="section-lbl">⏳ Pending Premium Requests ({adminUsers.filter(u => u.premiumPending && !u.premium).length})</div>
+              {adminUsers.filter(u => u.premiumPending && !u.premium).map(u => (
+                <div key={u.id} style={{background:"#f9731615",border:"1px solid #f97316",borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
+                  <div className="user-av">{u.name?.[0]?.toUpperCase()}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:14,fontWeight:600}}>{u.name}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>{u.email}</div>
+                  </div>
+                  <button style={{background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 12px"}}
+                    onClick={async () => {
+                      await setDoc(doc(db, "users", u.id), { premium: true, premiumPending: false }, { merge: true });
+                      setAdminUsers(prev => prev.map(au => au.id === u.id ? {...au, premium: true, premiumPending: false} : au));
+                      alert(`✅ ${u.name} ka premium activate ho gaya!`);
+                    }}>✅ Approve</button>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* All Users */}
+          <div className="section-lbl">👥 All Users ({adminUsers.length})</div>
+          {adminUsers.map(u => (
+            <div key={u.id} className="user-card" style={{flexDirection:"column",alignItems:"stretch",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div className="user-av">{u.name?.[0]?.toUpperCase()}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14,fontWeight:600}}>{u.name}</div>
+                  <div style={{fontSize:11,color:"var(--muted)"}}>{u.email}</div>
+                  <div style={{fontSize:11,color:"var(--muted)"}}>{u.usageCount||0} chats used</div>
+                </div>
+                {u.premium && <div className="badge">⭐ PREMIUM</div>}
+                {u.email === ADMIN_EMAIL && <div className="badge">ADMIN</div>}
+              </div>
+              {u.email !== ADMIN_EMAIL && (
+                <div style={{display:"flex",gap:8}}>
+                  {!u.premium ? (
+                    <button style={{flex:1,background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,padding:"8px"}}
+                      onClick={async () => {
+                        await setDoc(doc(db, "users", u.id), { premium: true, premiumPending: false }, { merge: true });
+                        setAdminUsers(prev => prev.map(au => au.id === u.id ? {...au, premium: true} : au));
+                        alert(`✅ ${u.name} Premium ON!`);
+                      }}>⭐ Premium ON</button>
+                  ) : (
+                    <button style={{flex:1,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"#ef4444",cursor:"pointer",fontSize:12,fontWeight:700,padding:"8px"}}
+                      onClick={async () => {
+                        await setDoc(doc(db, "users", u.id), { premium: false }, { merge: true });
+                        setAdminUsers(prev => prev.map(au => au.id === u.id ? {...au, premium: false} : au));
+                        alert(`❌ ${u.name} Premium OFF!`);
+                      }}>❌ Premium OFF</button>
+                  )}
+                  <button style={{background:"var(--surface2)",border:"1px solid #ef4444",borderRadius:8,color:"#ef4444",cursor:"pointer",fontSize:12,fontWeight:700,padding:"8px 12px"}}
+                    onClick={async () => {
+                      if(!confirm(`${u.name} ko delete karo?`)) return;
+                      await deleteDoc(doc(db, "users", u.id));
+                      setAdminUsers(prev => prev.filter(au => au.id !== u.id));
+                    }}>🗑️</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
