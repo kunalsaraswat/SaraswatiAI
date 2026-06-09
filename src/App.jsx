@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { getFirestore, doc, setDoc, getDoc, collection, addDoc, query, where, orderBy, getDocs, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -513,6 +513,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [page, setPage] = useState("chat");
   const [authMode, setAuthMode] = useState("login");
+  const [forgotMode, setForgotMode] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", pass: "" });
   const [formErr, setFormErr] = useState("");
   const [formLoading, setFormLoading] = useState(false);
@@ -783,32 +784,69 @@ export default function App() {
         <div className="auth-logo">🪷</div>
         <div className="auth-title">Saraswati AI</div>
         <div className="auth-sub">Your intelligent AI assistant — free</div>
-        <div className="auth-card">
-          <div className="auth-head">{authMode === "login" ? "Welcome Back 👋" : "Create Account ✨"}</div>
-          {authMode === "signup" && (
+
+        {forgotMode ? (
+          <div className="auth-card">
+            <div className="auth-head">🔑 Password Reset</div>
             <div className="inp-wrap">
-              <div className="inp-label">FULL NAME</div>
-              <input className="inp" placeholder="Apna naam likho" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              <div className="inp-label">EMAIL</div>
+              <input className="inp" type="email" placeholder="Apna email daalo" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             </div>
-          )}
-          <div className="inp-wrap">
-            <div className="inp-label">EMAIL</div>
-            <input className="inp" type="email" placeholder="email@example.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            {formErr && <div className="err">{formErr}</div>}
+            <button className="btn btn-primary" disabled={formLoading} onClick={async () => {
+              if (!form.email) { setFormErr("Email daalo!"); return; }
+              setFormLoading(true);
+              try {
+                await sendPasswordResetEmail(auth, form.email);
+                setFormErr("");
+                alert("✅ Password reset email bhej diya! Apna email check karo.");
+                setForgotMode(false);
+                setForm(f => ({ ...f, email: "" }));
+              } catch(e) {
+                setFormErr("Email nahi mila — sahi email daalo!");
+              }
+              setFormLoading(false);
+            }}>
+              {formLoading ? "Bhej raha hoon..." : "📧 Reset Link Bhejo"}
+            </button>
+            <div className="auth-switch">
+              <span onClick={() => { setForgotMode(false); setFormErr(""); }}>← Wapas Login par jao</span>
+            </div>
           </div>
-          <div className="inp-wrap">
-            <div className="inp-label">PASSWORD</div>
-            <input className="inp" type="password" placeholder="Kam se kam 8 characters" value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
-            <div className="inp-hint">⚠️ Password kam se kam 8 characters ka hona chahiye</div>
+        ) : (
+          <div className="auth-card">
+            <div className="auth-head">{authMode === "login" ? "Welcome Back 👋" : "Create Account ✨"}</div>
+            {authMode === "signup" && (
+              <div className="inp-wrap">
+                <div className="inp-label">FULL NAME</div>
+                <input className="inp" placeholder="Apna naam likho" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+            )}
+            <div className="inp-wrap">
+              <div className="inp-label">EMAIL</div>
+              <input className="inp" type="email" placeholder="email@example.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </div>
+            <div className="inp-wrap">
+              <div className="inp-label">PASSWORD</div>
+              <input className="inp" type="password" placeholder="Kam se kam 8 characters" value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
+              <div className="inp-hint">⚠️ Password kam se kam 8 characters ka hona chahiye</div>
+            </div>
+            {formErr && <div className="err">{formErr}</div>}
+            <button className="btn btn-primary" onClick={handleAuth} disabled={formLoading}>
+              {formLoading ? "Please wait..." : authMode === "login" ? "Login →" : "Create Account →"}
+            </button>
+            {authMode === "login" && (
+              <div style={{textAlign:"center",fontSize:13,color:"var(--accent)",cursor:"pointer",marginTop:-4}} onClick={() => { setForgotMode(true); setFormErr(""); }}>
+                🔑 Forgot Password?
+              </div>
+            )}
           </div>
-          {formErr && <div className="err">{formErr}</div>}
-          <button className="btn btn-primary" onClick={handleAuth} disabled={formLoading}>
-            {formLoading ? "Please wait..." : authMode === "login" ? "Login →" : "Create Account →"}
-          </button>
-        </div>
+        )}
+
         <div className="auth-switch">
-          {authMode === "login"
+          {!forgotMode && (authMode === "login"
             ? <>Don't have an account? <span onClick={() => { setAuthMode("signup"); setFormErr(""); }}>Sign up</span></>
-            : <>Already have an account? <span onClick={() => { setAuthMode("login"); setFormErr(""); }}>Login</span></>}
+            : <>Already have an account? <span onClick={() => { setAuthMode("login"); setFormErr(""); }}>Login</span></>)}
         </div>
       </div>
     </div>
