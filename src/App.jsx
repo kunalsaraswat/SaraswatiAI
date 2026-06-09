@@ -17,7 +17,8 @@ const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 
 // ⚠️ APNI GROQ KEY YAHAN PASTE KARO
-const GROQ_API_KEY = "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";
+const GROQ_API_KEY = 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";
+meta.env.VITE_GROQ_API_KEY;
 const TAVILY_API_KEY = "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";
 const ADMIN_EMAIL = "kunalsaraswat691@gmail.com";
 const PHONEPAY_NUMBER = "8126630980";
