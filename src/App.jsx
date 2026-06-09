@@ -232,6 +232,7 @@ function CodeBlock({ code, lang }) {
         </div>
       )}
     </div>
+  </div>
   );
 }
 
@@ -1275,5 +1276,6 @@ export default function App() {
         </div>
       )}
     </div>
-  );
+  </div>
+);
 }
