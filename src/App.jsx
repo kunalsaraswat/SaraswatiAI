@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { getFirestore, doc, setDoc, getDoc, collection, addDoc, query, where, orderBy, getDocs, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -35,24 +35,9 @@ async function webSearch(query) {
   } catch { return null; }
 }
 
-async function needsWebSearch(text) {
-  try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ_API_KEY },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        max_tokens: 5,
-        messages: [
-          { role: "system", content: "You are a classifier. Reply only 'YES' or 'NO'. Does this question require real-time internet search to answer accurately? (news, live scores, current weather, stock prices, recent events, etc.) Reply YES only if the question genuinely needs current/live data from the internet." },
-          { role: "user", content: text }
-        ]
-      })
-    });
-    const data = await res.json();
-    const answer = data.choices?.[0]?.message?.content?.trim().toUpperCase();
-    return answer === "YES";
-  } catch { return false; }
+function needsWebSearch(text) {
+  const keywords = ["aaj","today","abhi","news","score","weather","mausam","latest","current","price","rate","result","live","winner","2024","2025","2026","kab","when","who won","kaun jita","match","election","sarkar","government","new","naya"];
+  return keywords.some(k => text.toLowerCase().includes(k));
 }
 
 function isOwnerQuestion(text) {
@@ -75,99 +60,40 @@ async function askAI(messages, imageBase64 = null) {
   }
 
   let searchContext = "";
-  if (lastMsg?.role === "user") {
-    const shouldSearch = await needsWebSearch(lastMsg.text);
-    if (shouldSearch) {
-      const results = await webSearch(lastMsg.text);
-      if (results) searchContext = `\n\nWeb Search Results:\n${results}\n\nUse above info to answer accurately.`;
-    }
+  if (lastMsg?.role === "user" && needsWebSearch(lastMsg.text)) {
+    const results = await webSearch(lastMsg.text);
+    if (results) searchContext = `\n\nWeb Search Results:\n${results}\n\nUse above info to answer accurately.`;
   }
 
-  const systemPrompt = `You are Saraswati AI — an extremely intelligent, helpful and friendly AI assistant made for Indian users, especially farmers and developers.
+  const systemPrompt = `You are Saraswati AI — an extremely intelligent, helpful and friendly AI assistant.
 
 IMPORTANT IDENTITY RULES:
-- If anyone asks who made you, who is your owner/creator/master → say "Mujhe Kunal Saraswat ne banaya hai!"
-- If anyone asks how you were built, what technology, source code → say "Yeh private hai, main nahi bata sakta!"
+- If anyone asks who made you, who is your owner/creator/master → always say "Mujhe Kunal Saraswat ne banaya hai!"
+- If anyone asks how you were built, what technology, source code → always say "Yeh private hai, main nahi bata sakta!"
 - Never reveal you are made by Meta, Groq, or any other company.
-- STRICT RULE: Normal greetings, casual baat, kisi bhi aur topic mein KABHI MAT BOLO "Mujhe Kunal Saraswat ne banaya hai" — yeh sirf tab bolna hai jab koi directly pooche "kisne banaya" ya "who made you". Agar koi "hello", "kya kar rahe ho", "how are you" bole toh sirf friendly jawab do — creator ka naam mat lo.
 
 LANGUAGE RULE:
 - Always detect and reply in EXACTLY the same language as the user.
-- Hindi → Hindi, English → English, Hinglish → Hinglish, Farsi → Farsi, etc.
+- Hindi → Hindi, English → English, Hinglish → Hinglish
 
 PERSONALITY:
 - Warm, casual, friendly like a best friend
-- Understand the TRUE INTENT of what the user wants — not just words
-- Never robotic, never generic
-- Never give wrong or harmful information
+- Understand emotion and intent
+- Never robotic
 
-FARMING EXPERTISE (VERY IMPORTANT):
-- You are an expert agricultural advisor for Indian farmers
-- Help with: crop selection, sowing time, irrigation, fertilizers, pesticides, soil health, weather impact, government schemes, mandi prices, organic farming
-- Always give ACCURATE, SAFE advice — never suggest wrong fertilizer amounts or wrong pesticides
-- Give advice based on Indian climate, soil types and seasons
-- Mention government schemes like PM Kisan, Fasal Bima Yojana when relevant
-- If unsure about something farming related, say so clearly — never guess
+CODE FORMATTING RULES (VERY IMPORTANT):
+- When giving code, ALWAYS wrap it in proper markdown code blocks with language name
+- Example: \`\`\`html ... \`\`\` or \`\`\`python ... \`\`\`
+- Give complete, working code always
+- Explain the code briefly after giving it
 
-KISAN HELP RULES (VERY IMPORTANT):
-- Jab koi kisan apni problem bataye — seedha helpful answer do, zyada sawaal mat karo
-- Agar kisan bole "mere khet mein paani aata hai" → turant best fasal bata do jaise Dhan, Arbi, Singhara, Lotus, Water Chestnut
-- Agar kisan state/district bataye → us region ke hisaab se specific salah do
-- Agar na bataye → general Indian farming advice do jo sabse zyada kaam aaye
-- Hamesha SEED KA NAAM, BRAND, AUR KAHAN MILEGA yeh bhi batao
-- KHAD KI MATRA — exactly kitni daalni hai per acre batao
-- KEETNASHAK — naam, matra, kab daalna hai sab batao
-- MANDI RATE — web search se current rate batao
-- PAANI WALI ZAMEEN ke liye best fasalein: Dhan, Arbi, Singhara, Kaddu, Turai, Palak
-- SUKHI ZAMEEN ke liye: Gehun, Bajra, Jowar, Chana, Sarson
-- KALI MITTI: Kapas, Soyabean, Gehun
-- RETI MITTI: Moongfali, Til, Bajra
-- Hamesha realistic advice do — jo actually kaam kare
-- Government schemes hamesha mention karo — PM Kisan, Fasal Bima, KCC loan
-
-CODING EXPERTISE (VERY IMPORTANT):
-- You are an expert programmer
-- Languages: HTML, CSS, JavaScript, React, Python, Node.js and more
-- Always give COMPLETE, WORKING, ERROR-FREE code
-- Test your logic mentally before giving code
-- Explain what each part does briefly
-- If user has a bug, find it and fix it properly
-- Never give incomplete or broken code
-- Format code properly in markdown code blocks always
-
-WEBSITE DESIGN RULES (VERY IMPORTANT):
-- Jab bhi koi website maange — BEAUTIFUL, MODERN, PROFESSIONAL website do
-- HAMESHA ek hi file mein do — HTML + CSS + JS sab saath mein
-- KABHI ALAG style.css mat do — sab inline ya <style> tag mein
-- Images ke liye HAMESHA real online images use karo:
-  * Vegetables: https://source.unsplash.com/400x300/?tomato ya ?cucumber etc
-  * Food: https://source.unsplash.com/400x300/?food
-  * Farming: https://source.unsplash.com/400x300/?farming
-  * Business: https://source.unsplash.com/400x300/?business
-  * People: https://source.unsplash.com/400x300/?people
-- DESIGN must include:
-  * Beautiful gradient backgrounds
-  * Modern card layouts
-  * Hover effects on buttons and cards
-  * Responsive mobile-friendly design
-  * Professional fonts (Google Fonts)
-  * Smooth animations
-  * Proper color scheme
-  * Navigation bar
-  * Footer
-- NEVER give plain/boring HTML — always give stunning design
-- Think like a professional web designer
-
-CODE FORMATTING RULES:
-- ALWAYS wrap code in proper markdown blocks: \`\`\`html, \`\`\`python, \`\`\`javascript etc.
-- Give complete working code — never partial
-- Explain briefly after the code
-
-GENERAL EXPERTISE:
+EXPERTISE:
+- Coding: HTML, CSS, JavaScript, Python, React — complete working code
+- Farming & agriculture
 - Math, science, history, general knowledge
-- Creative writing, business ideas, health advice
-- Latest news and current events (via web search)
-- Image analysis and description${searchContext}`;
+- Creative writing, business ideas, health
+- Latest news (web search)
+- Image analysis${searchContext}`;
 
   const lastUserContent = imageBase64
     ? [{ type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }, { type: "text", text: lastMsg.text }]
@@ -192,68 +118,52 @@ GENERAL EXPERTISE:
 // ── CODE BLOCK RENDERER ──────────────────────────────────────
 function CodeBlock({ code, lang }) {
   const [copied, setCopied] = useState(false);
-  const [preview, setPreview] = useState(false);
-
   function copy() {
     navigator.clipboard?.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
-
-  const canPreview = ["html", "css", "javascript", "js", ""].includes((lang || "").toLowerCase());
-
   return (
     <div style={{background:"#0d0d0d",border:"1px solid #333",borderRadius:10,margin:"6px 0",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 12px",background:"#1a1a1a",borderBottom:"1px solid #333"}}>
         <span style={{fontSize:11,color:"#6b7280",fontFamily:"monospace"}}>{lang || "code"}</span>
-        <div style={{display:"flex",gap:8}}>
-          {canPreview && (
-            <button onClick={() => setPreview(v => !v)} style={{background:"none",border:"none",color:preview?"#f97316":"#6b7280",cursor:"pointer",fontSize:11,padding:"2px 6px"}}>
-              {preview ? "✕ Close" : "▶ Preview"}
-            </button>
-          )}
-          <button onClick={copy} style={{background:"none",border:"none",color:copied?"#22c55e":"#6b7280",cursor:"pointer",fontSize:11,padding:"2px 6px"}}>
-            {copied ? "✓ Copied" : "Copy"}
-          </button>
-        </div>
+        <button onClick={copy} style={{background:"none",border:"none",color:copied?"#22c55e":"#6b7280",cursor:"pointer",fontSize:11,padding:"2px 6px"}}>
+          {copied ? "✓ Copied" : "Copy"}
+        </button>
       </div>
       <pre style={{padding:"12px",margin:0,overflowX:"auto",fontSize:12,lineHeight:1.6,color:"#e5e7eb",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
         {code}
       </pre>
-      {preview && canPreview && (
-        <div style={{borderTop:"1px solid #333"}}>
-          <div style={{padding:"6px 12px",background:"#1a1a1a",fontSize:11,color:"#f97316"}}>🌐 Live Preview</div>
-          <iframe
-            srcDoc={lang === "css" ? `<style>${code}</style><p>CSS Preview</p>` : lang === "javascript" || lang === "js" ? `<script>${code}</script>` : code}
-            style={{width:"100%",minHeight:300,border:"none",background:"#fff",borderRadius:"0 0 10px 10px"}}
-            sandbox="allow-scripts"
-            title="preview"
-          />
-        </div>
-      )}
     </div>
-  </div>
   );
 }
 
 // ── AI TEXT RENDERER ──────────────────────────────────────────
 function AIText({ text }) {
   if (!text) return null;
+
   const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
   const parts = [];
   let lastIndex = 0;
   let match;
+
   while ((match = codeBlockRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) parts.push({ type: "text", content: text.slice(lastIndex, match.index) });
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", content: text.slice(lastIndex, match.index) });
+    }
     parts.push({ type: "code", lang: match[1], content: match[2].trim() });
     lastIndex = match.index + match[0].length;
   }
-  if (lastIndex < text.length) parts.push({ type: "text", content: text.slice(lastIndex) });
+  if (lastIndex < text.length) {
+    parts.push({ type: "text", content: text.slice(lastIndex) });
+  }
 
   return (
     <span style={{display:"flex",flexDirection:"column",gap:4}}>
       {parts.map((part, idx) => {
-        if (part.type === "code") return <CodeBlock key={idx} code={part.content} lang={part.lang} />;
+        if (part.type === "code") {
+          return <CodeBlock key={idx} code={part.content} lang={part.lang} />;
+        }
         const lines = part.content.split("\n");
         return lines.map((line, i) => {
           if (!line.trim()) return <span key={`${idx}-${i}`} style={{height:6}} />;
@@ -276,66 +186,10 @@ function AIText({ text }) {
   );
 }
 
-// ── SPEECH RECOGNITION HOOK ──────────────────────────────────
-function useSpeech(onResult) {
-  const [listening, setListening] = useState(false);
-  const [supported, setSupported] = useState(false);
-  const recogRef = useRef(null);
-
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      setSupported(true);
-      const recog = new SpeechRecognition();
-      recog.continuous = false;
-      recog.interimResults = true;
-      // Auto detect language — supports 100+ world languages
-      recog.lang = "";
-      recog.onresult = (e) => {
-        let transcript = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          transcript += e.results[i][0].transcript;
-        }
-        onResult(transcript, e.results[e.results.length - 1].isFinal);
-      };
-      recog.onend = () => setListening(false);
-      recog.onerror = () => setListening(false);
-      recogRef.current = recog;
-    }
-  }, []);
-
-  function startListening() {
-    if (!recogRef.current) return;
-    try {
-      recogRef.current.start();
-      setListening(true);
-    } catch(e) {}
-  }
-
-  function stopListening() {
-    if (!recogRef.current) return;
-    try {
-      recogRef.current.stop();
-      setListening(false);
-    } catch(e) {}
-  }
-
-  return { listening, supported, startListening, stopListening };
-}
-
-const css = (dark) => `
+const css = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-:root{
-  --bg:${dark?"#0f0f0f":"#f5f5f5"};
-  --surface:${dark?"#1a1a1a":"#ffffff"};
-  --surface2:${dark?"#222":"#eeeeee"};
-  --border:${dark?"#2a2a2a":"#dddddd"};
-  --accent:#f97316;
-  --accent2:#fb923c;
-  --text:${dark?"#f5f5f5":"#111111"};
-  --muted:${dark?"#6b7280":"#888888"};
-}
+:root{--bg:#0f0f0f;--surface:#1a1a1a;--surface2:#222;--border:#2a2a2a;--accent:#f97316;--accent2:#fb923c;--text:#f5f5f5;--muted:#6b7280;}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);height:100dvh;overflow:hidden;}
 .app{display:flex;flex-direction:column;height:100dvh;max-width:480px;margin:0 auto;background:var(--bg);}
 .auth{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:20px;background:radial-gradient(ellipse at 50% -10%,#f9731620 0%,transparent 60%);}
@@ -343,7 +197,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .auth-card{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;display:flex;flex-direction:column;gap:14px;}
 .auth-head{font-size:18px;font-weight:700;text-align:center;}
 .inp-wrap{display:flex;flex-direction:column;gap:5px;}.inp-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.05em;}
-.inp{background:${dark?"#111":"#f9f9f9"};border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;padding:13px 14px;outline:none;width:100%;transition:border-color .2s;}
+.inp{background:#111;border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;padding:13px 14px;outline:none;width:100%;transition:border-color .2s;}
 .inp:focus{border-color:var(--accent);}
 .inp-hint{font-size:11px;color:var(--muted);}
 .btn{border:none;border-radius:12px;cursor:pointer;font-family:'Inter',sans-serif;font-size:15px;font-weight:600;padding:14px;transition:all .2s;width:100%;}
@@ -373,10 +227,10 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .msg-row{display:flex;gap:8px;align-items:flex-end;}.msg-row.user{flex-direction:row-reverse;}
 .bubble{max-width:82%;padding:12px 16px;font-size:14px;line-height:1.65;word-break:break-word;}
 .bubble.user{background:#f97316;color:#fff;border-radius:20px 20px 4px 20px;}
-.bubble.ai{background:${dark?"#1e1e1e":"#ffffff"};color:var(--text);border:1px solid var(--border);border-radius:20px 20px 20px 4px;}
+.bubble.ai{background:#1e1e1e;color:var(--text);border:1px solid var(--border);border-radius:20px 20px 20px 4px;}
 .msg-time{font-size:10px;color:var(--muted);padding:0 4px;}.msg-time.user{text-align:right;}
 .ai-av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
-.typing-bubble{background:${dark?"#1e1e1e":"#ffffff"};border:1px solid var(--border);border-radius:20px 20px 20px 4px;padding:14px 18px;display:flex;gap:5px;}
+.typing-bubble{background:#1e1e1e;border:1px solid var(--border);border-radius:20px 20px 20px 4px;padding:14px 18px;display:flex;gap:5px;}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:bounce 1.2s infinite;}
 .dot:nth-child(2){animation-delay:.2s;}.dot:nth-child(3){animation-delay:.4s;}
 @keyframes bounce{0%,80%,100%{transform:translateY(0);}40%{transform:translateY(-6px);}}
@@ -386,11 +240,6 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .send{background:linear-gradient(135deg,#f97316,#ea580c);border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:18px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .send:disabled{opacity:.4;cursor:not-allowed;}
 .plus-btn{background:var(--surface2);border:1.5px solid var(--border);border-radius:50%;color:var(--text);cursor:pointer;font-size:22px;font-weight:300;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-.mic-btn{border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:18px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;}
-.mic-btn.idle{background:var(--surface2);border:1.5px solid var(--border);color:var(--text);}
-.mic-btn.listening{background:linear-gradient(135deg,#ef4444,#dc2626);animation:pulse 1s infinite;}
-@keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.08);box-shadow:0 0 0 6px #ef444430;}}
-.mic-status{font-size:11px;color:#ef4444;padding:4px 10px;background:#ef444415;border-radius:20px;display:inline-flex;align-items:center;gap:4px;margin-bottom:4px;animation:fadeIn .2s ease;}
 .img-preview{position:relative;display:inline-block;margin-bottom:8px;}
 .img-preview img{width:80px;height:80px;object-fit:cover;border-radius:12px;border:2px solid var(--accent);}
 .img-preview-remove{position:absolute;top:-6px;right:-6px;background:#ef4444;border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:12px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;}
@@ -426,77 +275,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);heigh
 .payment-number{font-size:22px;font-weight:800;color:var(--accent);text-align:center;letter-spacing:2px;}
 .payment-step{font-size:13px;color:var(--text);display:flex;gap:8px;align-items:flex-start;}
 .loading-hist{text-align:center;color:var(--muted);padding:20px;font-size:14px;}
-.msg-actions{display:flex;gap:6px;margin-top:4px;}
-.msg-action-btn{background:var(--surface2);border:1px solid var(--border);border-radius:20px;color:var(--muted);cursor:pointer;font-size:11px;padding:3px 10px;display:flex;align-items:center;gap:4px;}
-.msg-action-btn:hover{color:var(--accent);border-color:var(--accent);}
 `;
-
-// ── MAUSAM CARD ──────────────────────────────────────────────
-function MausamCard() {
-  const [mausam, setMausam] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [location, setLocation] = useState("India");
-
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        try {
-          const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&hourly=relative_humidity_2m,precipitation_probability`);
-          const data = await res.json();
-          const w = data.current_weather;
-          setMausam({
-            temp: Math.round(w.temperature),
-            wind: Math.round(w.windspeed),
-            code: w.weathercode,
-          });
-          // Get city name
-          const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
-          const geoData = await geoRes.json();
-          setLocation(geoData.address?.city || geoData.address?.town || geoData.address?.state || "Aapka Shehar");
-        } catch { setMausam(null); }
-        setLoading(false);
-      }, () => { setLoading(false); });
-    } else { setLoading(false); }
-  }, []);
-
-  function getWeatherInfo(code) {
-    if (code === 0) return { icon: "☀️", desc: "Saaf Mausam" };
-    if (code <= 3) return { icon: "⛅", desc: "Thode Badal" };
-    if (code <= 48) return { icon: "🌫️", desc: "Kohra" };
-    if (code <= 67) return { icon: "🌧️", desc: "Baarish" };
-    if (code <= 77) return { icon: "❄️", desc: "Baraf" };
-    if (code <= 82) return { icon: "🌦️", desc: "Baarish ke Aasar" };
-    return { icon: "⛈️", desc: "Toofan" };
-  }
-
-  if (loading) return <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:20,textAlign:"center",color:"var(--muted)"}}>⏳ Location le raha hoon...</div>;
-
-  if (!mausam) return (
-    <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-      <div style={{fontSize:13,color:"var(--muted)",textAlign:"center"}}>📍 Location permission do — mausam dikhega</div>
-    </div>
-  );
-
-  const { icon, desc } = getWeatherInfo(mausam.code);
-  return (
-    <div style={{background:"linear-gradient(135deg,#0ea5e9,#0284c7)",borderRadius:14,padding:20}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div>
-          <div style={{fontSize:13,color:"#fff9",fontWeight:600}}>{location}</div>
-          <div style={{fontSize:42,fontWeight:800,color:"#fff"}}>{mausam.temp}°C</div>
-          <div style={{fontSize:14,color:"#fff",marginTop:4}}>{desc}</div>
-        </div>
-        <div style={{fontSize:64}}>{icon}</div>
-      </div>
-      <div style={{display:"flex",gap:16,marginTop:12}}>
-        <div style={{fontSize:12,color:"#fff9"}}>💨 Hawa: {mausam.wind} km/h</div>
-      </div>
-      <div style={{fontSize:11,color:"#fff7",marginTop:8}}>🌾 Kisan tip: {mausam.temp > 35 ? "Bahut garmi — fasal ko zyada paani do" : mausam.temp < 10 ? "Thandi — pala girne ka darr, fasal dhako" : "Mausam theek hai — normal kaam karo"}</div>
-    </div>
-  );
-}
-
 
 function fmtTime(ts) {
   if (!ts) return "";
@@ -514,7 +293,6 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [page, setPage] = useState("chat");
   const [authMode, setAuthMode] = useState("login");
-  const [forgotMode, setForgotMode] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", pass: "" });
   const [formErr, setFormErr] = useState("");
   const [formLoading, setFormLoading] = useState(false);
@@ -533,64 +311,8 @@ export default function App() {
   const [imageBase64, setImageBase64] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [paymentDone, setPaymentDone] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const bottomRef = useRef(null);
   const galleryRef = useRef(null);
-
-  // Voice Reply — AI bolke jawab dega
-  function speakText(text) {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const clean = text.replace(/[*_`#]/g, "").slice(0, 500);
-    const utt = new SpeechSynthesisUtterance(clean);
-    utt.lang = "hi-IN";
-    utt.rate = 0.9;
-    utt.onstart = () => setIsSpeaking(true);
-    utt.onend = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utt);
-  }
-
-  function stopSpeaking() {
-    window.speechSynthesis?.cancel();
-    setIsSpeaking(false);
-  }
-
-  // PDF Export
-  function exportPDF() {
-    if (msgs.length === 0) { alert("Koi chat nahi hai export karne ke liye!"); return; }
-    const content = msgs.map(m => `${m.role === "user" ? "Aap" : "Saraswati AI"}: ${m.text}`).join("\n\n");
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `SaraswatiAI-Chat-${new Date().toLocaleDateString("en-IN")}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  // WhatsApp Share
-  function shareOnWhatsApp() {
-    if (msgs.length === 0) { alert("Koi chat nahi hai share karne ke liye!"); return; }
-    const lastAI = msgs.filter(m => m.role === "ai").pop();
-    if (!lastAI) return;
-    const text = encodeURIComponent(`Saraswati AI ne bataya:\n\n${lastAI.text.slice(0, 300)}...\n\nSaraswati AI try karo: https://saraswati-ai-ebon.vercel.app`);
-    window.open(`https://wa.me/?text=${text}`, "_blank");
-  }
-
-  // Speech recognition
-  const { listening, supported, startListening, stopListening } = useSpeech((transcript, isFinal) => {
-    setInput(transcript);
-  });
-
-  function toggleMic() {
-    if (listening) {
-      stopListening();
-    } else {
-      setInput("");
-      startListening();
-    }
-  }
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -614,10 +336,16 @@ export default function App() {
   async function loadHistories() {
     setHistLoading(true);
     try {
-      const q = query(collection(db, "chats"), where("userId", "==", user.uid), orderBy("updatedAt", "desc"));
+      const q = query(
+        collection(db, "chats"),
+        where("userId", "==", user.uid),
+        orderBy("updatedAt", "desc")
+      );
       const snap = await getDocs(q);
       setHistories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch(e) {
+      console.error("History error:", e);
+      // Fallback: try without orderBy
       try {
         const q2 = query(collection(db, "chats"), where("userId", "==", user.uid));
         const snap2 = await getDocs(q2);
@@ -625,7 +353,9 @@ export default function App() {
           .map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
         setHistories(sorted);
-      } catch(e2) { console.error(e2); }
+      } catch(e2) {
+        console.error("Fallback history error:", e2);
+      }
     }
     setHistLoading(false);
   }
@@ -684,7 +414,6 @@ export default function App() {
   async function sendMsg(text) {
     const txt = text || input.trim();
     if ((!txt && !imageBase64) || loading) return;
-    if (listening) stopListening();
     const ud = userData;
     if (!ud?.premium && (ud?.usageCount || 0) >= FREE_CHAT_LIMIT) { setShowLimit(true); return; }
     const msgText = txt || "Is image mein kya hai?";
@@ -704,8 +433,7 @@ export default function App() {
     const newCount = (ud?.usageCount || 0) + 1;
     await setDoc(doc(db, "users", user.uid), { usageCount: newCount }, { merge: true });
     setUserData(prev => ({ ...prev, usageCount: newCount }));
-    const shouldSearch = await needsWebSearch(msgText);
-    if (shouldSearch) setIsSearching(true);
+    if (needsWebSearch(msgText)) setIsSearching(true);
     setLoading(true);
     try {
       const aiText = await askAI(newMsgs, imgB64);
@@ -730,16 +458,28 @@ export default function App() {
     }
   }
 
+  // ✅ FIXED loadSession — no orderBy, client-side sort
   async function loadSession(session) {
     try {
       setPage("chat");
       setSessionId(session.id);
       setMsgs([]);
-      const q = query(collection(db, "messages"), where("sessionId", "==", session.id));
+
+      const q = query(
+        collection(db, "messages"),
+        where("sessionId", "==", session.id)
+      );
+
       const snap = await getDocs(q);
+
       const loadedMsgs = snap.docs
         .map(d => ({ id: d.id, ...d.data(), time: d.data().createdAt }))
-        .sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+        .sort((a, b) => {
+          const aTime = a.createdAt?.seconds || 0;
+          const bTime = b.createdAt?.seconds || 0;
+          return aTime - bTime;
+        });
+
       setMsgs(loadedMsgs);
     } catch(e) {
       console.error("Load session error:", e);
@@ -772,7 +512,7 @@ export default function App() {
 
   if (!authReady) return (
     <div className="app" style={{alignItems:"center",justifyContent:"center"}}>
-      <style>{css(darkMode)}</style>
+      <style>{css}</style>
       <div style={{fontSize:48}}>🪷</div>
       <div style={{marginTop:12,color:"var(--muted)"}}>Loading...</div>
     </div>
@@ -780,74 +520,37 @@ export default function App() {
 
   if (!user) return (
     <div className="app">
-      <style>{css(darkMode)}</style>
+      <style>{css}</style>
       <div className="auth">
         <div className="auth-logo">🪷</div>
         <div className="auth-title">Saraswati AI</div>
         <div className="auth-sub">Your intelligent AI assistant — free</div>
-
-        {forgotMode ? (
-          <div className="auth-card">
-            <div className="auth-head">🔑 Password Reset</div>
+        <div className="auth-card">
+          <div className="auth-head">{authMode === "login" ? "Welcome Back 👋" : "Create Account ✨"}</div>
+          {authMode === "signup" && (
             <div className="inp-wrap">
-              <div className="inp-label">EMAIL</div>
-              <input className="inp" type="email" placeholder="Apna email daalo" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+              <div className="inp-label">FULL NAME</div>
+              <input className="inp" placeholder="Apna naam likho" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
-            {formErr && <div className="err">{formErr}</div>}
-            <button className="btn btn-primary" disabled={formLoading} onClick={async () => {
-              if (!form.email) { setFormErr("Email daalo!"); return; }
-              setFormLoading(true);
-              try {
-                await sendPasswordResetEmail(auth, form.email);
-                setFormErr("");
-                alert("✅ Password reset email bhej diya! Apna email check karo.");
-                setForgotMode(false);
-                setForm(f => ({ ...f, email: "" }));
-              } catch(e) {
-                setFormErr("Email nahi mila — sahi email daalo!");
-              }
-              setFormLoading(false);
-            }}>
-              {formLoading ? "Bhej raha hoon..." : "📧 Reset Link Bhejo"}
-            </button>
-            <div className="auth-switch">
-              <span onClick={() => { setForgotMode(false); setFormErr(""); }}>← Wapas Login par jao</span>
-            </div>
+          )}
+          <div className="inp-wrap">
+            <div className="inp-label">EMAIL</div>
+            <input className="inp" type="email" placeholder="email@example.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
           </div>
-        ) : (
-          <div className="auth-card">
-            <div className="auth-head">{authMode === "login" ? "Welcome Back 👋" : "Create Account ✨"}</div>
-            {authMode === "signup" && (
-              <div className="inp-wrap">
-                <div className="inp-label">FULL NAME</div>
-                <input className="inp" placeholder="Apna naam likho" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-              </div>
-            )}
-            <div className="inp-wrap">
-              <div className="inp-label">EMAIL</div>
-              <input className="inp" type="email" placeholder="email@example.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-            </div>
-            <div className="inp-wrap">
-              <div className="inp-label">PASSWORD</div>
-              <input className="inp" type="password" placeholder="Kam se kam 8 characters" value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
-              <div className="inp-hint">⚠️ Password kam se kam 8 characters ka hona chahiye</div>
-            </div>
-            {formErr && <div className="err">{formErr}</div>}
-            <button className="btn btn-primary" onClick={handleAuth} disabled={formLoading}>
-              {formLoading ? "Please wait..." : authMode === "login" ? "Login →" : "Create Account →"}
-            </button>
-            {authMode === "login" && (
-              <div style={{textAlign:"center",fontSize:13,color:"var(--accent)",cursor:"pointer",marginTop:-4}} onClick={() => { setForgotMode(true); setFormErr(""); }}>
-                🔑 Forgot Password?
-              </div>
-            )}
+          <div className="inp-wrap">
+            <div className="inp-label">PASSWORD</div>
+            <input className="inp" type="password" placeholder="Kam se kam 8 characters" value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
+            <div className="inp-hint">⚠️ Password kam se kam 8 characters ka hona chahiye</div>
           </div>
-        )}
-
+          {formErr && <div className="err">{formErr}</div>}
+          <button className="btn btn-primary" onClick={handleAuth} disabled={formLoading}>
+            {formLoading ? "Please wait..." : authMode === "login" ? "Login →" : "Create Account →"}
+          </button>
+        </div>
         <div className="auth-switch">
-          {!forgotMode && (authMode === "login"
+          {authMode === "login"
             ? <>Don't have an account? <span onClick={() => { setAuthMode("signup"); setFormErr(""); }}>Sign up</span></>
-            : <>Already have an account? <span onClick={() => { setAuthMode("login"); setFormErr(""); }}>Login</span></>)}
+            : <>Already have an account? <span onClick={() => { setAuthMode("login"); setFormErr(""); }}>Login</span></>}
         </div>
       </div>
     </div>
@@ -855,11 +558,12 @@ export default function App() {
 
   return (
     <div className="app" onClick={() => showMenu && setShowMenu(false)}>
-      <style>{css(darkMode)}</style>
+      <style>{css}</style>
 
       <div className="header">
         <div className="header-logo">🪷</div>
         <div className="header-name">Saraswati AI</div>
+        {page === "chat" && <button className="new-chat-btn" onClick={newChat}>✏️ New</button>}
         <button className="dots-btn" onClick={e => { e.stopPropagation(); setShowMenu(v => !v); }}>⋯</button>
       </div>
 
@@ -871,22 +575,12 @@ export default function App() {
             {userData?.premium && <div className="premium-tag">⭐ PREMIUM</div>}
           </div>
           <div className="drop-divider" />
-          <div className="drop-item" onClick={() => { newChat(); setShowMenu(false); }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="8" x2="12" y2="14"/><line x1="9" y1="11" x2="15" y2="11"/></svg>
-            New Chat
-          </div>
           <div className="drop-item" onClick={() => { setPage("chat"); setShowMenu(false); }}>💬 Chat</div>
           <div className="drop-item" onClick={() => { setPage("history"); setShowMenu(false); }}>📂 History</div>
-          <div className="drop-item" onClick={() => { setPage("kisan"); setShowMenu(false); }}>🌾 Kisan Helper</div>
           <div className="drop-item" onClick={() => { setPage("settings"); setShowMenu(false); }}>⚙️ Settings</div>
           {isAdmin && <div className="drop-item" onClick={() => { setPage("admin"); setShowMenu(false); }}>🛡️ Admin Panel</div>}
           <div className="drop-divider" />
-          <div className="drop-item" onClick={() => { setDarkMode(v => !v); setShowMenu(false); }}>
-            {darkMode ? "☀️ Light Mode" : "🌙 Dark Mode"}
-          </div>
-          <div className="drop-item" onClick={() => { shareOnWhatsApp(); setShowMenu(false); }}>📤 WhatsApp Share</div>
-          <div className="drop-item" onClick={() => { exportPDF(); setShowMenu(false); }}>📄 Chat Export</div>
-          <div className="drop-divider" />}
+          {!userData?.premium && <div className="drop-item" onClick={() => { setShowUpgrade(true); setShowMenu(false); }}>⭐ Upgrade to Premium</div>}
           <div className="drop-item danger" onClick={() => signOut(auth)}>🚪 Logout</div>
         </div>
       )}
@@ -905,7 +599,7 @@ export default function App() {
               <div className="welcome">
                 <div className="welcome-icon">🪷</div>
                 <h2>Saraswati AI</h2>
-
+                <p style={{color:"var(--muted)",fontSize:14}}>Kuch bhi poochho, main hoon na! 😊</p>
               </div>
             )}
             {msgs.map(m => (
@@ -917,17 +611,6 @@ export default function App() {
                     {m.role === "ai" ? <AIText text={m.text} /> : m.text}
                   </div>
                 </div>
-                {m.role === "ai" && m.text && (
-                  <div className="msg-actions" style={{paddingLeft:36}}>
-                    <button className="msg-action-btn" onClick={() => isSpeaking ? stopSpeaking() : speakText(m.text)}>
-                      {isSpeaking ? "🔊 Playing..." : "🔊 Suno"}
-                    </button>
-                    <button className="msg-action-btn" onClick={() => {
-                      const text = encodeURIComponent(`Saraswati AI ne bataya:\n\n${m.text.slice(0,300)}\n\nhttps://saraswati-ai-ebon.vercel.app`);
-                      window.open(`https://wa.me/?text=${text}`,"_blank");
-                    }}>📤 Share</button>
-                  </div>
-                )}
                 <div className={`msg-time ${m.role}`}>{fmtTime(m.time)}</div>
               </div>
             ))}
@@ -945,15 +628,9 @@ export default function App() {
             )}
             <div ref={bottomRef} />
           </div>
-
           <div className="input-bar">
             <input type="file" ref={galleryRef} accept="image/*" style={{display:"none"}} onChange={handleGallerySelect} />
             <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
-              {listening && (
-                <div className="mic-status">
-                  🔴 Sun raha hoon... koi bhi bhasha mein bolo
-                </div>
-              )}
               {imagePreview && (
                 <div className="img-preview">
                   <img src={imagePreview} alt="preview" />
@@ -962,28 +639,7 @@ export default function App() {
               )}
               <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
                 <button className="plus-btn" onClick={() => galleryRef.current.click()}>+</button>
-                <textarea
-                  className="msg-input"
-                  placeholder={listening ? "Bol raha hoon... 🎤" : "Kuch bhi poochho..."}
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={handleKey}
-                  rows={1}
-                  style={listening ? {borderColor:"#ef4444"} : {}}
-                />
-                {supported && (
-                  <button
-                    className={`mic-btn ${listening ? "listening" : "idle"}`}
-                    onClick={toggleMic}
-                    title={listening ? "Sunna band karo" : "Mic se bolo"}
-                  >
-                    {listening ? (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3M9 21h6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/></svg>
-                    ) : (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="3" width="6" height="10" rx="3" fill="currentColor" stroke="none"/><path d="M5 11a7 7 0 0014 0"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="9" y1="21" x2="15" y2="21"/></svg>
-                    )}
-                  </button>
-                )}
+                <textarea className="msg-input" placeholder="Kuch bhi poochho..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey} rows={1} />
                 <button className="send" onClick={() => sendMsg()} disabled={(!input.trim() && !imageBase64) || loading}>➤</button>
               </div>
             </div>
@@ -1012,67 +668,9 @@ export default function App() {
         </div>
       )}
 
-      {page === "kisan" && (
-        <div className="page">
-          <div className="page-top"><div className="page-title">🌾 Kisan Helper</div></div>
-
-          {/* Mausam Section */}
-          <div className="section-lbl">🌤️ Aaj Ka Mausam</div>
-          <MausamCard />
-
-          {/* Mandi Price Section */}
-          <div className="section-lbl">💰 Mandi Bhav — Aaj Ka</div>
-          <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
-            {[
-              {name:"Gehun (Wheat)",price:"₹2,200/quintal",change:"↑"},
-              {name:"Dhan (Paddy)",price:"₹1,940/quintal",change:"↓"},
-              {name:"Sarson",price:"₹5,200/quintal",change:"↑"},
-              {name:"Chana",price:"₹4,800/quintal",change:"→"},
-              {name:"Soyabean",price:"₹3,900/quintal",change:"↑"},
-              {name:"Makka (Maize)",price:"₹1,850/quintal",change:"↓"},
-              {name:"Tamatar",price:"₹800/quintal",change:"↑"},
-              {name:"Pyaaz",price:"₹1,200/quintal",change:"→"},
-              {name:"Aalu",price:"₹600/quintal",change:"↓"},
-            ].map((item,i) => (
-              <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:"1px solid var(--border)"}}>
-                <span style={{fontSize:14,fontWeight:500}}>{item.name}</span>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:14,fontWeight:700,color:"var(--accent)"}}>{item.price}</span>
-                  <span style={{fontSize:16,color:item.change==="↑"?"#22c55e":item.change==="↓"?"#ef4444":"#6b7280"}}>{item.change}</span>
-                </div>
-              </div>
-            ))}
-            <div style={{padding:"8px 16px",fontSize:11,color:"var(--muted)"}}>* Approximate rates — actual mandi se verify karein</div>
-          </div>
-
-          {/* Kisan Calendar */}
-          <div className="section-lbl">📅 Fasal Calendar</div>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {[
-              {month:"January - February",fasalein:"Gehun, Sarson, Chana, Matar",color:"#3b82f6"},
-              {month:"March - April",fasalein:"Harvesting season — Gehun, Sarson kaatna",color:"#f59e0b"},
-              {month:"May - June",fasalein:"Grishma fasalein — Moong, Urad, Til",color:"#ef4444"},
-              {month:"July - August",fasalein:"Kharif — Dhan, Makka, Soyabean, Kapas",color:"#22c55e"},
-              {month:"September - October",fasalein:"Dhan kaatna, Rabi ki tayari",color:"#8b5cf6"},
-              {month:"November - December",fasalein:"Gehun, Sarson, Chana, Aalu boye",color:"#f97316"},
-            ].map((item,i) => (
-              <div key={i} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",borderLeft:`4px solid ${item.color}`}}>
-                <div style={{fontSize:13,fontWeight:700,color:item.color}}>{item.month}</div>
-                <div style={{fontSize:13,color:"var(--text)",marginTop:4}}>{item.fasalein}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* AI Kisan Help */}
-          <div className="section-lbl">🤖 AI Se Poochho</div>
-          <div style={{background:"linear-gradient(135deg,#f97316,#ea580c)",borderRadius:14,padding:16,cursor:"pointer"}} onClick={() => { setPage("chat"); setInput("Mere khet ke liye fasal salah do"); }}>
-            <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>💬 Apni Khet Ki Problem Poochho</div>
-            <div style={{fontSize:13,color:"#fff9",marginTop:4}}>Fasal, beej, khad, keetnashak — sab kuch</div>
-          </div>
-        </div>
-      )}
-
       {page === "settings" && (
+        <div className="page">
+          {!userData?.premium && (
             <div className="premium-card" onClick={() => setShowUpgrade(true)}>
               <h3>⭐ Upgrade to Premium</h3>
               <p>Unlimited chats, Web Search, Image AI</p>
@@ -1102,16 +700,6 @@ export default function App() {
                 <div className="set-desc">{userData?.premium ? "Unlimited" : `${chatsLeft} free chats remaining`}</div>
               </div>
             </div>
-            {supported && (
-              <div className="set-row">
-                <div className="set-icon">🎤</div>
-                <div className="set-text">
-                  <div className="set-label">Voice Input</div>
-                  <div className="set-desc">🌍 100+ languages — Auto detect</div>
-                </div>
-                <div className="badge" style={{background:"#22c55e"}}>ON</div>
-              </div>
-            )}
           </div>
           <div className="section-lbl">Data</div>
           <div className="set-card">
@@ -1131,102 +719,24 @@ export default function App() {
           <div style={{background:"#f9731615",border:"1px solid #f97316",borderRadius:12,padding:"12px 14px",fontSize:13,color:"#fb923c",marginBottom:4}}>
             🛡️ Admin Panel — Only visible to you
           </div>
-
-          {/* Stats Grid */}
           <div className="stat-grid">
-            <div className="stat-card"><div className="stat-val">{adminUsers.length}</div><div className="stat-lbl">👥 Total Users</div></div>
-            <div className="stat-card"><div className="stat-val">{adminUsers.filter(u => u.premium).length}</div><div className="stat-lbl">⭐ Premium</div></div>
-            <div className="stat-card"><div className="stat-val">₹{adminUsers.filter(u => u.premium).length * 99}</div><div className="stat-lbl">💰 Revenue</div></div>
-            <div className="stat-card"><div className="stat-val">{adminUsers.reduce((s,u) => s+(u.usageCount||0), 0)}</div><div className="stat-lbl">💬 Total Chats</div></div>
+            <div className="stat-card"><div className="stat-val">{adminUsers.length}</div><div className="stat-lbl">Total Users</div></div>
+            <div className="stat-card"><div className="stat-val">{adminUsers.filter(u => u.premium).length}</div><div className="stat-lbl">Premium</div></div>
+            <div className="stat-card"><div className="stat-val">₹{adminUsers.filter(u => u.premium).length * 99}</div><div className="stat-lbl">Revenue</div></div>
+            <div className="stat-card"><div className="stat-val">{adminUsers.reduce((s,u) => s+(u.usageCount||0), 0)}</div><div className="stat-lbl">Total Chats</div></div>
           </div>
-
-          {/* Revenue Graph */}
-          <div className="section-lbl">📊 Revenue Graph</div>
-          <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-            <div style={{fontSize:13,color:"var(--muted)",marginBottom:12}}>Monthly Revenue (₹)</div>
-            {[
-              {month:"Jan",val:0},
-              {month:"Feb",val:0},
-              {month:"Mar",val:0},
-              {month:"Apr",val:adminUsers.filter(u=>u.premium).length*99},
-            ].map((item,i) => (
-              <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-                <div style={{fontSize:12,color:"var(--muted)",width:30}}>{item.month}</div>
-                <div style={{flex:1,background:"var(--surface2)",borderRadius:20,height:20,overflow:"hidden"}}>
-                  <div style={{
-                    width: item.val > 0 ? `${Math.min(100, (item.val/500)*100)}%` : "2%",
-                    background:"linear-gradient(135deg,#f97316,#ea580c)",
-                    height:"100%",
-                    borderRadius:20,
-                    minWidth:4
-                  }}/>
-                </div>
-                <div style={{fontSize:12,color:"var(--accent)",fontWeight:700,width:50}}>₹{item.val}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Pending Requests */}
-          {adminUsers.filter(u => u.premiumPending && !u.premium).length > 0 && (
-            <>
-              <div className="section-lbl">⏳ Pending Premium Requests ({adminUsers.filter(u => u.premiumPending && !u.premium).length})</div>
-              {adminUsers.filter(u => u.premiumPending && !u.premium).map(u => (
-                <div key={u.id} style={{background:"#f9731615",border:"1px solid #f97316",borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
-                  <div className="user-av">{u.name?.[0]?.toUpperCase()}</div>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:14,fontWeight:600}}>{u.name}</div>
-                    <div style={{fontSize:11,color:"var(--muted)"}}>{u.email}</div>
-                  </div>
-                  <button style={{background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 12px"}}
-                    onClick={async () => {
-                      await setDoc(doc(db, "users", u.id), { premium: true, premiumPending: false }, { merge: true });
-                      setAdminUsers(prev => prev.map(au => au.id === u.id ? {...au, premium: true, premiumPending: false} : au));
-                      alert(`✅ ${u.name} ka premium activate ho gaya!`);
-                    }}>✅ Approve</button>
-                </div>
-              ))}
-            </>
-          )}
-
-          {/* All Users */}
-          <div className="section-lbl">👥 All Users ({adminUsers.length})</div>
+          <div className="section-lbl">All Users ({adminUsers.length})</div>
           {adminUsers.map(u => (
-            <div key={u.id} className="user-card" style={{flexDirection:"column",alignItems:"stretch",gap:8}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div className="user-av">{u.name?.[0]?.toUpperCase()}</div>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:14,fontWeight:600}}>{u.name}</div>
-                  <div style={{fontSize:11,color:"var(--muted)"}}>{u.email}</div>
-                  <div style={{fontSize:11,color:"var(--muted)"}}>{u.usageCount||0} chats used</div>
-                </div>
-                {u.premium && <div className="badge">⭐ PREMIUM</div>}
-                {u.email === ADMIN_EMAIL && <div className="badge">ADMIN</div>}
+            <div key={u.id} className="user-card">
+              <div className="user-av">{u.name?.[0]?.toUpperCase()}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600}}>{u.name}</div>
+                <div style={{fontSize:11,color:"var(--muted)"}}>{u.email}</div>
+                <div style={{fontSize:11,color:"var(--muted)"}}>{u.usageCount||0} chats used</div>
               </div>
-              {u.email !== ADMIN_EMAIL && (
-                <div style={{display:"flex",gap:8}}>
-                  {!u.premium ? (
-                    <button style={{flex:1,background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,padding:"8px"}}
-                      onClick={async () => {
-                        await setDoc(doc(db, "users", u.id), { premium: true, premiumPending: false }, { merge: true });
-                        setAdminUsers(prev => prev.map(au => au.id === u.id ? {...au, premium: true} : au));
-                        alert(`✅ ${u.name} Premium ON!`);
-                      }}>⭐ Premium ON</button>
-                  ) : (
-                    <button style={{flex:1,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"#ef4444",cursor:"pointer",fontSize:12,fontWeight:700,padding:"8px"}}
-                      onClick={async () => {
-                        await setDoc(doc(db, "users", u.id), { premium: false }, { merge: true });
-                        setAdminUsers(prev => prev.map(au => au.id === u.id ? {...au, premium: false} : au));
-                        alert(`❌ ${u.name} Premium OFF!`);
-                      }}>❌ Premium OFF</button>
-                  )}
-                  <button style={{background:"var(--surface2)",border:"1px solid #ef4444",borderRadius:8,color:"#ef4444",cursor:"pointer",fontSize:12,fontWeight:700,padding:"8px 12px"}}
-                    onClick={async () => {
-                      if(!confirm(`${u.name} ko delete karo?`)) return;
-                      await deleteDoc(doc(db, "users", u.id));
-                      setAdminUsers(prev => prev.filter(au => au.id !== u.id));
-                    }}>🗑️</button>
-                </div>
-              )}
+              {u.premium && <div className="badge">PREMIUM</div>}
+              {u.premiumPending && !u.premium && <div className="badge" style={{background:"#eab308"}}>PENDING</div>}
+              {u.email === ADMIN_EMAIL && <div className="badge">ADMIN</div>}
             </div>
           ))}
         </div>
@@ -1276,6 +786,5 @@ export default function App() {
         </div>
       )}
     </div>
-  </div>
-);
+  );
 }
