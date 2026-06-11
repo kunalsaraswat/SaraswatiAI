@@ -1,4 +1,3 @@
-cat > /mnt/user-data/outputs/App.jsx << 'ENDOFFILE'
 import { useState, useEffect, useRef } from "react";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
@@ -34,6 +33,25 @@ async function webSearch(q) {
   } catch { return null; }
 }
 
+function needsImageGen(text) {
+  const kw = ["image banao","photo banao","tasveer banao","picture banao","draw","generate image","banaO image","chitra banao","image generate","photo generate","tasveer banado","draw karo","sketch banao","wallpaper banao","logo banao","poster banao"];
+  return kw.some(k => text.toLowerCase().includes(k.toLowerCase()));
+}
+
+function extractImagePrompt(text) {
+  let p = text.toLowerCase();
+  ["ek image banao","image banao","photo banao","tasveer banao","picture banao","generate image of","generate image","draw a","draw","sketch banao","tasveer banado","chitra banao","banaO image of","wallpaper banao","logo banao","poster banao","ki", "ka", "of"].forEach(k=>{
+    p = p.split(k).join(" ");
+  });
+  p = p.trim();
+  return p || text;
+}
+
+function getImageUrl(prompt) {
+  const seed = Math.floor(Math.random()*100000);
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=768&height=768&seed=${seed}&nologo=true`;
+}
+
 function needsSearch(text) {
   return ["news","score","weather","mausam","price","rate","mandi","bhav","today","aaj","sona","gold","chandi","silver","loha","tambe","pital","kisan","fasal","2025","2026"].some(k => text.toLowerCase().includes(k));
 }
@@ -56,7 +74,8 @@ LANGUAGE: Always reply in user's EXACT language.
 PERSONALITY: Warm, friendly like best friend. Understand emotions.
 KISAN MANDI: Ask location first → ask mandi name → give real rates.
 FARMING: Expert — crops, irrigation, fertilizers, PM Kisan, KCC, Fasal Bima.
-CODING: Complete working code always.${ctx}`;
+CODING: Complete working code always.
+IMAGE GENERATION: If user asks to draw/generate an image, tell them you've created it (the app handles generation separately).${ctx}`;
   const content = imageB64
     ? [{ type: "image_url", image_url: { url: "data:image/jpeg;base64," + imageB64 } }, { type: "text", text: last.text }]
     : last.text;
@@ -238,6 +257,7 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.text};height:10
 .img-prev img{width:80px;height:80px;object-fit:cover;border-radius:12px;border:2px solid #f97316;}
 .img-prev-x{position:absolute;top:-6px;right:-6px;background:#ef4444;border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:12px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;}
 .msg-img{max-width:200px;border-radius:12px;margin-bottom:4px;display:block;}
+.msg-img.gen{max-width:100%;width:240px;border-radius:14px;}
 .page{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;}
 .page-title{font-size:18px;font-weight:700;margin-bottom:4px;}
 .hist-card{background:${v.surface};border:1px solid ${v.border};border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:border-color .2s;}
@@ -568,6 +588,21 @@ export default function App() {
     const nc = (ud?.usageCount||0) + 1;
     await setDoc(doc(db,"users",user.uid), { usageCount:nc }, { merge:true });
     setUserData(prev => ({ ...prev, usageCount:nc }));
+
+    // ── IMAGE GENERATION ──────────────────────────────────────
+    if (!b64 && needsImageGen(msgText)) {
+      setLoading(true);
+      const prompt = extractImagePrompt(msgText);
+      const url = getImageUrl(prompt);
+      await new Promise(r => setTimeout(r, 600));
+      const tid = "tmp_" + Date.now();
+      const aiText = "🎨 Yeh raha aapka image — \"" + prompt + "\"";
+      setLoading(false);
+      setMsgs(prev => [...prev, { id:tid, role:"ai", text:aiText, image:url, time:new Date() }]);
+      await addDoc(collection(db,"messages"), { sessionId:sid, userId:user.uid, role:"ai", text:aiText, image:url, createdAt:serverTimestamp() });
+      return;
+    }
+
     if (needsSearch(msgText)) setSearching(true);
     setLoading(true);
     try {
@@ -728,7 +763,7 @@ export default function App() {
               <div className="welcome">
                 <span className="lotus" onClick={()=>setPage("voice")}>🪷</span>
                 <h2>Saraswati AI</h2>
-                <p className="welcome-sub">Type karo ya kamal phool 🪷 dabao voice call ke liye</p>
+                <p className="welcome-sub">Type karo, ya bolo "ek image banao sunset ki" — AI tasveer bana dega! 🎨</p>
                 <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:18,padding:"18px 22px",display:"flex",flexDirection:"column",alignItems:"center",gap:10,width:"100%",maxWidth:300}}>
                   <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",letterSpacing:".08em"}}>🎙️ VOICE CALL</div>
                   <div style={{fontSize:11,color:"var(--muted)",textAlign:"center"}}>100+ languages • Gender-matched voice • Real AI</div>
@@ -741,7 +776,11 @@ export default function App() {
                 <div className={"msg-row "+m.role}>
                   {m.role==="ai"&&<div className="ai-av">🪷</div>}
                   <div className={"bubble "+m.role}>
-                    {m.image&&<img src={m.image} className="msg-img" alt="img"/>}
+                    {m.image && (
+                      m.role==="ai"
+                        ? <a href={m.image} target="_blank" rel="noreferrer"><img src={m.image} className="msg-img gen" alt="generated"/></a>
+                        : <img src={m.image} className="msg-img" alt="img"/>
+                    )}
                     {m.role==="ai"?<AIText text={m.text}/>:m.text}
                   </div>
                 </div>
@@ -1037,6 +1076,3 @@ export default function App() {
     </div>
   );
 }
-ENDOFFILE
-echo "DONE"
-wc -l /mnt/user-data/outputs/App.jsx
