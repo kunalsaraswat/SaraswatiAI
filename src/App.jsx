@@ -438,18 +438,18 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .vpage{display:flex;flex-direction:column;height:100%;background:${dark?"#060606":v.bg};}
 .vbody{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:20px;}
 .vccard{background:${v.sf};border:1px solid ${v.bd};border-radius:28px;padding:30px 24px;display:flex;flex-direction:column;align-items:center;gap:18px;width:100%;max-width:340px;}
-.vorb-wrap{position:relative;display:flex;align-items:center;justify-content:center;width:150px;height:150px;}
+.vorb-wrap{position:relative;display:flex;align-items:center;justify-content:center;width:170px;height:170px;}
 .vring{position:absolute;border-radius:50%;pointer-events:none;}
 .vr1{animation:vra 2s ease-out infinite;background:${a.glow};}
 .vr2{animation:vra 2s ease-out .5s infinite;background:${a.glow.replace("40","20")};}
-@keyframes vra{0%{width:90px;height:90px;opacity:.9;}100%{width:165px;height:165px;opacity:0;}}
-.vorb{width:100px;height:100px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;position:relative;font-size:40px;box-shadow:0 8px 32px ${a.glow};transition:all .25s;}
+@keyframes vra{0%{width:110px;height:110px;opacity:.9;}100%{width:185px;height:185px;opacity:0;}}
+.vorb{width:120px;height:120px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;position:relative;font-size:48px;box-shadow:0 8px 32px ${a.glow};transition:all .25s;}
 .vorb:hover{transform:scale(1.04);}
 .vorb.listen{background:linear-gradient(135deg,#ef4444,#dc2626);box-shadow:0 0 0 12px #ef444422;animation:orbP 1s infinite;}
 .vorb.speak{background:linear-gradient(135deg,#22c55e,#16a34a);box-shadow:0 8px 32px #22c55e55;}
 .vorb.think{background:linear-gradient(135deg,#8b5cf6,#6d28d9);}
 @keyframes orbP{0%,100%{transform:scale(1);}50%{transform:scale(1.06);}}
-.vstatus{font-size:16px;font-weight:700;text-align:center;}
+.vstatus{font-size:17px;font-weight:700;text-align:center;}
 .vsub{font-size:12px;color:${v.mt};text-align:center;line-height:1.6;}
 .vwave{display:flex;align-items:center;gap:3px;height:28px;}
 .wb{width:3px;border-radius:3px;background:#22c55e;animation:wv .9s ease-in-out infinite;}
@@ -549,6 +549,8 @@ export default function App() {
   const [vs,setVs]=useState("idle");
   const [vLast,setVLast]=useState("");
   const [vTone,setVTone]=useState("female");
+  // mic permission (one-time)
+  const [micPerm,setMicPerm]=useState("unknown"); // unknown | granted | denied
 
   const bottomRef=useRef(null);
   const galleryRef=useRef(null);
@@ -557,8 +559,18 @@ export default function App() {
   const voiceRef=useRef(null);
 
   useEffect(()=>{
-    setTimeout(()=>setSplashOut(true),2300);
-    setTimeout(()=>setSplash(false),2900);
+    setTimeout(()=>setSplashOut(true),350);
+    setTimeout(()=>setSplash(false),650);
+  },[]);
+
+  // check mic permission state once, no repeated prompts
+  useEffect(()=>{
+    if(navigator.permissions?.query){
+      navigator.permissions.query({name:"microphone"}).then(p=>{
+        setMicPerm(p.state==="granted"?"granted":p.state==="denied"?"denied":"unknown");
+        p.onchange=()=>setMicPerm(p.state==="granted"?"granted":p.state==="denied"?"denied":"unknown");
+      }).catch(()=>{});
+    }
   },[]);
 
   useEffect(()=>{
@@ -710,13 +722,14 @@ export default function App() {
   function toggleMic(){
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(!SR){alert("Use Chrome or Edge for voice input.");return;}
+    if(micPerm==="denied"){alert("Microphone permission blocked. Please enable it from browser settings.");return;}
     if(micActive){micRef.current?.stop();setMicActive(false);return;}
     const r=new SR();
     r.lang="hi-IN";r.continuous=false;r.interimResults=false;
     r.onstart=()=>setMicActive(true);
     r.onresult=e=>{const t=e.results[0][0].transcript;if(t)setInput(p=>p?p+" "+t:t);};
-    r.onerror=err=>{if(err.error==="not-allowed")alert("Allow microphone permission in browser settings.");setMicActive(false);};
-    r.onend=()=>setMicActive(false);
+    r.onerror=err=>{if(err.error==="not-allowed"){setMicPerm("denied");alert("Allow microphone permission in browser settings.");}setMicActive(false);};
+    r.onend=()=>{setMicActive(false);setMicPerm("granted");};
     micRef.current=r;
     try{r.start();}catch{setMicActive(false);}
   }
@@ -748,6 +761,7 @@ export default function App() {
     if(vs==="think") return;
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(!SR){alert("Use Chrome or Edge for Voice Call.");return;}
+    if(micPerm==="denied"){alert("Microphone permission blocked. Please enable it from browser settings.");return;}
     const r=new SR();
     r.lang="hi-IN";r.continuous=false;r.interimResults=false;
     r.onresult=async e=>{
@@ -779,11 +793,11 @@ export default function App() {
       }catch(err){setMsgs(p=>[...p,{id:Date.now(),role:"ai",text:"❌ "+err.message,time:new Date()}]);setVs("idle");}
     };
     r.onerror=e=>{
-      if(e.error==="not-allowed"||e.error==="permission-denied") alert("Allow microphone in browser settings to use Voice Call.");
+      if(e.error==="not-allowed"||e.error==="permission-denied"){setMicPerm("denied");alert("Allow microphone in browser settings to use Voice Call.");}
       else if(e.error==="network") alert("Network error. Check your connection.");
       setVs("idle");
     };
-    r.onend=()=>{if(vs==="listen")setVs("idle");};
+    r.onend=()=>{setMicPerm("granted");if(vs==="listen")setVs("idle");};
     voiceRef.current=r;
     try{r.start();setVs("listen");}catch{setVs("idle");}
   }
@@ -885,21 +899,19 @@ export default function App() {
   });
   const maxG=Math.max(...adminGraph.map(d=>d.v),1);
   const vOrbIcon=vs==="listen"?"🎙️":vs==="think"?"🤔":vs==="speak"?"🔊":"🪷";
-  const vStatusTxt={idle:"Tap to speak",listen:"Listening...",think:"Thinking...",speak:"Speaking..."}[vs];
+  const vStatusTxt={idle:"Tap to Talk",listen:"Listening...",think:"Thinking...",speak:"Speaking..."}[vs];
   const accentColor=ACCENTS[accentKey]?.primary||"#f97316";
 
   if(!authReady) return(
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100dvh",background:"#060606"}}>
       <style>{buildStyles("dark","orange",14)}</style>
       <span style={{fontSize:56}}>🪷</span>
-      <div style={{marginTop:10,color:"#6b7280",fontSize:14}}>Loading...</div>
     </div>
   );
 
   if(!user) return(
     <div className="app">
       <style>{buildStyles(themeKey,accentKey,fontSize)}</style>
-      {splash&&<div className={`splash${splashOut?" out":""}`}><span className="slogo">🪷</span><div className="stitle">Saraswati AI</div><div className="ssub">Your intelligent AI assistant</div><div className="sbar"><div className="sprog"/></div></div>}
       <div className="auth">
         <div className="auth-logo">🪷</div>
         <div className="auth-title">Saraswati AI</div>
@@ -935,7 +947,7 @@ export default function App() {
     <div className="app" onClick={()=>{showRx&&setShowRx(null);}}>
       <style>{buildStyles(themeKey,accentKey,fontSize)}</style>
 
-      {splash&&<div className={`splash${splashOut?" out":""}`}><span className="slogo">🪷</span><div className="stitle">Saraswati AI</div><div className="ssub">Welcome, {displayName}!</div><div className="sbar"><div className="sprog"/></div></div>}
+      {splash&&<div className={`splash${splashOut?" out":""}`}><span className="slogo">🪷</span><div className="stitle">Saraswati AI</div></div>}
 
       {/* PWA */}
       {showPwa&&pwaEvt&&(
@@ -1027,8 +1039,6 @@ export default function App() {
         {page==="voice"&&<button className="nbtn" style={{background:"#ef444418",borderColor:"#ef4444",color:"#ef4444"}} onClick={()=>{endVoice();setPage("chat");}}>End Call</button>}
       </div>
 
-      {page==="chat"&&<div className="ubar"><span>{userData?.premium?"⭐ Premium Plan":"Free Plan"}</span><span className="upill">{userData?.premium?"Unlimited":chatsLeft+" left"}</span></div>}
-
       {/* ── CHAT ── */}
       {page==="chat"&&(
         <>
@@ -1037,7 +1047,6 @@ export default function App() {
               <div className="welcome">
                 <span className="wlotus" onClick={()=>setPage("voice")}>🪷</span>
                 <h2>Saraswati AI</h2>
-                <p className="wsub">Ask me anything — or tap the lotus for voice call</p>
               </div>
             )}
             {msgs.map(m=>(
@@ -1092,15 +1101,13 @@ export default function App() {
         <div className="vpage">
           <div className="vbody">
             <div className="vccard">
-              <div style={{fontSize:12,fontWeight:700,color:"#6b7280",letterSpacing:".08em",textTransform:"uppercase"}}>Voice Call</div>
               <div className="vorb-wrap">
                 {(vs==="listen"||vs==="speak")&&<><div className="vring vr1"/><div className="vring vr2"/></>}
                 <div className={`vorb${vs==="listen"?" listen":vs==="speak"?" speak":vs==="think"?" think":""}`} onClick={handleOrb}>{vOrbIcon}</div>
               </div>
               <div className="vstatus">{vStatusTxt}</div>
               {vs==="speak"&&<div className="vwave">{[0,1,2,3,4].map(i=><div key={i} className="wb" style={{animationDelay:`${i*0.1}s`}}/>)}</div>}
-              <div className="vsub">Hindi · English · Urdu · 100+ languages</div>
-              <div className="vsub" style={{fontSize:11}}>Tap to speak · Tap again to stop</div>
+              {vs==="idle"&&<div className="vsub">Tap again to stop</div>}
               {vLast&&<div className="vlast"><div style={{fontSize:11,fontWeight:700,color:"#6b7280",marginBottom:4}}>Last reply:</div><div style={{fontSize:13,lineHeight:1.6}}>{vLast.slice(0,160)}{vLast.length>160?"...":""}</div></div>}
               <button className="vendbtn" onClick={()=>{endVoice();setPage("chat");}}>End Call</button>
             </div>
@@ -1134,8 +1141,17 @@ export default function App() {
         <div className="page">
           <div className="page-inner">
             <div className="ptitle">Settings</div>
+            {/* PLAN / USAGE */}
+            <div className="sec">Plan</div>
+            <div className="scard">
+              <div className="srow">
+                <div className="sicon">{userData?.premium?"⭐":"🆓"}</div>
+                <div className="stxt"><div className="slbl">{userData?.premium?"Premium Plan":"Free Plan"}</div><div className="sdesc">{userData?.premium?"Unlimited access":chatsLeft+" messages left"}</div></div>
+                {!userData?.premium&&<button className="nbtn" onClick={()=>setShowUpgrade(true)}>Upgrade</button>}
+              </div>
+            </div>
             {!userData?.premium&&(
-              <div className="pc" style={{marginTop:12}} onClick={()=>setShowUpgrade(true)}>
+              <div className="pc" onClick={()=>setShowUpgrade(true)}>
                 <h3>⭐ Upgrade to Premium</h3><p>₹99/month — Everything unlimited</p>
                 <div className="pf">✅ Unlimited Chat & Voice</div>
                 <div className="pf">✅ Web Search + Image AI</div>
@@ -1154,10 +1170,6 @@ export default function App() {
                   {userData?.premium&&<div className="badge">PRO</div>}
                   {isAdmin&&<div className="badge">ADMIN</div>}
                 </div>
-              </div>
-              <div className="srow">
-                <div className="sicon">📊</div>
-                <div className="stxt"><div className="slbl">Usage</div><div className="sdesc">{userData?.premium?"Unlimited messages":""+chatsLeft+" free messages left"}</div></div>
               </div>
             </div>
             {/* APPEARANCE */}
@@ -1216,6 +1228,10 @@ export default function App() {
                 <div className="sicon">🔊</div>
                 <div className="stxt"><div className="slbl">Voice Output</div><div className="sdesc">Auto-detected from your messages</div></div>
                 <div style={{fontSize:12,color:"var(--accent)",fontWeight:600}}>{sessionTone==="female"?"👩 Female":sessionTone==="male"?"👨 Male":"Auto"}</div>
+              </div>
+              <div className="srow">
+                <div className="sicon">🎙️</div>
+                <div className="stxt"><div className="slbl">Microphone Permission</div><div className="sdesc">{micPerm==="granted"?"Granted":micPerm==="denied"?"Blocked — enable in browser settings":"Not requested yet"}</div></div>
               </div>
             </div>
             {/* DATA CONTROLS */}
