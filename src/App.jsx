@@ -120,24 +120,28 @@ async function genTitle(msg) {
   } catch { return null; }
 }
 
-async function callAI(messages, imageB64, tone) {
+async function callAI(messages, imageB64, tone, userMemory = "") {
   const last = messages[messages.length - 1];
   if (last?.role === "user" && isOwnerQ(last.text)) return "I was created by **Kunal Saraswat**! 😊";
   let ctx = "";
-  if (last?.role === "user" && needsSearch(last.text)) { const r = await webSearch(last.text); if (r) ctx = "\n\nLatest Info:\n" + r; }
-  const tNote = tone === "female" ? "Respond warmly like a helpful sister/friend." : tone === "male" ? "Respond like a helpful brother/friend." : "Be warm and friendly.";
-  const sys = `You are Saraswati AI — India's best AI assistant, created by Kunal Saraswat.
-Never mention Groq, Meta, Llama, OpenAI or any model name.
-Reply in the EXACT language the user writes (Hindi→Hindi, English→English, Hinglish→Hinglish).
-${tNote}
-Be warm, emotional, helpful — like a best friend.
-For coding: complete working copy-paste ready code always.
-For education: clear explanations with examples (class 1 to UPSC).
-For farming: expert advice on crops, mandi rates, government schemes.
-For images: carefully read ALL visible text, describe objects, colors, and context in detail.${ctx}`;
+  if (last?.role === "user" && needsSearch(last.text)) { const r = await webSearch(last.text); if (r) ctx = "\n\nLatest Web Info:\n" + r; }
+  const tNote = tone === "female" ? "Respond warmly like a caring elder sister — loving, supportive, natural." : tone === "male" ? "Respond like a friendly older brother — helpful, casual, natural." : "Be warm, friendly and natural.";
+  const memNote = userMemory ? `\nUser info you remember: ${userMemory}` : "";
+  const sys = `You are Saraswati AI — India's most loved AI assistant, created by Kunal Saraswat.
+STRICT RULES:
+- Never mention Groq, Meta, Llama, OpenAI, or any model/company name.
+- ALWAYS reply in the EXACT language the user uses: Hindi → Hindi, English → English, Hinglish → Hinglish. Auto-detect immediately.
+- ${tNote}
+- Be human-like: use natural pauses, emotions, casual expressions.
+- Remember conversation context — never repeat questions already answered.
+- Ask 1 natural follow-up question when helpful, not always.
+- For coding: give complete, working, copy-paste ready code.
+- For education: clear simple explanations with real examples.
+- For farming: expert advice on crops, mandi rates, government schemes.
+- For images: read ALL visible text, describe objects, colors, context fully.
+- If user makes an error, gently correct — like a friend would.${memNote}${ctx}`;
 
   if (imageB64) {
-    // Use latest vision model — separate API call with image content
     const visionMsgs = [
       { role: "system", content: sys },
       { role: "user", content: [
@@ -151,28 +155,37 @@ For images: carefully read ALL visible text, describe objects, colors, and conte
     return data.choices?.[0]?.message?.content || "No response.";
   }
 
-  const apiMsgs = [...messages.slice(0, -1).map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text })), { role: "user", content: last.text }];
+  // Keep last 20 messages for full context
+  const histMsgs = messages.slice(-20).slice(0, -1).map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
+  const apiMsgs = [...histMsgs, { role: "user", content: last.text }];
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ }, body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "system", content: sys }, ...apiMsgs], max_tokens: 2048 }) });
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
   return data.choices?.[0]?.message?.content || "No response.";
 }
 
+// "Saraswati Voice" — consistent warm female voice for all users
 function speakText(text, tone, speed, onDone) {
   window.speechSynthesis.cancel();
-  const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^\x00-\x7F\u0900-\u097F .,!?]/g, "").slice(0, 600);
+  const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^\x00-\x7F\u0900-\u097F .,!?]/g, "").slice(0, 800);
   const go = () => {
     const vs = window.speechSynthesis.getVoices();
-    let v = null;
-    if (tone === "female") { v = vs.find(x => /female|woman|girl|zira|heera|priya|aditi/i.test(x.name) && x.lang.startsWith("hi")) || vs.find(x => x.lang === "hi-IN") || vs.find(x => /female|woman/i.test(x.name)) || vs[0]; }
-    else { v = vs.find(x => /ravi|hemant|prabhat|male/i.test(x.name) && !/female|woman/i.test(x.name) && x.lang.startsWith("hi")) || vs.find(x => x.lang === "hi-IN") || vs[0]; }
+    // Saraswati Voice — prefer Hindi female, fallback gracefully
+    const v =
+      vs.find(x => /aditi|heera|priya/i.test(x.name)) ||
+      vs.find(x => x.lang === "hi-IN" && /female|woman|girl/i.test(x.name)) ||
+      vs.find(x => x.lang === "hi-IN") ||
+      vs.find(x => /female|woman|zira/i.test(x.name)) ||
+      vs[0];
     const u = new SpeechSynthesisUtterance(clean);
     if (v) u.voice = v;
-    u.lang = "hi-IN"; u.rate = speed || 0.9; u.pitch = tone === "female" ? 1.3 : 0.82; u.volume = 1;
+    u.lang = "hi-IN"; u.rate = speed || 0.88; u.pitch = 1.1; u.volume = 1;
     u.onend = onDone || null; u.onerror = onDone || null;
     window.speechSynthesis.speak(u);
   };
-  if (!window.speechSynthesis.getVoices().length) { window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; go(); }; } else go();
+  if (!window.speechSynthesis.getVoices().length) {
+    window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; go(); };
+  } else go();
 }
 
 // ── CODE BLOCK ─────────────────────────────────────────────────
@@ -536,6 +549,19 @@ export default function App() {
   const [page, setPage] = useState("chat");
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
+  // Smart memory — user name, preferences saved across sessions
+  const [userMemory, setUserMemory] = useState("");
+  // AI quick suggestions on home screen
+  const [suggestions] = useState([
+    "Aaj ki taaza khabar batao 📰",
+    "Mera code fix karo 💻",
+    "English sikhao mujhe 📚",
+    "Fasal ki jankari do 🌾",
+    "Koi joke sunao 😄",
+    "Meri poem likhdo 📝"
+  ]);
+  // Error toast
+  const [errorMsg, setErrorMsg] = useState("");
   const [sid, setSid] = useState(() => Date.now().toString());
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
@@ -622,6 +648,15 @@ export default function App() {
           if (data.theme) setThemeKey(data.theme);
           if (data.accent) setAccentKey(data.accent);
           if (data.fontSize) setFontSize(data.fontSize);
+          // Load smart memory
+          if (data.memory) setUserMemory(data.memory);
+          else {
+            // Build memory from profile
+            const mem = [];
+            if (data.name) mem.push(`Name: ${data.name}`);
+            if (data.language) mem.push(`Preferred language: ${data.language}`);
+            setUserMemory(mem.join(", "));
+          }
         }
       } else { setUser(null); setUserData(null); }
       setAuthReady(true);
@@ -809,10 +844,15 @@ export default function App() {
 
   function shareWA(text) { window.open("https://wa.me/?text=" + encodeURIComponent("Saraswati AI:\n\n" + text.slice(0, 500)), "_blank"); }
 
-  function exportChat() {
-    if (!msgs.length) { alert("No messages to export."); return; }
-    const txt = msgs.map(m => (m.role === "user" ? "You" : "Saraswati AI") + ":\n" + m.text).join("\n\n---\n\n");
-    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" })); a.download = "saraswati-chat.txt"; a.click();
+  function exportChat(format = "txt") {
+    if (!msgs.length) { setErrorMsg("No messages to export."); setTimeout(() => setErrorMsg(""), 3000); return; }
+    if (format === "txt") {
+      const txt = `Saraswati AI — Chat Export\n${"=".repeat(40)}\n\n` + msgs.map(m => (m.role === "user" ? `You:\n${m.text}` : `Saraswati AI:\n${m.text}`)).join("\n\n---\n\n");
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" })); a.download = `saraswati-chat-${Date.now()}.txt`; a.click();
+    } else if (format === "pdf") {
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Saraswati AI Chat</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;color:#111;line-height:1.7}.u{background:#f97316;color:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;margin:8px 0;display:inline-block;max-width:80%}.a{background:#f3f4f6;padding:10px 14px;border-radius:14px 14px 14px 4px;margin:8px 0;display:inline-block;max-width:80%}.row{display:flex;margin:4px 0}.row.u{justify-content:flex-end}.row.a{justify-content:flex-start}h1{color:#f97316}</style></head><body><h1>🪷 Saraswati AI</h1><p>Exported on ${new Date().toLocaleDateString("en-IN")}</p><hr>${msgs.map(m => `<div class="row ${m.role === "user" ? "u" : "a"}"><div class="${m.role === "user" ? "u" : "a"}">${m.text.replace(/</g, "&lt;").replace(/\n/g, "<br>")}</div></div>`).join("")}</body></html>`;
+      const w = window.open("", "_blank"); w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500);
+    }
   }
 
   function endVoice() {
@@ -872,7 +912,7 @@ export default function App() {
       setUserData(p => ({ ...p, usageCount: nc }));
 
       try {
-        const aiText = await callAI(newMsgs, null, tone);
+        const aiText = await callAI(newMsgs, null, tone, userMemory);
         const tid = "v_" + Date.now();
         const updatedMsgs = [...newMsgs, { id: tid, role: "ai", text: aiText, time: new Date() }];
         setMsgs(updatedMsgs);
@@ -990,7 +1030,7 @@ export default function App() {
     if (needsSearch(msgText)) setSearching(true);
     setLoading(true);
     try {
-      const aiText = await callAI(newMsgs, b64, tone);
+      const aiText = await callAI(newMsgs, b64, tone, userMemory);
       setSearching(false);
       const tid = "ai_" + Date.now();
       setLoading(false);
@@ -1004,7 +1044,13 @@ export default function App() {
         await new Promise(r => setTimeout(r, 7));
       }
       await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "ai", text: aiText, createdAt: serverTimestamp() });
-    } catch (e) { setSearching(false); setLoading(false); setMsgs(p => [...p, { id: Date.now(), role: "ai", text: "❌ Error: " + e.message, time: new Date() }]); }
+    } catch (e) {
+      setSearching(false); setLoading(false);
+      const errTxt = e.message?.includes("fetch") ? "Network error — check your internet connection." : e.message?.includes("rate") ? "Too many requests — please wait a moment." : "Something went wrong. Please try again.";
+      setErrorMsg(errTxt);
+      setTimeout(() => setErrorMsg(""), 4000);
+      setMsgs(p => [...p, { id: Date.now(), role: "ai", text: "❌ " + errTxt, time: new Date() }]);
+    }
   }
 
   async function loadSession(s) {
@@ -1266,10 +1312,17 @@ export default function App() {
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
         </button>
         <span style={{ fontSize: 20 }}>🪷</span>
-        <div className="hdr-name">Saraswati AI</div>
+        <div className="hdr-name">{page === "chat" && chatTitle ? chatTitle : "Saraswati AI"}</div>
         {page === "chat" && <button className="nbtn" onClick={newChat}>+ New</button>}
         {page === "voice" && <button className="nbtn" style={{ background: "#ef444418", borderColor: "#ef4444", color: "#ef4444" }} onClick={() => { endVoice(); setPage("chat"); }}>End Call</button>}
       </div>
+
+      {/* Error Toast */}
+      {errorMsg && (
+        <div style={{ position: "fixed", top: 58, left: 12, right: 12, background: "#ef4444", color: "#fff", borderRadius: 12, padding: "10px 16px", fontSize: 13, fontWeight: 600, zIndex: 250, textAlign: "center", boxShadow: "0 4px 20px #ef444455", animation: "fadeIn .2s ease" }}>
+          ⚠️ {errorMsg}
+        </div>
+      )}
 
       {/* ── CHAT PAGE ── */}
       {page === "chat" && (
@@ -1278,8 +1331,16 @@ export default function App() {
             {msgs.length === 0 && (
               <div className="welcome">
                 <span className="wlotus" onClick={() => setPage("voice")}>🪷</span>
-                <h2>Saraswati AI</h2>
-                <p className="wsub">Your AI assistant — ask anything</p>
+                <h2>{displayName && displayName !== "User" ? `Namaste, ${displayName.split(" ")[0]}! 👋` : "Saraswati AI"}</h2>
+                <p className="wsub">Kuch bhi pucho — Hindi ya English mein</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: 8, maxWidth: 340 }}>
+                  {suggestions.map((s, i) => (
+                    <button key={i} onClick={() => sendMsg(s)}
+                      style={{ background: "var(--sf)", border: "1.5px solid var(--bd)", borderRadius: 20, padding: "8px 14px", fontSize: 12, color: "var(--tx)", cursor: "pointer", fontFamily: "Inter,sans-serif", fontWeight: 500, transition: "all .2s" }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {msgs.map(m => (
@@ -1494,13 +1555,21 @@ export default function App() {
             {/* GENERAL */}
             <div className="sec">General</div>
             <div className="scard">
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => { if (window.confirm("Clear current chat?")) { setMsgs([]); setSid(Date.now().toString()); } }}>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={() => { if (window.confirm("Clear current chat?")) { setMsgs([]); setSid(Date.now().toString()); setChatTitle(null); } }}>
                 <div className="sicon">🗑️</div>
-                <div className="stxt"><div className="slbl">Clear Chat</div><div className="sdesc">Remove current chat messages</div></div>
+                <div className="stxt"><div className="slbl">Clear Chat</div><div className="sdesc">Remove current session messages</div></div>
               </div>
-              <div className="srow" style={{ cursor: "pointer" }} onClick={exportChat}>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={() => exportChat("txt")}>
                 <div className="sicon">📄</div>
-                <div className="stxt"><div className="slbl">Export Chat</div><div className="sdesc">Save as text file</div></div>
+                <div className="stxt"><div className="slbl">Export as TXT</div><div className="sdesc">Save chat as text file</div></div>
+              </div>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={() => exportChat("pdf")}>
+                <div className="sicon">📑</div>
+                <div className="stxt"><div className="slbl">Export as PDF</div><div className="sdesc">Print or save as PDF</div></div>
+              </div>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={() => shareWA(msgs.map(m => (m.role === "user" ? "You" : "AI") + ": " + m.text).join("\n\n").slice(0, 500))}>
+                <div className="sicon">💬</div>
+                <div className="stxt"><div className="slbl">Share on WhatsApp</div><div className="sdesc">Share chat summary</div></div>
               </div>
             </div>
 
@@ -1510,22 +1579,35 @@ export default function App() {
               <div className="srow">
                 <div className="sicon">🎙️</div>
                 <div className="stxt">
-                  <div className="slbl">Microphone</div>
-                  <div className="sdesc">{micPerm === "granted" ? "Permission granted" : micPerm === "denied" ? "Blocked — enable in browser settings" : "Not yet requested"}</div>
+                  <div className="slbl">Saraswati Voice</div>
+                  <div className="sdesc">Warm Hindi female voice — auto-selected</div>
                 </div>
-                <div style={{ fontSize: 11, color: micPerm === "granted" ? "#22c55e" : micPerm === "denied" ? "#ef4444" : "var(--mt)", fontWeight: 600 }}>
-                  {micPerm === "granted" ? "✓ On" : micPerm === "denied" ? "✗ Off" : "—"}
-                </div>
+                <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600 }}>Active</div>
+              </div>
+              <div className="srow">
+                <div className="sicon">🔊</div>
+                <div className="stxt"><div className="slbl">Microphone</div><div className="sdesc">{micPerm === "granted" ? "Permission granted" : micPerm === "denied" ? "Blocked — enable in browser settings" : "Will be requested on first use"}</div></div>
+                <div style={{ fontSize: 11, color: micPerm === "granted" ? "#22c55e" : micPerm === "denied" ? "#ef4444" : "var(--mt)", fontWeight: 600 }}>{micPerm === "granted" ? "✓ On" : micPerm === "denied" ? "✗ Off" : "—"}</div>
               </div>
             </div>
 
             {/* DATA */}
-            <div className="sec">Data Controls</div>
+            <div className="sec">Data &amp; Privacy</div>
             <div className="scard">
               <div className="srow" style={{ cursor: "pointer" }} onClick={() => setPage("history")}>
                 <div className="sicon">📂</div>
-                <div className="stxt"><div className="slbl">Chat History</div><div className="sdesc">View and manage your chats</div></div>
+                <div className="stxt"><div className="slbl">Chat History</div><div className="sdesc">View, rename, delete chats</div></div>
                 <Ico.ChevRight />
+              </div>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setPage("projects")}>
+                <div className="sicon">📁</div>
+                <div className="stxt"><div className="slbl">Projects</div><div className="sdesc">Manage your projects</div></div>
+                <Ico.ChevRight />
+              </div>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={async () => { if (window.confirm("Clear AI memory about you?")) { await setDoc(doc(db, "users", user.uid), { memory: "" }, { merge: true }); setUserMemory(""); alert("Memory cleared!"); } }}>
+                <div className="sicon">🧠</div>
+                <div className="stxt"><div className="slbl">Smart Memory</div><div className="sdesc">{userMemory ? "AI remembers your preferences" : "No memory saved yet"}</div></div>
+                {userMemory && <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600, cursor: "pointer" }}>Clear</span>}
               </div>
             </div>
 
@@ -1534,110 +1616,4 @@ export default function App() {
             <div className="scard">
               <div className="srow" style={{ cursor: "pointer" }} onClick={() => { setShowChangePw(true); setCpErr(""); setCpOk(""); setCpForm({ current: "", newP: "", confirm: "" }); }}>
                 <div className="sicon">🔐</div>
-                <div className="stxt"><div className="slbl">Change Password</div><div className="sdesc">Update your account password</div></div>
-                <Ico.ChevRight />
-              </div>
-            </div>
-
-            {/* STORAGE */}
-            <div className="sec">Storage</div>
-            <div className="scard">
-              <div className="srow">
-                <div className="sicon">💾</div>
-                <div className="stxt">
-                  <div className="slbl">Chat Messages</div>
-                  <div className="sdesc">{msgs.length} messages in current session</div>
-                </div>
-              </div>
-            </div>
-
-            {/* ABOUT */}
-            <div className="sec">About</div>
-            <div className="scard">
-              <div className="srow">
-                <div className="sicon">🪷</div>
-                <div className="stxt"><div className="slbl">Saraswati AI</div><div className="sdesc">Version 4.0 · Made by Kunal Saraswat</div></div>
-              </div>
-            </div>
-
-            {/* LOGOUT */}
-            <div style={{ marginTop: 8, marginBottom: 8 }}>
-              <div className="scard">
-                <div className="srow" style={{ cursor: "pointer" }} onClick={() => signOut(auth)}>
-                  <div className="sicon">🚪</div>
-                  <div className="stxt"><div className="slbl" style={{ color: "#ef4444" }}>Logout</div><div className="sdesc">Sign out of your account</div></div>
-                </div>
-              </div>
-            </div>
-            <div style={{ height: 20 }} />
-          </div>
-        </div>
-      )}
-
-      {/* ── PROJECTS PAGE ── */}
-      {page === "projects" && (
-        <div className="page">
-          <div className="page-inner">
-            <div className="ptitle">Projects</div>
-            {projLoad ? <div className="ld">Loading...</div>
-              : projects.length === 0
-                ? <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--mt)" }}>
-                    <div style={{ fontSize: 52, marginBottom: 12 }}>📁</div>
-                    <div style={{ fontWeight: 600 }}>No projects yet</div>
-                    <div style={{ fontSize: 13, marginTop: 6 }}>Tap + to create your first project</div>
-                  </div>
-                : projects.map(pr => (
-                  <div key={pr.id} className="hcard">
-                    <div style={{ fontSize: 18 }}>📁</div>
-                    <div className="hi">
-                      {renamingProjId === pr.id
-                        ? <input
-                            autoFocus
-                            style={{ background: "transparent", border: "none", borderBottom: "1.5px solid var(--accent)", color: "inherit", fontFamily: "Inter,sans-serif", fontSize: 14, fontWeight: 600, outline: "none", width: "100%", padding: "1px 0" }}
-                            value={renameProjVal}
-                            onChange={e => setRenameProjVal(e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter") renameProject(pr.id, renameProjVal); if (e.key === "Escape") setRenamingProjId(null); }}
-                            onBlur={() => renameProject(pr.id, renameProjVal)}
-                            onClick={e => e.stopPropagation()}
-                          />
-                        : <div className="ht">{pr.title}</div>
-                      }
-                      <div className="hm">{fmtDate(pr.createdAt)}</div>
-                    </div>
-                    <div className="hactions">
-                      <button className="hact" onClick={() => { setRenamingProjId(pr.id); setRenameProjVal(pr.title); }}>✏️</button>
-                      <button className="hact del" onClick={() => deleteProject(pr.id)}>🗑️</button>
-                    </div>
-                  </div>
-                ))
-            }
-          </div>
-          {/* Floating + button */}
-          <button className="fab" onClick={() => setShowNewProj(true)}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New Project
-          </button>
-        </div>
-      )}
-
-      {/* ── ADMIN ── */}
-      {page === "admin" && isAdmin && (
-        <div className="page">
-          <div className="page-inner">
-            <div className="ptitle">🛡️ Admin Panel</div>
-            <div className="sgrid" style={{ marginTop: 4 }}>
-              <div className="sct"><div className="sv">{adminUsers.length}</div><div className="sl">Total Users</div></div>
-              <div className="sct"><div className="sv">{adminUsers.filter(u => u.premium).length}</div><div className="sl">Premium</div></div>
-              <div className="sct"><div className="sv">₹{adminUsers.filter(u => u.premium).length * 99}</div><div className="sl">Revenue</div></div>
-              <div className="sct"><div className="sv">{adminUsers.reduce((s, u) => s + (u.usageCount || 0), 0)}</div><div className="sl">Total Chats</div></div>
-            </div>
-            <div className="scard" style={{ padding: 14, marginBottom: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 5 }}>NEW SIGNUPS — LAST 7 DAYS</div>
-              <div className="gbar">
-                {adminGraph.map((d, i) => (
-                  <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                    <div style={{ fontSize: 8, color: "var(--accent)", marginBottom: 2 }}>{d.v > 0 ? d.v : ""}</div>
-                    <div style={{ width: "100%", background: "var(--accent)", borderRadius: "3px 3px 0 0", height: Math.max(d.v === 0 ? 2 : (d.v / maxG) * 52, 2), opacity: d.v === 0 ? .2 : .85 }} />
-                    <div style={{ fontSize: 9, color: "#6b7280", marginTop: 3 }}>{d.l}</div>
-                  </div>
-                ))
+                <div c
