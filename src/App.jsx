@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebas
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, onAuthStateChanged, updateProfile, sendPasswordResetEmail,
-  updatePassword, reauthenticateWithCredential, EmailAuthProvider
+  updatePassword, reauthenticateWithCredential, EmailAuthProvider, deleteUser
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, getDoc, collection, addDoc, query,
@@ -205,7 +205,7 @@ async function genTitle(msg) {
   } catch { return null; }
 }
 
-async function callAI(messages, imageB64, tone, memories) {
+async function callAI(messages, imageB64, tone, memories, language) {
   const last = messages[messages.length - 1];
   if (last?.role === "user" && isOwnerQ(last.text)) return "I was created by **Kunal Saraswat**! 😊";
   let ctx = "";
@@ -215,9 +215,14 @@ async function callAI(messages, imageB64, tone, memories) {
   if (memories && memories.length) {
     memCtx = "\n\nWhat you remember about this user (use naturally, don't list it out unless asked):\n" + memories.map(m => "- " + m.text).join("\n");
   }
+  const langInstruction = {
+    hindi: "ALWAYS reply in Hindi (Devanagari script), regardless of what language the user writes in.",
+    english: "ALWAYS reply in English, regardless of what language the user writes in.",
+    hinglish: "ALWAYS reply in Hinglish (Hindi words written in Roman/English script), regardless of what language the user writes in.",
+  }[language] || "Reply in the EXACT language the user writes (Hindi→Hindi, English→English, Hinglish→Hinglish).";
   const sys = `You are Saraswati AI — India's best AI assistant, created by Kunal Saraswat.
 Never mention Groq, Meta, Llama, OpenAI or any model name.
-Reply in the EXACT language the user writes (Hindi→Hindi, English→English, Hinglish→Hinglish).
+${langInstruction}
 ${tNote}
 Be warm, emotional, helpful — like a best friend.
 For coding: complete working copy-paste ready code always.
@@ -671,6 +676,12 @@ export default function App() {
   const [themeKey, setThemeKey] = useState("dark");
   const [accentKey, setAccentKey] = useState("orange");
   const [fontSize, setFontSize] = useState(14);
+  const [language, setLanguage] = useState("auto"); // auto | hindi | english | hinglish
+  const [memoryEnabled, setMemoryEnabled] = useState(true);
+  const [showDeleteAcc, setShowDeleteAcc] = useState(false);
+  const [delConfirmText, setDelConfirmText] = useState("");
+  const [delLoading, setDelLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState("chat");
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
@@ -776,6 +787,8 @@ export default function App() {
           if (data.theme) setThemeKey(data.theme);
           if (data.accent) setAccentKey(data.accent);
           if (data.fontSize) setFontSize(data.fontSize);
+          if (data.language) setLanguage(data.language);
+          if (data.memoryEnabled === false) setMemoryEnabled(false);
         }
         loadMemories(u.uid);
       } else { setUser(null); setUserData(null); setMemories([]); }
@@ -914,7 +927,14 @@ export default function App() {
       } else {
         await signInWithEmailAndPassword(auth, form.email, form.pass);
         const d = await getDoc(doc(db, "users", auth.currentUser.uid));
-        if (d.exists()) { const data = d.data(); setUserData(data); if (data.theme) setThemeKey(data.theme); if (data.accent) setAccentKey(data.accent); if (data.fontSize) setFontSize(data.fontSize); }
+        if (d.exists()) {
+          const data = d.data(); setUserData(data);
+          if (data.theme) setThemeKey(data.theme);
+          if (data.accent) setAccentKey(data.accent);
+          if (data.fontSize) setFontSize(data.fontSize);
+          if (data.language) setLanguage(data.language);
+          if (data.memoryEnabled === false) setMemoryEnabled(false);
+        }
       }
       setForm({ name: "", email: "", pass: "", newPass: "", confirmPass: "" });
     } catch (e) {
@@ -928,6 +948,8 @@ export default function App() {
     if (key === "theme") setThemeKey(val);
     if (key === "accent") setAccentKey(val);
     if (key === "fontSize") setFontSize(val);
+    if (key === "language") setLanguage(val);
+    if (key === "memoryEnabled") setMemoryEnabled(val);
     try { await setDoc(doc(db, "users", user.uid), { [key]: val }, { merge: true }); setUserData(p => ({ ...p, [key]: val })); } catch {}
   }
 
@@ -1034,6 +1056,116 @@ export default function App() {
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" })); a.download = "saraswati-chat.txt"; a.click();
   }
 
+  // ── Export ALL user data (profile, chats+messages, memories, projects) as JSON ──
+  async function exportAllData() {
+    setExporting(true);
+    try {
+      const exportObj = { exportedAt: new Date().toISOString(), profile: null, chats: [], memories: [], projects: [] };
+
+      // Profile
+      try { const d = await getDoc(doc(db, "users", user.uid)); if (d.exists()) exportObj.profile = { email: user.email, ...d.data() }; } catch {}
+
+      // Chats + their messages
+      try {
+        const chatsSnap = await getDocs(query(collection(db, "chats"), where("userId", "==", user.uid)));
+        for (const cd of chatsSnap.docs) {
+          const chat = { id: cd.id, ...cd.data() };
+          try {
+            const msgSnap = await getDocs(query(collection(db, "messages"), where("sessionId", "==", cd.id)));
+            chat.messages = msgSnap.docs.map(md => ({ id: md.id, ...md.data() }));
+          } catch { chat.messages = []; }
+          exportObj.chats.push(chat);
+        }
+      } catch {}
+
+      // Memories
+      try {
+        const memSnap = await getDocs(query(collection(db, "memories"), where("userId", "==", user.uid)));
+        exportObj.memories = memSnap.docs.map(md => ({ id: md.id, ...md.data() }));
+      } catch {}
+
+      // Projects
+      try {
+        const projSnap = await getDocs(query(collection(db, "projects"), where("userId", "==", user.uid)));
+        exportObj.projects = projSnap.docs.map(pd => ({ id: pd.id, ...pd.data() }));
+      } catch {}
+
+      const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "saraswati-ai-data-export.json";
+      a.click();
+    } catch (e) {
+      alert("Export error: " + e.message);
+    }
+    setExporting(false);
+  }
+
+  async function clearAllMemories() {
+    if (!window.confirm("Saari saved memories delete kar dein? Ye undo nahi ho sakta.")) return;
+    try {
+      const snap = await getDocs(query(collection(db, "memories"), where("userId", "==", user.uid)));
+      for (const d of snap.docs) { await deleteDoc(doc(db, "memories", d.id)); }
+      setMemories([]);
+      alert("✅ Saari memories delete ho gayi.");
+    } catch (e) { alert("Error: " + e.message); }
+  }
+
+  async function clearAllChatHistory() {
+    if (!window.confirm("Saari chat history delete kar dein? Ye undo nahi ho sakta.")) return;
+    try {
+      const chatsSnap = await getDocs(query(collection(db, "chats"), where("userId", "==", user.uid)));
+      for (const cd of chatsSnap.docs) {
+        try {
+          const msgSnap = await getDocs(query(collection(db, "messages"), where("sessionId", "==", cd.id)));
+          for (const md of msgSnap.docs) { await deleteDoc(doc(db, "messages", md.id)); }
+        } catch {}
+        await deleteDoc(doc(db, "chats", cd.id));
+      }
+      setHists([]);
+      setMsgs([]);
+      setSid(Date.now().toString());
+      alert("✅ Saari chat history delete ho gayi.");
+    } catch (e) { alert("Error: " + e.message); }
+  }
+
+  // ── Delete account: wipe Firestore data + delete Auth user ──
+  async function deleteAccount() {
+    if (delConfirmText.trim().toUpperCase() !== "DELETE") return;
+    setDelLoading(true);
+    try {
+      const uid = user.uid;
+      // Chats + messages
+      try {
+        const chatsSnap = await getDocs(query(collection(db, "chats"), where("userId", "==", uid)));
+        for (const cd of chatsSnap.docs) {
+          try {
+            const msgSnap = await getDocs(query(collection(db, "messages"), where("sessionId", "==", cd.id)));
+            for (const md of msgSnap.docs) { await deleteDoc(doc(db, "messages", md.id)); }
+          } catch {}
+          await deleteDoc(doc(db, "chats", cd.id));
+        }
+      } catch {}
+      // Memories
+      try {
+        const memSnap = await getDocs(query(collection(db, "memories"), where("userId", "==", uid)));
+        for (const md of memSnap.docs) { await deleteDoc(doc(db, "memories", md.id)); }
+      } catch {}
+      // Projects
+      try {
+        const projSnap = await getDocs(query(collection(db, "projects"), where("userId", "==", uid)));
+        for (const pd of projSnap.docs) { await deleteDoc(doc(db, "projects", pd.id)); }
+      } catch {}
+      // User profile doc
+      try { await deleteDoc(doc(db, "users", uid)); } catch {}
+      // Auth account
+      await deleteUser(auth.currentUser);
+    } catch (e) {
+      alert("Account delete karne mein error aaya: " + e.message + "\nAap manually logout karke fir try kar sakte hain, ya recently login karke phir try karein (Firebase ko fresh login chahiye ho sakta hai).");
+    }
+    setDelLoading(false);
+  }
+
   function endVoice() {
     voiceActiveRef.current = false;
     voiceRef.current?.stop?.();
@@ -1127,10 +1259,10 @@ export default function App() {
       const nc = (ud?.usageCount || 0) + 1;
       await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
       setUserData(p => ({ ...p, usageCount: nc }));
-      maybeSaveMemory(transcript); // fire-and-forget background memory check
+      if (memoryEnabled) maybeSaveMemory(transcript); // fire-and-forget background memory check
 
       try {
-        const aiText = await callAI(newMsgs, null, tone, memories);
+        const aiText = await callAI(newMsgs, null, tone, memoryEnabled ? memories : null, language);
         const tid = "v_" + Date.now();
         const updatedMsgs = [...newMsgs, { id: tid, role: "ai", text: aiText, time: new Date() }];
         setMsgs(updatedMsgs);
@@ -1229,7 +1361,7 @@ export default function App() {
     if (lastUserMsg && needsSearch(lastUserMsg.text)) setSearching(true);
     setLoading(true);
     try {
-      const aiText = await callAI(newMsgs, b64, tone, memories);
+      const aiText = await callAI(newMsgs, b64, tone, memoryEnabled ? memories : null, language);
       setSearching(false);
       const tid = "ai_" + Date.now();
       setLoading(false);
@@ -1283,7 +1415,7 @@ export default function App() {
     const nc = (ud?.usageCount || 0) + 1;
     await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
     setUserData(p => ({ ...p, usageCount: nc }));
-    if (!b64) maybeSaveMemory(msgText); // fire-and-forget background memory check
+    if (!b64 && memoryEnabled) maybeSaveMemory(msgText); // fire-and-forget background memory check
     await runAIAndAppend(newMsgs, b64, tone);
   }
 
@@ -1613,95 +1745,4 @@ export default function App() {
                   </div>
                 </div>
               )}
-              <div className="sb-logout" onClick={() => signOut(auth)}>
-                <span style={{ fontSize: 20 }}>🚪</span><span>Logout</span>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* IMAGE FULLSCREEN VIEWER */}
-      {viewerSrc && (
-        <div className="imgviewer" onClick={() => setViewerSrc(null)}>
-          <img src={viewerSrc} alt="full" onClick={e => e.stopPropagation()} />
-          <button className="imgviewer-x" onClick={() => setViewerSrc(null)}>✕</button>
-        </div>
-      )}
-
-      {/* ── HEADER ── */}
-      <div className="hdr">
-        <button className="dots" onClick={() => { setShowSb(true); if (user) loadHists(); }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
-        </button>
-        <span style={{ fontSize: 20 }}>🪷</span>
-        <div className="hdr-name">Saraswati AI</div>
-        {page === "chat" && <button className="nbtn" onClick={newChat}>+ New</button>}
-        {page === "voice" && <button className="nbtn" style={{ background: "#ef444418", borderColor: "#ef4444", color: "#ef4444" }} onClick={() => { endVoice(); setPage("chat"); }}>End Call</button>}
-      </div>
-
-      {/* ── CHAT PAGE ── */}
-      {page === "chat" && (
-        <>
-          <div className="chat">
-            {msgs.length === 0 && (
-              <div className="welcome">
-                <span className="wlotus" onClick={() => setPage("voice")}>🪷</span>
-                <h2>Saraswati AI</h2>
-                <p className="wsub">Your AI assistant — ask anything</p>
-              </div>
-            )}
-            {msgs.map(m => (
-              <div key={m.id} className="mwrap">
-                <div className={"mrow " + m.role} style={{ position: "relative" }}>
-                  {m.role === "ai" && <div className="aiav">🪷</div>}
-                  <div className="bwrap" style={m.role === "user" ? { alignItems: "flex-end" } : { alignItems: "flex-start" }}>
-                    {showRx === m.id && (
-                      <div className="rbar" onClick={e => e.stopPropagation()}>
-                        {REACTIONS.map(em => <button key={em} className="rbtn" onClick={() => { setReactions(p => ({ ...p, [m.id]: em })); setShowRx(null); }}>{em}</button>)}
-                      </div>
-                    )}
-                    {editingMsgId === m.id ? (
-                      <div className={"bub " + m.role} style={{ width: "100%" }}>
-                        <textarea
-                          autoFocus
-                          className="tinp"
-                          style={{ width: "100%", background: "transparent", border: "1px solid #ffffff40", color: "inherit", padding: "6px 10px", minHeight: 40 }}
-                          value={editVal}
-                          onChange={e => setEditVal(e.target.value)}
-                          rows={2}
-                        />
-                        <div style={{ display: "flex", gap: 6, marginTop: 6, justifyContent: "flex-end" }}>
-                          <button className="abtn" onClick={() => setEditingMsgId(null)}>Cancel</button>
-                          <button className="abtn on" onClick={() => { editMessage(m.id, editVal); setEditingMsgId(null); }}>Save & Resend</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className={"bub " + m.role} onDoubleClick={() => setShowRx(p => p === m.id ? null : m.id)}>
-                        {m.image && (
-                          m.role === "ai"
-                            ? <img src={m.image} className="mimg gen" alt="generated" onClick={() => setViewerSrc(m.image)} />
-                            : <img src={m.image} className="mimg" alt="uploaded" onClick={() => setViewerSrc(m.image)} />
-                        )}
-                        {m.files && m.files.length > 0 && (
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-                            {m.files.map((f, i) => (
-                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, background: "#ffffff18", borderRadius: 8, padding: "4px 8px", fontSize: 11 }}>
-                                <span>{f.error ? "⚠️" : "📄"}</span>
-                                <span style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {m.role === "ai" ? <AIText text={m.text} /> : m.text}
-                        {m.edited && <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 6 }}>(edited)</span>}
-                      </div>
-                    )}
-                    {reactions[m.id] && <div className="react">{reactions[m.id]}</div>}
-                    {m.text && editingMsgId !== m.id && (
-                      <div className="acts" style={m.role === "user" ? { justifyContent: "flex-end" } : {}}>
-                        {m.role === "ai" && <button className={"abtn" + (speakId === m.id ? " on" : "")} onClick={() => toggleSpeak(m.id, m.text)}>{speakId === m.id ? <Ico.Stop s={13} /> : <Ico.Speak s={13} />}</button>}
-                        <button className={"abtn" + (copied === m.id ? " on" : "")} onClick={() => copyMsg(m.text, m.id)}>{copied === m.id ? <Ico.Check s={13} /> : <Ico.Copy s={13} />}</button>
-                        {m.role === "ai" && <button className="abtn" onClick={() => shareWA(m.text)}><Ico.Share s={13} /></button>}
-                        {m.role === "ai" && !loading && <button className="abtn" title="Regenerate" onClick={() => regenerateMessage(m.id)}>🔄</button>}
-                        {m.role === "user" && !loading && <button className="abtn" title="Edit" onClick={() => { setEditingMsgId(m.id); se
+              <div className="sb-logout" onClick={() => signOut(a
