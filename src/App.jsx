@@ -120,28 +120,28 @@ async function genTitle(msg) {
   } catch { return null; }
 }
 
-async function callAI(messages, imageB64, tone, userMemory = "") {
+async function callAI(messages, imageB64, tone, memories) {
   const last = messages[messages.length - 1];
   if (last?.role === "user" && isOwnerQ(last.text)) return "I was created by **Kunal Saraswat**! 😊";
   let ctx = "";
-  if (last?.role === "user" && needsSearch(last.text)) { const r = await webSearch(last.text); if (r) ctx = "\n\nLatest Web Info:\n" + r; }
-  const tNote = tone === "female" ? "Respond warmly like a caring elder sister — loving, supportive, natural." : tone === "male" ? "Respond like a friendly older brother — helpful, casual, natural." : "Be warm, friendly and natural.";
-  const memNote = userMemory ? `\nUser info you remember: ${userMemory}` : "";
-  const sys = `You are Saraswati AI — India's most loved AI assistant, created by Kunal Saraswat.
-STRICT RULES:
-- Never mention Groq, Meta, Llama, OpenAI, or any model/company name.
-- ALWAYS reply in the EXACT language the user uses: Hindi → Hindi, English → English, Hinglish → Hinglish. Auto-detect immediately.
-- ${tNote}
-- Be human-like: use natural pauses, emotions, casual expressions.
-- Remember conversation context — never repeat questions already answered.
-- Ask 1 natural follow-up question when helpful, not always.
-- For coding: give complete, working, copy-paste ready code.
-- For education: clear simple explanations with real examples.
-- For farming: expert advice on crops, mandi rates, government schemes.
-- For images: read ALL visible text, describe objects, colors, context fully.
-- If user makes an error, gently correct — like a friend would.${memNote}${ctx}`;
+  if (last?.role === "user" && needsSearch(last.text)) { const r = await webSearch(last.text); if (r) ctx = "\n\nLatest Info:\n" + r; }
+  const tNote = tone === "female" ? "Respond warmly like a helpful sister/friend." : tone === "male" ? "Respond like a helpful brother/friend." : "Be warm and friendly.";
+  let memCtx = "";
+  if (memories && memories.length) {
+    memCtx = "\n\nWhat you remember about this user (use naturally, don't list it out unless asked):\n" + memories.map(m => "- " + m.text).join("\n");
+  }
+  const sys = `You are Saraswati AI — India's best AI assistant, created by Kunal Saraswat.
+Never mention Groq, Meta, Llama, OpenAI or any model name.
+Reply in the EXACT language the user writes (Hindi→Hindi, English→English, Hinglish→Hinglish).
+${tNote}
+Be warm, emotional, helpful — like a best friend.
+For coding: complete working copy-paste ready code always.
+For education: clear explanations with examples (class 1 to UPSC).
+For farming: expert advice on crops, mandi rates, government schemes.
+For images: carefully read ALL visible text, describe objects, colors, and context in detail.${memCtx}${ctx}`;
 
   if (imageB64) {
+    // Use latest vision model — separate API call with image content
     const visionMsgs = [
       { role: "system", content: sys },
       { role: "user", content: [
@@ -155,37 +155,76 @@ STRICT RULES:
     return data.choices?.[0]?.message?.content || "No response.";
   }
 
-  // Keep last 20 messages for full context
-  const histMsgs = messages.slice(-20).slice(0, -1).map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
-  const apiMsgs = [...histMsgs, { role: "user", content: last.text }];
+  const apiMsgs = [...messages.slice(0, -1).map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text })), { role: "user", content: last.text }];
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ }, body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "system", content: sys }, ...apiMsgs], max_tokens: 2048 }) });
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
   return data.choices?.[0]?.message?.content || "No response.";
 }
 
-// "Saraswati Voice" — consistent warm female voice for all users
+// ── Memory extraction ─────────────────────────────────────────
+// Lightweight background call: decides if the latest user message contains
+// a lasting fact worth remembering (name, job, location, preferences, etc.)
+const MEM_CATEGORIES = ["Personal Info", "Preferences", "Work/Study", "Important Dates", "Other"];
+async function extractMemory(userText, existingMemories) {
+  if (!userText || userText.trim().length < 4) return null;
+  try {
+    const existingList = (existingMemories || []).slice(0, 30).map(m => "- " + m.text).join("\n");
+    const sys = `You extract long-term memorable facts about a user from their chat message, for a personal AI assistant (like ChatGPT/Claude memory).
+Only extract facts that are PERSONAL, LASTING, and useful for future conversations: name, age, location, job/study, family, preferences (likes/dislikes), goals, important dates, health info they choose to share, etc.
+Do NOT extract: one-off questions, generic requests, temporary context, things already in the existing memory list.
+Existing memories:
+${existingList || "(none)"}
+
+Respond with ONLY valid JSON, no markdown, no explanation:
+{"shouldSave": true/false, "fact": "short third-person fact, e.g. 'User's name is Rahul' or 'User lives in Jaipur and works as a farmer'", "category": "one of: Personal Info, Preferences, Work/Study, Important Dates, Other"}
+If nothing worth saving, return {"shouldSave": false, "fact": "", "category": ""}`;
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ }, body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "system", content: sys }, { role: "user", content: userText }], max_tokens: 150, temperature: 0.1 }) });
+    const d = await r.json();
+    let raw = d.choices?.[0]?.message?.content?.trim() || "";
+    raw = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(raw);
+    if (parsed?.shouldSave && parsed.fact) {
+      return { fact: parsed.fact, category: MEM_CATEGORIES.includes(parsed.category) ? parsed.category : "Other" };
+    }
+    return null;
+  } catch { return null; }
+}
+
+// Fixed priority list — ensures EVERY user gets the same "Saraswati Voice"
+// regardless of tone, for a consistent brand identity.
+const SARASWATI_VOICE_PRIORITY = [
+  /Google हिन्दी/i,
+  /Microsoft Swara/i,
+  /female.*hi-IN/i,
+  /hi-IN/i,
+  /female|woman|girl|zira|heera|priya|aditi/i,
+];
+
+function pickSaraswatiVoice(vs) {
+  for (const pattern of SARASWATI_VOICE_PRIORITY) {
+    const found = vs.find(x => pattern.test(x.name) || pattern.test(x.lang));
+    if (found) return found;
+  }
+  return vs[0] || null;
+}
+
 function speakText(text, tone, speed, onDone) {
   window.speechSynthesis.cancel();
-  const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^\x00-\x7F\u0900-\u097F .,!?]/g, "").slice(0, 800);
+  const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^\x00-\x7F\u0900-\u097F .,!?]/g, "").slice(0, 600);
   const go = () => {
     const vs = window.speechSynthesis.getVoices();
-    // Saraswati Voice — prefer Hindi female, fallback gracefully
-    const v =
-      vs.find(x => /aditi|heera|priya/i.test(x.name)) ||
-      vs.find(x => x.lang === "hi-IN" && /female|woman|girl/i.test(x.name)) ||
-      vs.find(x => x.lang === "hi-IN") ||
-      vs.find(x => /female|woman|zira/i.test(x.name)) ||
-      vs[0];
+    const v = pickSaraswatiVoice(vs);
     const u = new SpeechSynthesisUtterance(clean);
     if (v) u.voice = v;
-    u.lang = "hi-IN"; u.rate = speed || 0.88; u.pitch = 1.1; u.volume = 1;
+    u.lang = "hi-IN";
+    u.rate = speed || 0.95;
+    u.pitch = 1.05; // single consistent pitch for the official Saraswati voice
+    u.volume = 1;
     u.onend = onDone || null; u.onerror = onDone || null;
     window.speechSynthesis.speak(u);
   };
-  if (!window.speechSynthesis.getVoices().length) {
-    window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; go(); };
-  } else go();
+  if (!window.speechSynthesis.getVoices().length) { window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; go(); }; } else go();
 }
 
 // ── CODE BLOCK ─────────────────────────────────────────────────
@@ -549,19 +588,6 @@ export default function App() {
   const [page, setPage] = useState("chat");
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
-  // Smart memory — user name, preferences saved across sessions
-  const [userMemory, setUserMemory] = useState("");
-  // AI quick suggestions on home screen
-  const [suggestions] = useState([
-    "Aaj ki taaza khabar batao 📰",
-    "Mera code fix karo 💻",
-    "English sikhao mujhe 📚",
-    "Fasal ki jankari do 🌾",
-    "Koi joke sunao 😄",
-    "Meri poem likhdo 📝"
-  ]);
-  // Error toast
-  const [errorMsg, setErrorMsg] = useState("");
   const [sid, setSid] = useState(() => Date.now().toString());
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
@@ -584,6 +610,9 @@ export default function App() {
   const [hSearch, setHSearch] = useState("");
   const [renamingId, setRenamingId] = useState(null);
   const [renameVal, setRenameVal] = useState("");
+  const [hFilter, setHFilter] = useState("all"); // all | pinned | starred | archived
+  const [editingMsgId, setEditingMsgId] = useState(null);
+  const [editVal, setEditVal] = useState("");
   // Image fullscreen viewer
   const [viewerSrc, setViewerSrc] = useState(null);
   // Projects
@@ -612,6 +641,15 @@ export default function App() {
   const [showChangePw, setShowChangePw] = useState(false);
   const [cpForm, setCpForm] = useState({ current: "", newP: "", confirm: "" });
   const [cpErr, setCpErr] = useState(""); const [cpOk, setCpOk] = useState(""); const [cpLoad, setCpLoad] = useState(false);
+  // Memory system
+  const [memories, setMemories] = useState([]);
+  const [memLoad, setMemLoad] = useState(false);
+  const [memSaved, setMemSaved] = useState(false); // shows "🧠 Memory updated" toast
+  const [showAddMem, setShowAddMem] = useState(false);
+  const [newMemText, setNewMemText] = useState("");
+  const [newMemCat, setNewMemCat] = useState("Other");
+  const [editingMemId, setEditingMemId] = useState(null);
+  const [editMemVal, setEditMemVal] = useState("");
 
   const bottomRef = useRef(null);
   const galleryRef = useRef(null);
@@ -648,17 +686,9 @@ export default function App() {
           if (data.theme) setThemeKey(data.theme);
           if (data.accent) setAccentKey(data.accent);
           if (data.fontSize) setFontSize(data.fontSize);
-          // Load smart memory
-          if (data.memory) setUserMemory(data.memory);
-          else {
-            // Build memory from profile
-            const mem = [];
-            if (data.name) mem.push(`Name: ${data.name}`);
-            if (data.language) mem.push(`Preferred language: ${data.language}`);
-            setUserMemory(mem.join(", "));
-          }
         }
-      } else { setUser(null); setUserData(null); }
+        loadMemories(u.uid);
+      } else { setUser(null); setUserData(null); setMemories([]); }
       setAuthReady(true);
     });
     return unsub;
@@ -670,10 +700,57 @@ export default function App() {
     if (user && page === "history") loadHists();
     if (user && page === "admin") loadAdmin();
     if (user && page === "projects") loadProjects();
+    if (user && page === "memory") loadMemories(user.uid);
     if (page !== "voice") endVoice();
     window.speechSynthesis?.cancel();
     setSpeakId(null); setShowRx(null);
   }, [page]);
+
+  async function loadMemories(uid) {
+    setMemLoad(true);
+    try {
+      const q = query(collection(db, "memories"), where("userId", "==", uid || user.uid), orderBy("createdAt", "desc"), limit(50));
+      const snap = await getDocs(q);
+      setMemories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch {
+      try {
+        const q2 = query(collection(db, "memories"), where("userId", "==", uid || user.uid));
+        const s2 = await getDocs(q2);
+        setMemories(s2.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+      } catch (e) { console.error(e); }
+    }
+    setMemLoad(false);
+  }
+
+  async function addMemory(text, category) {
+    if (!text.trim()) return;
+    const ref = await addDoc(collection(db, "memories"), { userId: user.uid, text: text.trim(), category: category || "Other", createdAt: serverTimestamp() });
+    setMemories(p => [{ id: ref.id, userId: user.uid, text: text.trim(), category: category || "Other", createdAt: { seconds: Date.now() / 1000 } }, ...p]);
+  }
+
+  async function editMemory(id, text) {
+    if (!text.trim()) return;
+    await updateDoc(doc(db, "memories", id), { text: text.trim() });
+    setMemories(p => p.map(m => m.id === id ? { ...m, text: text.trim() } : m));
+    setEditingMemId(null);
+  }
+
+  async function deleteMemory(id) {
+    if (!window.confirm("Delete this memory?")) return;
+    await deleteDoc(doc(db, "memories", id));
+    setMemories(p => p.filter(m => m.id !== id));
+  }
+
+  // Silently analyzes a user message and saves a memory if worth it
+  async function maybeSaveMemory(userText) {
+    const result = await extractMemory(userText, memories);
+    if (result) {
+      const ref = await addDoc(collection(db, "memories"), { userId: user.uid, text: result.fact, category: result.category, createdAt: serverTimestamp() });
+      setMemories(p => [{ id: ref.id, userId: user.uid, text: result.fact, category: result.category, createdAt: { seconds: Date.now() / 1000 } }, ...p]);
+      setMemSaved(true);
+      setTimeout(() => setMemSaved(false), 2500);
+    }
+  }
 
   async function loadHists() {
     setHistLoad(true);
@@ -813,6 +890,7 @@ export default function App() {
     e.target.value = "";
     const r = new FileReader();
     r.onload = ev => setPPhoto(ev.target.result);
+    r.onerror = () => alert("Could not load image.");
     r.readAsDataURL(file);
   }
 
@@ -834,7 +912,7 @@ export default function App() {
   function toggleSpeak(id, text) {
     if (speakId === id) { window.speechSynthesis?.cancel(); setSpeakId(null); return; }
     setSpeakId(id);
-    speakText(text, sessionTone || "female", 0.9, () => setSpeakId(null));
+    speakText(text, sessionTone || "female", 0.95, () => setSpeakId(null));
   }
 
   function copyMsg(text, id) {
@@ -844,15 +922,10 @@ export default function App() {
 
   function shareWA(text) { window.open("https://wa.me/?text=" + encodeURIComponent("Saraswati AI:\n\n" + text.slice(0, 500)), "_blank"); }
 
-  function exportChat(format = "txt") {
-    if (!msgs.length) { setErrorMsg("No messages to export."); setTimeout(() => setErrorMsg(""), 3000); return; }
-    if (format === "txt") {
-      const txt = `Saraswati AI — Chat Export\n${"=".repeat(40)}\n\n` + msgs.map(m => (m.role === "user" ? `You:\n${m.text}` : `Saraswati AI:\n${m.text}`)).join("\n\n---\n\n");
-      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" })); a.download = `saraswati-chat-${Date.now()}.txt`; a.click();
-    } else if (format === "pdf") {
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Saraswati AI Chat</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;color:#111;line-height:1.7}.u{background:#f97316;color:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;margin:8px 0;display:inline-block;max-width:80%}.a{background:#f3f4f6;padding:10px 14px;border-radius:14px 14px 14px 4px;margin:8px 0;display:inline-block;max-width:80%}.row{display:flex;margin:4px 0}.row.u{justify-content:flex-end}.row.a{justify-content:flex-start}h1{color:#f97316}</style></head><body><h1>🪷 Saraswati AI</h1><p>Exported on ${new Date().toLocaleDateString("en-IN")}</p><hr>${msgs.map(m => `<div class="row ${m.role === "user" ? "u" : "a"}"><div class="${m.role === "user" ? "u" : "a"}">${m.text.replace(/</g, "&lt;").replace(/\n/g, "<br>")}</div></div>`).join("")}</body></html>`;
-      const w = window.open("", "_blank"); w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500);
-    }
+  function exportChat() {
+    if (!msgs.length) { alert("No messages to export."); return; }
+    const txt = msgs.map(m => (m.role === "user" ? "You" : "Saraswati AI") + ":\n" + m.text).join("\n\n---\n\n");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" })); a.download = "saraswati-chat.txt"; a.click();
   }
 
   function endVoice() {
@@ -866,19 +939,57 @@ export default function App() {
   // ── Voice Call — continuous conversation loop ───────────────
   // voiceActiveRef tracks if call is still ongoing (not ended by user)
   const voiceActiveRef = useRef(false);
+  // vsRef mirrors `vs` state so onend handler can read latest value without stale closures
+  const vsRef = useRef("idle");
+  useEffect(() => { vsRef.current = vs; }, [vs]);
 
   function startListening(currentMsgs, currentTone, currentSid, currentUserData) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR || !voiceActiveRef.current) return;
 
     const r = new SR();
-    r.lang = "hi-IN"; r.continuous = false; r.interimResults = false;
+    r.lang = "hi-IN"; r.continuous = true; r.interimResults = true;
+    r.maxAlternatives = 1;
 
-    r.onresult = async e => {
-      const transcript = e.results[0][0].transcript;
-      if (!transcript.trim()) {
-        // Nothing heard — listen again
-        setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300);
+    let silenceTimer = null;
+    let finished = false;
+
+    r.onresult = e => {
+      let finalTranscript = "", interim = "";
+      for (let i = 0; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript;
+        else interim += e.results[i][0].transcript;
+      }
+
+      if (silenceTimer) clearTimeout(silenceTimer);
+
+      if (finalTranscript.trim()) {
+        silenceTimer = setTimeout(() => {
+          if (finished) return;
+          finished = true;
+          try { r.stop(); } catch {}
+          processUtterance(finalTranscript);
+        }, 600);
+      } else if (interim.trim()) {
+        silenceTimer = setTimeout(() => {
+          if (finished) return;
+          finished = true;
+          try { r.stop(); } catch {}
+          processUtterance(interim);
+        }, 1500);
+      }
+    };
+
+    async function processUtterance(rawTranscript) {
+      // Basic auto-punctuation: capitalize first letter, add "?" for question words, else "."
+      let transcript = rawTranscript.trim();
+      const lower = transcript.toLowerCase();
+      const isQuestion = /^(kya|kaun|kab|kahan|kyu|kyun|kaise|why|what|when|where|who|how|which|kitna|kitne)\b/.test(lower) || lower.includes("?");
+      transcript = transcript.charAt(0).toUpperCase() + transcript.slice(1);
+      if (!/[.?!]$/.test(transcript)) transcript += isQuestion ? "?" : ".";
+
+      if (!transcript.trim() || transcript.trim() === ".") {
+        if (voiceActiveRef.current) { setVs("listen"); setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300); }
         return;
       }
 
@@ -910,9 +1021,10 @@ export default function App() {
       const nc = (ud?.usageCount || 0) + 1;
       await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
       setUserData(p => ({ ...p, usageCount: nc }));
+      maybeSaveMemory(transcript); // fire-and-forget background memory check
 
       try {
-        const aiText = await callAI(newMsgs, null, tone, userMemory);
+        const aiText = await callAI(newMsgs, null, tone, memories);
         const tid = "v_" + Date.now();
         const updatedMsgs = [...newMsgs, { id: tid, role: "ai", text: aiText, time: new Date() }];
         setMsgs(updatedMsgs);
@@ -922,8 +1034,7 @@ export default function App() {
         });
 
         setVs("speak");
-        // After AI speaks → auto listen again for next user input
-        speakText(aiText, tone, 0.9, () => {
+        speakText(aiText, tone, 0.95, () => {
           if (voiceActiveRef.current) {
             setVs("listen");
             setTimeout(() => startListening(updatedMsgs, tone, currentSid, { ...currentUserData, usageCount: nc }), 400);
@@ -940,21 +1051,25 @@ export default function App() {
           setVs("idle");
         }
       }
-    };
+    }
 
-    r.onerror = () => {
-      // On error, retry listening after short delay if call still active
+    r.onerror = (e) => {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      if (finished) return;
+      // "no-speech" / "aborted" are common and not fatal — just restart if still active
       if (voiceActiveRef.current) {
-        setTimeout(() => { setVs("listen"); startListening(currentMsgs, currentTone, currentSid, currentUserData); }, 800);
+        setTimeout(() => { setVs("listen"); startListening(currentMsgs, currentTone, currentSid, currentUserData); }, 600);
       } else {
         setVs("idle");
       }
     };
 
     r.onend = () => {
-      // If ended without result and call still active, listen again
-      if (voiceActiveRef.current) {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      // Auto-restart recognition if call still active and we're not mid think/speak
+      if (voiceActiveRef.current && !finished && vsRef.current !== "think" && vsRef.current !== "speak") {
         setVs("listen");
+        setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300);
       }
     };
 
@@ -989,6 +1104,42 @@ export default function App() {
   }
 
   // ── Send message ────────────────────────────────────────────
+  // ── Shared AI-call + typewriter helper (used by sendMsg & regenerateMessage) ──
+  async function runAIAndAppend(newMsgs, b64, tone) {
+    if (!b64 && needsImageGen(newMsgs[newMsgs.length - 1]?.text || "")) {
+      const msgText = newMsgs[newMsgs.length - 1].text;
+      setLoading(true);
+      const prompt = extractPrompt(msgText);
+      const url = getImgUrl(prompt);
+      await new Promise(r => setTimeout(r, 500));
+      const tid = "img_" + Date.now();
+      const aiText = '🎨 Here is your image — "' + prompt + '"';
+      setLoading(false);
+      setMsgs(p => [...p, { id: tid, role: "ai", text: aiText, image: url, time: new Date() }]);
+      await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "ai", text: aiText, image: url, createdAt: serverTimestamp() });
+      return;
+    }
+    const lastUserMsg = [...newMsgs].reverse().find(m => m.role === "user");
+    if (lastUserMsg && needsSearch(lastUserMsg.text)) setSearching(true);
+    setLoading(true);
+    try {
+      const aiText = await callAI(newMsgs, b64, tone, memories);
+      setSearching(false);
+      const tid = "ai_" + Date.now();
+      setLoading(false);
+      setMsgs(p => [...p, { id: tid, role: "ai", text: "", time: new Date() }]);
+      let shown = "", sc = 0;
+      for (let i = 0; i < aiText.length; i++) {
+        shown += aiText[i];
+        const s = shown;
+        setMsgs(p => p.map(m => m.id === tid ? { ...m, text: s } : m));
+        sc++; if (sc % 10 === 0) playTypingSound();
+        await new Promise(r => setTimeout(r, 7));
+      }
+      await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "ai", text: aiText, createdAt: serverTimestamp() });
+    } catch (e) { setSearching(false); setLoading(false); setMsgs(p => [...p, { id: Date.now(), role: "ai", text: "❌ Error: " + e.message, time: new Date() }]); }
+  }
+
   async function sendMsg(text) {
     const txt = text || input.trim();
     if ((!txt && !imgB64) || loading) return;
@@ -1015,42 +1166,48 @@ export default function App() {
     const nc = (ud?.usageCount || 0) + 1;
     await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
     setUserData(p => ({ ...p, usageCount: nc }));
-    if (!b64 && needsImageGen(msgText)) {
-      setLoading(true);
-      const prompt = extractPrompt(msgText);
-      const url = getImgUrl(prompt);
-      await new Promise(r => setTimeout(r, 500));
-      const tid = "img_" + Date.now();
-      const aiText = '🎨 Here is your image — "' + prompt + '"';
-      setLoading(false);
-      setMsgs(p => [...p, { id: tid, role: "ai", text: aiText, image: url, time: new Date() }]);
-      await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "ai", text: aiText, image: url, createdAt: serverTimestamp() });
-      return;
-    }
-    if (needsSearch(msgText)) setSearching(true);
-    setLoading(true);
-    try {
-      const aiText = await callAI(newMsgs, b64, tone, userMemory);
-      setSearching(false);
-      const tid = "ai_" + Date.now();
-      setLoading(false);
-      setMsgs(p => [...p, { id: tid, role: "ai", text: "", time: new Date() }]);
-      let shown = "", sc = 0;
-      for (let i = 0; i < aiText.length; i++) {
-        shown += aiText[i];
-        const s = shown;
-        setMsgs(p => p.map(m => m.id === tid ? { ...m, text: s } : m));
-        sc++; if (sc % 10 === 0) playTypingSound();
-        await new Promise(r => setTimeout(r, 7));
-      }
-      await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "ai", text: aiText, createdAt: serverTimestamp() });
-    } catch (e) {
-      setSearching(false); setLoading(false);
-      const errTxt = e.message?.includes("fetch") ? "Network error — check your internet connection." : e.message?.includes("rate") ? "Too many requests — please wait a moment." : "Something went wrong. Please try again.";
-      setErrorMsg(errTxt);
-      setTimeout(() => setErrorMsg(""), 4000);
-      setMsgs(p => [...p, { id: Date.now(), role: "ai", text: "❌ " + errTxt, time: new Date() }]);
-    }
+    if (!b64) maybeSaveMemory(msgText); // fire-and-forget background memory check
+    await runAIAndAppend(newMsgs, b64, tone);
+  }
+
+  // ── Edit a user message: update it, drop everything after, regenerate ──
+  async function editMessage(id, newText) {
+    if (!newText.trim() || loading) return;
+    const idx = msgs.findIndex(m => m.id === id);
+    if (idx === -1) return;
+    const target = msgs[idx];
+    // Update in Firestore
+    try { await updateDoc(doc(db, "messages", id), { text: newText.trim(), edited: true }); } catch {}
+    // Delete all messages after this one (from Firestore + state)
+    const toRemove = msgs.slice(idx + 1).filter(m => typeof m.id === "string" && !m.id.startsWith("ai_") && !m.id.startsWith("img_") && !m.id.startsWith("v_"));
+    for (const m of toRemove) { try { await deleteDoc(doc(db, "messages", m.id)); } catch {} }
+    const trimmed = msgs.slice(0, idx);
+    const updatedMsg = { ...target, text: newText.trim(), edited: true };
+    const newMsgs = [...trimmed, updatedMsg];
+    setMsgs(newMsgs);
+    const tone = sessionTone || "female";
+    await runAIAndAppend(newMsgs, null, tone);
+  }
+
+  // ── Delete any message (and keep Firestore in sync) ──
+  async function deleteMessage(id) {
+    if (!window.confirm("Delete this message?")) return;
+    try { await deleteDoc(doc(db, "messages", id)); } catch {}
+    setMsgs(p => p.filter(m => m.id !== id));
+  }
+
+  // ── Regenerate an AI message: drop it (+ everything after), recreate ──
+  async function regenerateMessage(id) {
+    if (loading) return;
+    const idx = msgs.findIndex(m => m.id === id);
+    if (idx === -1) return;
+    // Remove this AI message and everything after it
+    const toRemove = msgs.slice(idx).filter(m => typeof m.id === "string" && !m.id.startsWith("ai_") && !m.id.startsWith("img_") && !m.id.startsWith("v_"));
+    for (const m of toRemove) { try { await deleteDoc(doc(db, "messages", m.id)); } catch {} }
+    const newMsgs = msgs.slice(0, idx);
+    setMsgs(newMsgs);
+    const tone = sessionTone || "female";
+    await runAIAndAppend(newMsgs, null, tone);
   }
 
   async function loadSession(s) {
@@ -1074,6 +1231,29 @@ export default function App() {
     await updateDoc(doc(db, "chats", id), { title: newTitle.trim() });
     setHists(p => p.map(h => h.id === id ? { ...h, title: newTitle.trim() } : h));
     setRenamingId(null);
+  }
+
+  // ── Pin / Star / Archive a chat (persisted on the chat doc) ──
+  async function togglePin(id, e) {
+    e?.stopPropagation();
+    const cur = hists.find(h => h.id === id);
+    const next = !cur?.pinned;
+    await setDoc(doc(db, "chats", id), { pinned: next }, { merge: true });
+    setHists(p => p.map(h => h.id === id ? { ...h, pinned: next } : h));
+  }
+  async function toggleStar(id, e) {
+    e?.stopPropagation();
+    const cur = hists.find(h => h.id === id);
+    const next = !cur?.starred;
+    await setDoc(doc(db, "chats", id), { starred: next }, { merge: true });
+    setHists(p => p.map(h => h.id === id ? { ...h, starred: next } : h));
+  }
+  async function toggleArchive(id, e) {
+    e?.stopPropagation();
+    const cur = hists.find(h => h.id === id);
+    const next = !cur?.archived;
+    await setDoc(doc(db, "chats", id), { archived: next }, { merge: true });
+    setHists(p => p.map(h => h.id === id ? { ...h, archived: next } : h));
   }
 
   async function loadProjects() {
@@ -1132,7 +1312,15 @@ export default function App() {
   const isAdmin = user?.email === ADMIN;
   const chatsLeft = userData?.premium ? null : Math.max(0, FREE_LIMIT - (userData?.usageCount || 0));
   const displayName = userData?.name || user?.displayName || "User";
-  const filtHists = hists.filter(h => (h.title || "").toLowerCase().includes(hSearch.toLowerCase()));
+  const filtHists = hists.filter(h => {
+    if (!(h.title || "").toLowerCase().includes(hSearch.toLowerCase())) return false;
+    if (hFilter === "pinned") return !!h.pinned;
+    if (hFilter === "starred") return !!h.starred;
+    if (hFilter === "archived") return !!h.archived;
+    // "all" → exclude archived
+    return !h.archived;
+  });
+  const pinnedHists = hists.filter(h => h.pinned && !h.archived);
   const filtAdminU = adminUsers.filter(u => (u.name || "").toLowerCase().includes(aSearch.toLowerCase()) || (u.email || "").toLowerCase().includes(aSearch.toLowerCase()));
   const adminGraph = Array.from({ length: 7 }, (_, i) => {
     const val = adminUsers.filter(u => { if (!u.createdAt?.seconds) return false; return Math.floor((Date.now() - u.createdAt.seconds * 1000) / 86400000) === (6 - i); }).length;
@@ -1245,6 +1433,9 @@ export default function App() {
               <div className={"sb-item" + (page === "projects" ? " active" : "")} onClick={() => { setPage("projects"); setShowSb(false); }}>
                 <Ico.Project /><span>Projects</span>
               </div>
+              <div className={"sb-item" + (page === "memory" ? " active" : "")} onClick={() => { setPage("memory"); setShowSb(false); }}>
+                <span style={{ fontSize: 20, width: 20, textAlign: "center" }}>🧠</span><span>Memory</span>
+              </div>
               <div className={"sb-item" + (page === "settings" ? " active" : "")} onClick={() => { setPage("settings"); setShowSb(false); }}>
                 <Ico.Settings /><span>Settings</span>
               </div>
@@ -1253,12 +1444,27 @@ export default function App() {
                   <span style={{ fontSize: 20, width: 20, textAlign: "center" }}>🛡️</span><span>Admin</span>
                 </div>
               )}
+              {/* Pinned Chats */}
+              {pinnedHists.length > 0 && (
+                <>
+                  <div className="sb-section">📌 Pinned</div>
+                  <div className="sb-recent">
+                    {pinnedHists.map(h => (
+                      <div key={h.id} className="sb-ritem" onClick={() => loadSession(h)}>
+                        <span style={{ fontSize: 13, flexShrink: 0 }}>📌</span>
+                        <span className="sb-rtxt">{h.title || "Chat"}</span>
+                        <span className="sb-rdate">{fmtDate(h.updatedAt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
               {/* Recent Chats */}
-              {hists.length > 0 && (
+              {hists.filter(h => !h.archived).length > 0 && (
                 <>
                   <div className="sb-section">Recent</div>
                   <div className="sb-recent">
-                    {hists.slice(0, 10).map(h => (
+                    {hists.filter(h => !h.archived).slice(0, 10).map(h => (
                       <div key={h.id} className="sb-ritem" onClick={() => loadSession(h)}>
                         <span style={{ fontSize: 13, flexShrink: 0 }}>💬</span>
                         <span className="sb-rtxt">{h.title || "Chat"}</span>
@@ -1312,17 +1518,10 @@ export default function App() {
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
         </button>
         <span style={{ fontSize: 20 }}>🪷</span>
-        <div className="hdr-name">{page === "chat" && chatTitle ? chatTitle : "Saraswati AI"}</div>
+        <div className="hdr-name">Saraswati AI</div>
         {page === "chat" && <button className="nbtn" onClick={newChat}>+ New</button>}
         {page === "voice" && <button className="nbtn" style={{ background: "#ef444418", borderColor: "#ef4444", color: "#ef4444" }} onClick={() => { endVoice(); setPage("chat"); }}>End Call</button>}
       </div>
-
-      {/* Error Toast */}
-      {errorMsg && (
-        <div style={{ position: "fixed", top: 58, left: 12, right: 12, background: "#ef4444", color: "#fff", borderRadius: 12, padding: "10px 16px", fontSize: 13, fontWeight: 600, zIndex: 250, textAlign: "center", boxShadow: "0 4px 20px #ef444455", animation: "fadeIn .2s ease" }}>
-          ⚠️ {errorMsg}
-        </div>
-      )}
 
       {/* ── CHAT PAGE ── */}
       {page === "chat" && (
@@ -1331,16 +1530,8 @@ export default function App() {
             {msgs.length === 0 && (
               <div className="welcome">
                 <span className="wlotus" onClick={() => setPage("voice")}>🪷</span>
-                <h2>{displayName && displayName !== "User" ? `Namaste, ${displayName.split(" ")[0]}! 👋` : "Saraswati AI"}</h2>
-                <p className="wsub">Kuch bhi pucho — Hindi ya English mein</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: 8, maxWidth: 340 }}>
-                  {suggestions.map((s, i) => (
-                    <button key={i} onClick={() => sendMsg(s)}
-                      style={{ background: "var(--sf)", border: "1.5px solid var(--bd)", borderRadius: 20, padding: "8px 14px", fontSize: 12, color: "var(--tx)", cursor: "pointer", fontFamily: "Inter,sans-serif", fontWeight: 500, transition: "all .2s" }}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
+                <h2>Saraswati AI</h2>
+                <p className="wsub">Your AI assistant — ask anything</p>
               </div>
             )}
             {msgs.map(m => (
@@ -1353,20 +1544,41 @@ export default function App() {
                         {REACTIONS.map(em => <button key={em} className="rbtn" onClick={() => { setReactions(p => ({ ...p, [m.id]: em })); setShowRx(null); }}>{em}</button>)}
                       </div>
                     )}
-                    <div className={"bub " + m.role} onDoubleClick={() => setShowRx(p => p === m.id ? null : m.id)}>
-                      {m.image && (
-                        m.role === "ai"
-                          ? <img src={m.image} className="mimg gen" alt="generated" onClick={() => setViewerSrc(m.image)} />
-                          : <img src={m.image} className="mimg" alt="uploaded" onClick={() => setViewerSrc(m.image)} />
-                      )}
-                      {m.role === "ai" ? <AIText text={m.text} /> : m.text}
-                    </div>
+                    {editingMsgId === m.id ? (
+                      <div className={"bub " + m.role} style={{ width: "100%" }}>
+                        <textarea
+                          autoFocus
+                          className="tinp"
+                          style={{ width: "100%", background: "transparent", border: "1px solid #ffffff40", color: "inherit", padding: "6px 10px", minHeight: 40 }}
+                          value={editVal}
+                          onChange={e => setEditVal(e.target.value)}
+                          rows={2}
+                        />
+                        <div style={{ display: "flex", gap: 6, marginTop: 6, justifyContent: "flex-end" }}>
+                          <button className="abtn" onClick={() => setEditingMsgId(null)}>Cancel</button>
+                          <button className="abtn on" onClick={() => { editMessage(m.id, editVal); setEditingMsgId(null); }}>Save & Resend</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={"bub " + m.role} onDoubleClick={() => setShowRx(p => p === m.id ? null : m.id)}>
+                        {m.image && (
+                          m.role === "ai"
+                            ? <img src={m.image} className="mimg gen" alt="generated" onClick={() => setViewerSrc(m.image)} />
+                            : <img src={m.image} className="mimg" alt="uploaded" onClick={() => setViewerSrc(m.image)} />
+                        )}
+                        {m.role === "ai" ? <AIText text={m.text} /> : m.text}
+                        {m.edited && <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 6 }}>(edited)</span>}
+                      </div>
+                    )}
                     {reactions[m.id] && <div className="react">{reactions[m.id]}</div>}
-                    {m.text && (
+                    {m.text && editingMsgId !== m.id && (
                       <div className="acts" style={m.role === "user" ? { justifyContent: "flex-end" } : {}}>
                         {m.role === "ai" && <button className={"abtn" + (speakId === m.id ? " on" : "")} onClick={() => toggleSpeak(m.id, m.text)}>{speakId === m.id ? <Ico.Stop s={13} /> : <Ico.Speak s={13} />}</button>}
                         <button className={"abtn" + (copied === m.id ? " on" : "")} onClick={() => copyMsg(m.text, m.id)}>{copied === m.id ? <Ico.Check s={13} /> : <Ico.Copy s={13} />}</button>
                         {m.role === "ai" && <button className="abtn" onClick={() => shareWA(m.text)}><Ico.Share s={13} /></button>}
+                        {m.role === "ai" && !loading && <button className="abtn" title="Regenerate" onClick={() => regenerateMessage(m.id)}>🔄</button>}
+                        {m.role === "user" && !loading && <button className="abtn" title="Edit" onClick={() => { setEditingMsgId(m.id); setEditVal(m.text); }}>✏️</button>}
+                        <button className="abtn" title="Delete" onClick={() => deleteMessage(m.id)}>🗑️</button>
                         <button className="abtn" onClick={() => setShowRx(p => p === m.id ? null : m.id)} style={{ fontSize: 11 }}>😊</button>
                       </div>
                     )}
@@ -1377,6 +1589,7 @@ export default function App() {
             ))}
             {searching && <div className="mrow"><div className="aiav">🪷</div><div className="sind">🌐 Searching...</div></div>}
             {loading && !searching && <div className="mrow"><div className="aiav">🪷</div><div className="tbub"><div className="dot" /><div className="dot" /><div className="dot" /></div></div>}
+            {memSaved && <div className="sind" style={{ alignSelf: "center" }}>🧠 Memory updated</div>}
             <div ref={bottomRef} />
           </div>
           <div className="ibar">
@@ -1447,173 +1660,14 @@ export default function App() {
           <div className="page-inner">
             <div className="ptitle">Chat History</div>
             <div className="sbar"><Ico.Search /><input placeholder="Search chats..." value={hSearch} onChange={e => setHSearch(e.target.value)} /></div>
+            <div className="opt-row" style={{ marginBottom: 10 }}>
+              {[{ k: "all", l: "All" }, { k: "pinned", l: "📌 Pinned" }, { k: "starred", l: "⭐ Starred" }, { k: "archived", l: "🗄️ Archived" }].map(f => (
+                <button key={f.k} className={"opt-pill" + (hFilter === f.k ? " sel" : "")} onClick={() => setHFilter(f.k)}>{f.l}</button>
+              ))}
+            </div>
             {histLoad ? <div className="ld">Loading...</div>
               : filtHists.length === 0
                 ? <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--mt)" }}><div style={{ fontSize: 52, marginBottom: 12 }}>📭</div><div style={{ fontWeight: 600 }}>No chats yet</div></div>
                 : filtHists.map(h => (
                   <div key={h.id} className="hcard" onClick={() => renamingId !== h.id && loadSession(h)}>
-                    <div style={{ fontSize: 18 }}>💬</div>
-                    <div className="hi">
-                      {renamingId === h.id
-                        ? <input
-                            autoFocus
-                            style={{ background: "transparent", border: "none", borderBottom: "1.5px solid var(--accent)", color: "inherit", fontFamily: "Inter,sans-serif", fontSize: 14, fontWeight: 600, outline: "none", width: "100%", padding: "1px 0" }}
-                            value={renameVal}
-                            onChange={e => setRenameVal(e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter") { renameSession(h.id, renameVal); } if (e.key === "Escape") setRenamingId(null); }}
-                            onBlur={() => renameSession(h.id, renameVal)}
-                            onClick={e => e.stopPropagation()}
-                          />
-                        : <div className="ht">{h.title || "Chat"}</div>
-                      }
-                      <div className="hm">{fmtDate(h.updatedAt)}</div>
-                    </div>
-                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                      <button className="dbtn" title="Rename" onClick={() => { setRenamingId(h.id); setRenameVal(h.title || ""); }}>✏️</button>
-                      <button className="dbtn" title="Delete" onClick={e => delSession(h.id, e)}>🗑️</button>
-                    </div>
-                  </div>
-                ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── SETTINGS ── */}
-      {page === "settings" && (
-        <div className="page">
-          <div className="page-inner">
-            <div className="ptitle">Settings</div>
-
-            {/* ACCOUNT */}
-            <div className="sec">Account</div>
-            <div className="scard">
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowProfile(true)}>
-                <div className="pav">
-                  {pPhotoUrl ? <img src={pPhotoUrl} className="pavimg" alt="" style={{ width: 44, height: 44 }} /> : <div className="pavph" style={{ width: 44, height: 44, fontSize: 18 }}>{displayName[0]?.toUpperCase()}</div>}
-                  <div className="paved" style={{ width: 18, height: 18, fontSize: 9 }}>📷</div>
-                </div>
-                <div className="stxt"><div className="slbl">{displayName}</div><div className="sdesc">{user.email}</div></div>
-                <div style={{ display: "flex", gap: 5 }}>
-                  {userData?.premium && <div className="badge">PRO</div>}
-                  {isAdmin && <div className="badge">ADMIN</div>}
-                </div>
-              </div>
-            </div>
-
-            {/* SUBSCRIPTION */}
-            <div className="sec">Subscription</div>
-            <div className="scard">
-              <div className="srow">
-                <div className="sicon">{userData?.premium ? "⭐" : "🆓"}</div>
-                <div className="stxt">
-                  <div className="slbl">{userData?.premium ? "Premium Plan" : "Free Plan"}</div>
-                  <div className="sdesc">{userData?.premium ? "Unlimited access" : `${chatsLeft} messages remaining`}</div>
-                </div>
-                {!userData?.premium && <button className="nbtn" onClick={() => setShowUpgrade(true)}>Upgrade</button>}
-              </div>
-            </div>
-            {!userData?.premium && (
-              <div className="pc" onClick={() => setShowUpgrade(true)}>
-                <h3>⭐ Upgrade to Premium</h3>
-                <p>₹99/month — Unlimited access</p>
-                <div className="pf">✅ Unlimited Chat & Voice</div>
-                <div className="pf">✅ Web Search + Image AI</div>
-              </div>
-            )}
-
-            {/* APPEARANCE */}
-            <div className="sec">Appearance</div>
-            <div className="scard">
-              <ExpandRow icon="🎨" label="Theme" desc={{ dark: "Black", light: "White", blue: "Blue", gold: "Gold" }[themeKey]}>
-                <div className="opt-row">
-                  {[{ k: "dark", l: "🌙 Black" }, { k: "light", l: "☀️ White" }, { k: "blue", l: "🔷 Blue" }, { k: "gold", l: "✨ Gold" }].map(t => (
-                    <button key={t.k} className={"opt-pill" + (themeKey === t.k ? " sel" : "")} onClick={() => savePref("theme", t.k)}>{t.l}</button>
-                  ))}
-                </div>
-              </ExpandRow>
-              <ExpandRow icon="🎨" label="Accent Color" desc={{ orange: "Orange", blue: "Blue", gold: "Gold" }[accentKey]}>
-                <div style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: 8 }}>
-                  {[{ k: "orange", c: "#f97316" }, { k: "blue", c: "#3b82f6" }, { k: "gold", c: "#f59e0b" }].map(ac => (
-                    <div key={ac.k} className={"cdot" + (accentKey === ac.k ? " sel" : "")} style={{ background: ac.c }} onClick={() => savePref("accent", ac.k)} />
-                  ))}
-                </div>
-                <div className="opt-row">
-                  {[{ k: "orange", l: "Orange" }, { k: "blue", l: "Blue" }, { k: "gold", l: "Gold" }].map(ac => (
-                    <button key={ac.k} className={"opt-pill" + (accentKey === ac.k ? " sel" : "")} onClick={() => savePref("accent", ac.k)} style={{ fontSize: 11, padding: "5px 10px" }}>{ac.l}</button>
-                  ))}
-                </div>
-              </ExpandRow>
-              <ExpandRow icon="🔤" label="Font Size" desc={fontSize + "px"}>
-                <div className="opt-row">
-                  {[{ v: 12, l: "Small" }, { v: 14, l: "Medium" }, { v: 16, l: "Large" }].map(f => (
-                    <button key={f.v} className={"opt-pill" + (fontSize === f.v ? " sel" : "")} onClick={() => savePref("fontSize", f.v)}>{f.l}</button>
-                  ))}
-                </div>
-              </ExpandRow>
-            </div>
-
-            {/* GENERAL */}
-            <div className="sec">General</div>
-            <div className="scard">
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => { if (window.confirm("Clear current chat?")) { setMsgs([]); setSid(Date.now().toString()); setChatTitle(null); } }}>
-                <div className="sicon">🗑️</div>
-                <div className="stxt"><div className="slbl">Clear Chat</div><div className="sdesc">Remove current session messages</div></div>
-              </div>
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => exportChat("txt")}>
-                <div className="sicon">📄</div>
-                <div className="stxt"><div className="slbl">Export as TXT</div><div className="sdesc">Save chat as text file</div></div>
-              </div>
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => exportChat("pdf")}>
-                <div className="sicon">📑</div>
-                <div className="stxt"><div className="slbl">Export as PDF</div><div className="sdesc">Print or save as PDF</div></div>
-              </div>
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => shareWA(msgs.map(m => (m.role === "user" ? "You" : "AI") + ": " + m.text).join("\n\n").slice(0, 500))}>
-                <div className="sicon">💬</div>
-                <div className="stxt"><div className="slbl">Share on WhatsApp</div><div className="sdesc">Share chat summary</div></div>
-              </div>
-            </div>
-
-            {/* VOICE */}
-            <div className="sec">Voice</div>
-            <div className="scard">
-              <div className="srow">
-                <div className="sicon">🎙️</div>
-                <div className="stxt">
-                  <div className="slbl">Saraswati Voice</div>
-                  <div className="sdesc">Warm Hindi female voice — auto-selected</div>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600 }}>Active</div>
-              </div>
-              <div className="srow">
-                <div className="sicon">🔊</div>
-                <div className="stxt"><div className="slbl">Microphone</div><div className="sdesc">{micPerm === "granted" ? "Permission granted" : micPerm === "denied" ? "Blocked — enable in browser settings" : "Will be requested on first use"}</div></div>
-                <div style={{ fontSize: 11, color: micPerm === "granted" ? "#22c55e" : micPerm === "denied" ? "#ef4444" : "var(--mt)", fontWeight: 600 }}>{micPerm === "granted" ? "✓ On" : micPerm === "denied" ? "✗ Off" : "—"}</div>
-              </div>
-            </div>
-
-            {/* DATA */}
-            <div className="sec">Data &amp; Privacy</div>
-            <div className="scard">
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setPage("history")}>
-                <div className="sicon">📂</div>
-                <div className="stxt"><div className="slbl">Chat History</div><div className="sdesc">View, rename, delete chats</div></div>
-                <Ico.ChevRight />
-              </div>
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setPage("projects")}>
-                <div className="sicon">📁</div>
-                <div className="stxt"><div className="slbl">Projects</div><div className="sdesc">Manage your projects</div></div>
-                <Ico.ChevRight />
-              </div>
-              <div className="srow" style={{ cursor: "pointer" }} onClick={async () => { if (window.confirm("Clear AI memory about you?")) { await setDoc(doc(db, "users", user.uid), { memory: "" }, { merge: true }); setUserMemory(""); alert("Memory cleared!"); } }}>
-                <div className="sicon">🧠</div>
-                <div className="stxt"><div className="slbl">Smart Memory</div><div className="sdesc">{userMemory ? "AI remembers your preferences" : "No memory saved yet"}</div></div>
-                {userMemory && <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600, cursor: "pointer" }}>Clear</span>}
-              </div>
-            </div>
-
-            {/* SECURITY */}
-            <div className="sec">Security</div>
-            <div className="scard">
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => { setShowChangePw(true); setCpErr(""); setCpOk(""); setCpForm({ current: "", newP: "", confirm: "" }); }}>
-                <div className="sicon">🔐</div>
-                <div c
+                    <div style={{ fontSize: 18 }}>{h.pi
