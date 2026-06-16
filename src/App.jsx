@@ -208,7 +208,12 @@ async function callAI(messages, imageB64, tone, memories, language) {
   const tNote = tone === "female" ? "Respond warmly like a helpful sister/friend." : tone === "male" ? "Respond like a helpful brother/friend." : "Be warm and friendly.";
   let memCtx = "";
   if (memories && memories.length) {
-    memCtx = "\n\nWhat you remember about this user (use naturally, don't list it out unless asked):\n" + memories.map(m => "- " + m.text).join("\n");
+    // Smart: inject only relevant memories for this query
+    const relevant = getRelevantMemories(memories, last?.text || "");
+    if (relevant.length) {
+      memCtx = "\n\nMemories about this user (use naturally when relevant, never list unless asked):\n" +
+        relevant.map(m => `- [${m.category || "personal"}] ${m.memory_content || m.text}`).join("\n");
+    }
   }
   const langInstruction = {
     hindi: "ALWAYS reply in Hindi (Devanagari script), regardless of what language the user writes in.",
@@ -247,29 +252,104 @@ For images: carefully read ALL visible text, describe objects, colors, and conte
   return data.choices?.[0]?.message?.content || "No response.";
 }
 
-const MEM_CATEGORIES = ["Personal Info", "Preferences", "Work/Study", "Important Dates", "Other"];
-async function extractMemory(userText, existingMemories) {
-  if (!userText || userText.trim().length < 4) return null;
-  try {
-    const existingList = (existingMemories || []).slice(0, 30).map(m => "- " + m.text).join("\n");
-    const sys = `You extract long-term memorable facts about a user from their chat message, for a personal AI assistant (like ChatGPT/Claude memory).
-Only extract facts that are PERSONAL, LASTING, and useful for future conversations: name, age, location, job/study, family, preferences (likes/dislikes), goals, important dates, health info they choose to share, etc.
-Do NOT extract: one-off questions, generic requests, temporary context, things already in the existing memory list.
-Existing memories:
-${existingList || "(none)"}
+// ── LONG-TERM MEMORY SYSTEM (ChatGPT-style) ─────────────────────
+const MEM_CATEGORIES = ["preferences", "goals", "projects", "work", "learning", "personal", "custom"];
+const MEM_CATEGORY_LABELS = {
+  preferences: "⭐ Preferences", goals: "🎯 Goals", projects: "📁 Projects",
+  work: "💼 Work", learning: "📚 Learning", personal: "👤 Personal", custom: "✏️ Custom"
+};
 
-Respond with ONLY valid JSON, no markdown, no explanation:
-{"shouldSave": true/false, "fact": "short third-person fact, e.g. 'User's name is Rahul' or 'User lives in Jaipur and works as a farmer'", "category": "one of: Personal Info, Preferences, Work/Study, Important Dates, Other"}
-If nothing worth saving, return {"shouldSave": false, "fact": "", "category": ""}`;
-    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ }, body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "system", content: sys }, { role: "user", content: userText }], max_tokens: 150, temperature: 0.1 }) });
+// Detect explicit "remember that..." commands
+function isExplicitMemoryCommand(text) {
+  const t = text.toLowerCase().trim();
+  return /^(remember (that|this|:)?|save (this|that|to memory)|note (that|this)|yaad rakho|yaad kar|memory mein daal|store (this|that))/.test(t);
+}
+
+// Extract the fact from "remember that I am a developer" → "User is a developer"
+function extractExplicitFact(text) {
+  return text
+    .replace(/^(remember (that|this|:)?|save (this|that|to memory)|note (that|this)|yaad rakho|yaad kar|memory mein daal|store (this|that))\s*/i, "")
+    .trim();
+}
+
+// Simple keyword-based semantic relevance score (0–1) between query and memory
+function memoryRelevanceScore(memText, queryText) {
+  if (!memText || !queryText) return 0;
+  const m = memText.toLowerCase();
+  const q = queryText.toLowerCase();
+  const qWords = q.split(/\s+/).filter(w => w.length > 3);
+  if (!qWords.length) return 0;
+  const hits = qWords.filter(w => m.includes(w)).length;
+  return hits / qWords.length;
+}
+
+// Fetch top-N most relevant memories for a given query
+function getRelevantMemories(allMemories, queryText, topN = 8) {
+  if (!allMemories || !allMemories.length) return [];
+  const scored = allMemories.map(m => ({
+    ...m,
+    _score: (m.importance_score || 5) * 0.3 + memoryRelevanceScore(m.memory_content || m.text, queryText) * 0.7
+  }));
+  return scored
+    .sort((a, b) => b._score - a._score)
+    .slice(0, topN)
+    .filter(m => m._score > 0.05);
+}
+
+// Full AI-powered memory analysis: detect save/update/skip, category, importance
+async function analyzeMemory(userText, existingMemories) {
+  if (!userText || userText.trim().length < 3) return null;
+  try {
+    const existingList = (existingMemories || []).slice(0, 40).map((m, i) =>
+      `[${i}] (id:${m.id}) [${m.category || "personal"}] ${m.memory_content || m.text}`
+    ).join("\n");
+
+    const sys = `You are a memory manager for a personal AI assistant (like ChatGPT memory).
+
+Your job: analyze the user's message and decide if any long-term memory should be saved, updated, or skipped.
+
+Rules:
+- SAVE: personal facts, preferences, skills, goals, projects, work info, learning topics, relationships, important dates
+- UPDATE: if the new info contradicts or replaces an existing memory (e.g. "I now use Vue" replaces "I use React")
+- SKIP: questions, generic requests, greetings, temporary context, one-time tasks
+- EXPLICIT: if user says "remember that X", always SAVE or UPDATE
+
+Categories: preferences | goals | projects | work | learning | personal | custom
+
+Importance score 1-10:
+- 10: name, profession, major life fact
+- 7-9: skills, tools, preferences, goals
+- 4-6: interests, habits, minor preferences
+- 1-3: trivial facts
+
+Existing memories:
+${existingList || "(none yet)"}
+
+Respond with ONLY valid JSON (no markdown):
+{
+  "action": "save" | "update" | "skip",
+  "memory_content": "concise third-person fact (e.g. 'User is a software engineer')",
+  "category": "preferences|goals|projects|work|learning|personal|custom",
+  "importance_score": 1-10,
+  "update_id": "existing memory id to replace, or null"
+}`;
+
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ },
+      body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "system", content: sys }, { role: "user", content: userText }], max_tokens: 200, temperature: 0.1 })
+    });
     const d = await r.json();
-    let raw = d.choices?.[0]?.message?.content?.trim() || "";
-    raw = raw.replace(/```json|```/g, "").trim();
+    let raw = (d.choices?.[0]?.message?.content || "").trim().replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(raw);
-    if (parsed?.shouldSave && parsed.fact) {
-      return { fact: parsed.fact, category: MEM_CATEGORIES.includes(parsed.category) ? parsed.category : "Other" };
-    }
-    return null;
+    if (!parsed || parsed.action === "skip" || !parsed.memory_content) return null;
+    return {
+      action: parsed.action || "save",
+      memory_content: parsed.memory_content,
+      category: MEM_CATEGORIES.includes(parsed.category) ? parsed.category : "personal",
+      importance_score: Math.min(10, Math.max(1, parseInt(parsed.importance_score) || 5)),
+      update_id: parsed.update_id || null
+    };
   } catch { return null; }
 }
 
@@ -710,7 +790,8 @@ export default function App() {
   const [memSaved, setMemSaved] = useState(false);
   const [showAddMem, setShowAddMem] = useState(false);
   const [newMemText, setNewMemText] = useState("");
-  const [newMemCat, setNewMemCat] = useState("Other");
+  const [newMemCat, setNewMemCat] = useState("personal");
+  const [newMemImportance, setNewMemImportance] = useState(5);
   const [editingMemId, setEditingMemId] = useState(null);
   const [editMemVal, setEditMemVal] = useState("");
 
@@ -791,16 +872,33 @@ export default function App() {
     setMemLoad(false);
   }
 
-  async function addMemory(text, category) {
+  async function addMemory(text, category, importance) {
     if (!text.trim()) return;
-    const ref = await addDoc(collection(db, "memories"), { userId: user.uid, text: text.trim(), category: category || "Other", createdAt: serverTimestamp() });
-    setMemories(p => [{ id: ref.id, userId: user.uid, text: text.trim(), category: category || "Other", createdAt: { seconds: Date.now() / 1000 } }, ...p]);
+    const now = { seconds: Date.now() / 1000 };
+    const data = {
+      userId: user.uid,
+      memory_content: text.trim(),
+      text: text.trim(), // backward compat
+      category: category || "personal",
+      importance_score: importance || 5,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    const ref = await addDoc(collection(db, "memories"), data);
+    setMemories(p => [{ id: ref.id, ...data, createdAt: now, updatedAt: now }, ...p]);
   }
 
   async function editMemory(id, text) {
     if (!text.trim()) return;
-    await updateDoc(doc(db, "memories", id), { text: text.trim() });
-    setMemories(p => p.map(m => m.id === id ? { ...m, text: text.trim() } : m));
+    await updateDoc(doc(db, "memories", id), {
+      memory_content: text.trim(),
+      text: text.trim(),
+      updatedAt: serverTimestamp()
+    });
+    setMemories(p => p.map(m => m.id === id
+      ? { ...m, memory_content: text.trim(), text: text.trim(), updatedAt: { seconds: Date.now() / 1000 } }
+      : m
+    ));
     setEditingMemId(null);
   }
 
@@ -811,13 +909,55 @@ export default function App() {
   }
 
   async function maybeSaveMemory(userText) {
-    const result = await extractMemory(userText, memories);
-    if (result) {
-      const ref = await addDoc(collection(db, "memories"), { userId: user.uid, text: result.fact, category: result.category, createdAt: serverTimestamp() });
-      setMemories(p => [{ id: ref.id, userId: user.uid, text: result.fact, category: result.category, createdAt: { seconds: Date.now() / 1000 } }, ...p]);
-      setMemSaved(true);
-      setTimeout(() => setMemSaved(false), 2500);
+    // Handle explicit "remember that..." commands immediately
+    let textToAnalyze = userText;
+    const isExplicit = isExplicitMemoryCommand(userText);
+    if (isExplicit) textToAnalyze = extractExplicitFact(userText) || userText;
+
+    const result = await analyzeMemory(textToAnalyze, memories);
+    if (!result) return;
+
+    const now = { seconds: Date.now() / 1000 };
+    const memData = {
+      userId: user.uid,
+      memory_content: result.memory_content,
+      // Keep .text alias for backward compat with old records
+      text: result.memory_content,
+      category: result.category,
+      importance_score: result.importance_score,
+      updatedAt: serverTimestamp(),
+    };
+
+    if (result.action === "update" && result.update_id) {
+      // Update existing memory instead of creating duplicate
+      const existingIdx = memories.findIndex(m => m.id === result.update_id);
+      if (existingIdx !== -1) {
+        try {
+          await updateDoc(doc(db, "memories", result.update_id), { ...memData, updatedAt: serverTimestamp() });
+          setMemories(p => p.map(m => m.id === result.update_id
+            ? { ...m, ...memData, updatedAt: now }
+            : m
+          ));
+          setMemSaved("updated");
+          setTimeout(() => setMemSaved(false), 2500);
+          return;
+        } catch { /* fall through to save new */ }
+      }
     }
+
+    // Save new memory
+    const ref = await addDoc(collection(db, "memories"), {
+      ...memData,
+      createdAt: serverTimestamp(),
+    });
+    setMemories(p => [{
+      id: ref.id,
+      ...memData,
+      createdAt: now,
+      updatedAt: now,
+    }, ...p]);
+    setMemSaved("saved");
+    setTimeout(() => setMemSaved(false), 2500);
   }
 
   async function loadHists() {
@@ -1341,7 +1481,8 @@ export default function App() {
     const nc = (ud?.usageCount || 0) + 1;
     await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
     setUserData(p => ({ ...p, usageCount: nc }));
-    if (!b64 && memoryEnabled) maybeSaveMemory(msgText);
+    // Always analyze for memory — explicit commands get priority
+    if (memoryEnabled) maybeSaveMemory(msgText);
     await runAIAndAppend(newMsgs, b64, tone);
   }
 
@@ -1546,7 +1687,11 @@ export default function App() {
       <style>{buildStyles(themeKey, accentKey, fontSize)}</style>
 
       {/* Memory saved toast */}
-      {memSaved && <div className="toast">🧠 Memory updated</div>}
+      {memSaved && (
+        <div className="toast">
+          {memSaved === "updated" ? "🔄 Memory updated" : "🧠 Memory saved"}
+        </div>
+      )}
 
       {/* Image fullscreen viewer */}
       {viewerSrc && (
@@ -1647,79 +1792,4 @@ export default function App() {
                         <div className="pplan-label">/month</div>
                         <div className="pplan-feats">{"✓ Unlimited Chats\n✓ No Ads\n✓ Faster AI\n✓ Voice Access"}</div>
                       </div>
-                      <div className="pplan week" onClick={() => { setUpgradePlan("weekly"); setShowUpgrade(true); setShowSb(false); }}>
-                        <div className="pplan-price">₹29</div>
-                        <div className="pplan-label">/week</div>
-                        <div className="pplan-feats">{"✓ Unlimited Msgs\n✓ Ad-Free\n✓ Premium AI"}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div className="sb-logout" onClick={() => signOut(auth)}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                <span>Logout</span>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* ── FREE LIMIT MODAL ── */}
-      {showLimit && (
-        <div className="mbg" onClick={() => setShowLimit(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="mi">🔒</div>
-            <h3>Free Limit Reached</h3>
-            <p>You've used all {FREE_LIMIT} free messages. Upgrade to Premium for unlimited access!</p>
-            <button className="btn btn-p" onClick={() => { setShowLimit(false); setShowUpgrade(true); }}>⭐ Upgrade Now</button>
-            <button className="btn btn-s" onClick={() => setShowLimit(false)}>Maybe Later</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── UPGRADE MODAL ── */}
-      {showUpgrade && (
-        <div className="mbg" onClick={() => { setShowUpgrade(false); setPayDone(false); }}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            {payDone ? (
-              <>
-                <div className="mi">✅</div>
-                <h3>Payment Sent!</h3>
-                <p>Screenshot bhejo WhatsApp pe — 30 min mein activate ho jayega!</p>
-                <button className="btn btn-p" onClick={() => window.open("https://wa.me/91" + UPI + "?text=Maine%20Saraswati%20AI%20Premium%20ke%20liye%20payment%20kiya%20hai", "_blank")}>📲 WhatsApp karo</button>
-                <button className="btn btn-s" onClick={() => { setShowUpgrade(false); setPayDone(false); }}>Close</button>
-              </>
-            ) : (
-              <>
-                <div className="mi">⭐</div>
-                <h3>Saraswati AI {upgradePlan === "monthly" ? "Monthly" : "Weekly"} Premium</h3>
-                <p>Unlimited chats · Voice Call · Faster AI · Ad-free</p>
-                <div className="pbox">
-                  <div className="pnum">{upgradePlan === "monthly" ? "₹99 / month" : "₹29 / week"}</div>
-                  <div className="pstep"><span>1️⃣</span><span>UPI pe pay karo: <strong>{UPI}@upi</strong></span></div>
-                  <div className="pstep"><span>2️⃣</span><span>Screenshot lo</span></div>
-                  <div className="pstep"><span>3️⃣</span><span>WhatsApp karo confirmation ke liye</span></div>
-                </div>
-                <button className="btn btn-p" onClick={() => { window.open("upi://pay?pa=" + UPI + "@upi&pn=SaraswatiAI&am=" + (upgradePlan === "monthly" ? "99" : "29") + "&cu=INR", "_blank"); setPayDone(true); }}>💳 Pay Now</button>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button className={"btn btn-s" + (upgradePlan === "monthly" ? " " : "")} style={{ flex: 1, opacity: upgradePlan === "monthly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("monthly")}>Monthly ₹99</button>
-                  <button className="btn btn-s" style={{ flex: 1, opacity: upgradePlan === "weekly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("weekly")}>Weekly ₹29</button>
-                </div>
-                <button className="btn btn-s" onClick={() => setShowUpgrade(false)}>Cancel</button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── PROFILE MODAL ── */}
-      {showProfile && (
-        <div className="mbg" onClick={() => setShowProfile(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Edit Profile</h3>
-            <div style={{ display: "flex", justifyContent: "center" }}>
-              <div className="pav">
-                {(pPhoto || pPhotoUrl)
-                  ? <img className="pavimg" src={pPhoto || pPhotoUrl} alt="" />
-                  : <div className="pavp
+   
