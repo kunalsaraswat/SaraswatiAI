@@ -29,10 +29,8 @@ const ADMIN = "kunalsaraswat691@gmail.com";
 const UPI = "8126630980";
 const FREE_LIMIT = 49;
 const REACTIONS = ["👍","❤️","😂","😮","🙏","🔥"];
-// Vision model (latest non-deprecated)
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 const CHAT_MODEL   = "llama-3.3-70b-versatile";
-// Skip trivial openers when generating chat title
 const TRIVIAL = /^(hi|hello|hey|hii|ok|okay|hmm|ha|bhai|yaar|bro|dost|thanks|thx|yes|no|nahi|haan|k|👍|😊)[\s!?.]*$/i;
 
 // ── ACCENT PALETTES ──────────────────────────────────────────────
@@ -65,7 +63,6 @@ function compressImage(dataUrl, maxW = 180, q = 0.5) {
   });
 }
 
-// ── Document text extraction (PDF / DOCX / TXT etc.) ─────────────
 const ATTACH_PER_FILE_LIMIT = 8000;
 const ATTACH_TOTAL_LIMIT = 20000;
 
@@ -125,7 +122,6 @@ function readFileAsArrayBuffer(file) {
   });
 }
 
-// Returns { name, ext, text, size } or { name, ext, error }
 async function extractFileText(file) {
   const ext = (file.name.split(".").pop() || "").toLowerCase();
   try {
@@ -195,7 +191,6 @@ function fmtTime(ts) { if (!ts) return ""; const d = ts.toDate ? ts.toDate() : n
 function fmtDate(ts) { if (!ts) return ""; const d = ts.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }); }
 
 async function genTitle(msg) {
-  // Don't waste API call on trivial openers
   if (TRIVIAL.test(msg.trim())) return null;
   try {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ }, body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "system", content: "Generate a 3-5 word descriptive chat title. Return ONLY the title — no quotes, no punctuation at end." }, { role: "user", content: msg }], max_tokens: 15 }) });
@@ -231,7 +226,6 @@ For farming: expert advice on crops, mandi rates, government schemes.
 For images: carefully read ALL visible text, describe objects, colors, and context in detail.${memCtx}${ctx}`;
 
   if (imageB64) {
-    // Use latest vision model — separate API call with image content
     const visionMsgs = [
       { role: "system", content: sys },
       { role: "user", content: [
@@ -253,9 +247,6 @@ For images: carefully read ALL visible text, describe objects, colors, and conte
   return data.choices?.[0]?.message?.content || "No response.";
 }
 
-// ── Memory extraction ─────────────────────────────────────────
-// Lightweight background call: decides if the latest user message contains
-// a lasting fact worth remembering (name, job, location, preferences, etc.)
 const MEM_CATEGORIES = ["Personal Info", "Preferences", "Work/Study", "Important Dates", "Other"];
 async function extractMemory(userText, existingMemories) {
   if (!userText || userText.trim().length < 4) return null;
@@ -282,8 +273,6 @@ If nothing worth saving, return {"shouldSave": false, "fact": "", "category": ""
   } catch { return null; }
 }
 
-// Fixed priority list — ensures EVERY user gets the same "Saraswati Voice"
-// regardless of tone, for a consistent brand identity.
 const SARASWATI_VOICE_PRIORITY = [
   /Google हिन्दी/i,
   /Microsoft Swara/i,
@@ -310,7 +299,7 @@ function speakText(text, tone, speed, onDone) {
     if (v) u.voice = v;
     u.lang = "hi-IN";
     u.rate = speed || 0.95;
-    u.pitch = 1.05; // single consistent pitch for the official Saraswati voice
+    u.pitch = 1.05;
     u.volume = 1;
     u.onend = onDone || null; u.onerror = onDone || null;
     window.speechSynthesis.speak(u);
@@ -404,13 +393,11 @@ html,body{height:100%;overflow:hidden;}
 body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:${fs}px;}
 .app{display:flex;flex-direction:column;height:100dvh;max-width:480px;margin:0 auto;background:${v.bg};position:relative;overflow:hidden;}
 
-/* PWA */
 .pwa{position:fixed;bottom:70px;left:10px;right:10px;background:${dark?"#1a1a1a":"#fff"};border:1.5px solid var(--accent);border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:10px;z-index:150;box-shadow:0 8px 28px #0009;animation:fadeUp .3s ease;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
 .pwa-btn{background:var(--accent);border:none;border-radius:10px;color:#fff;cursor:pointer;font-size:12px;font-weight:700;padding:7px 13px;font-family:'Inter',sans-serif;}
 .pwa-x{background:none;border:none;color:${v.mt};cursor:pointer;font-size:17px;padding:2px 6px;}
 
-/* SIDEBAR */
 .sb-overlay{position:fixed;inset:0;background:#0009;z-index:50;animation:fadeIn .2s ease;}
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
 .sidebar{position:fixed;top:0;left:0;bottom:0;width:86%;max-width:320px;background:${v.navBg};z-index:51;display:flex;flex-direction:column;animation:sbIn .25s cubic-bezier(.4,0,.2,1);overflow:hidden;border-right:1px solid ${v.bd};}
@@ -443,7 +430,6 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .sb-upgrade h4{font-size:14px;font-weight:700;color:#fff;}
 .sb-upgrade p{font-size:11px;color:#ffffffaa;margin-top:3px;}
 
-/* AUTH */
 .auth{flex:1;overflow-y:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 22px;gap:14px;}
 .auth-logo{font-size:50px;}
 .auth-title{font-size:24px;font-weight:800;letter-spacing:-.5px;}
@@ -461,13 +447,11 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .err{color:#ef4444;font-size:13px;text-align:center;background:#ef444412;padding:9px;border-radius:10px;}
 .ok{color:#22c55e;font-size:13px;text-align:center;background:#22c55e12;padding:9px;border-radius:10px;}
 
-/* HEADER */
 .hdr{display:flex;align-items:center;gap:10px;padding:11px 14px;background:${v.bg};border-bottom:1px solid ${v.bd};flex-shrink:0;position:relative;z-index:10;}
 .hdr-name{font-size:17px;font-weight:800;flex:1;letter-spacing:-.3px;}
 .dots{background:none;border:none;color:${v.tx};cursor:pointer;padding:5px;border-radius:10px;line-height:1;display:flex;align-items:center;justify-content:center;}
 .nbtn{background:${v.sf2};border:1px solid ${v.bd};border-radius:10px;color:${v.tx};cursor:pointer;font-size:13px;font-weight:600;padding:6px 12px;}
 
-/* CHAT */
 .chat{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth;}
 .chat::-webkit-scrollbar{width:0;}
 .welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:40px 20px;}
@@ -476,7 +460,6 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .welcome h2{font-size:26px;font-weight:800;letter-spacing:-.5px;}
 .wsub{font-size:13px;color:${v.mt};max-width:220px;line-height:1.7;}
 
-/* MESSAGES */
 .mwrap{display:flex;flex-direction:column;gap:2px;animation:mIn .2s ease;}
 @keyframes mIn{from{opacity:0;transform:translateY(5px);}to{opacity:1;transform:translateY(0);}}
 .mrow{display:flex;gap:7px;align-items:flex-end;}.mrow.user{flex-direction:row-reverse;}
@@ -500,12 +483,10 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .mimg{max-width:200px;border-radius:12px;margin-bottom:4px;display:block;cursor:pointer;}
 .mimg.gen{width:240px;max-width:100%;border-radius:14px;cursor:pointer;}
 
-/* IMAGE FULLSCREEN VIEWER */
 .imgviewer{position:fixed;inset:0;background:#000e;z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .2s ease;}
 .imgviewer img{max-width:100%;max-height:90dvh;border-radius:12px;object-fit:contain;}
 .imgviewer-x{position:absolute;top:18px;right:18px;background:#fff2;border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:20px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
 
-/* PREMIUM SIDEBAR CARD */
 .sb-premium{margin:0 0 8px;border-radius:16px;padding:2px;background:var(--grad);position:relative;overflow:hidden;}
 .sb-premium::after{content:'';position:absolute;inset:0;background:var(--grad);animation:premGlow 3s ease-in-out infinite;opacity:.5;pointer-events:none;}
 @keyframes premGlow{0%,100%{opacity:.3;}50%{opacity:.8;}}
@@ -517,19 +498,16 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .pplan-label{font-size:10px;color:rgba(255,255,255,.75);margin-top:2px;}.pplan.week .pplan-label{color:var(--accent);}
 .pplan-feats{font-size:10px;margin-top:6px;color:rgba(255,255,255,.85);line-height:1.6;text-align:left;white-space:pre-line;}.pplan.week .pplan-feats{color:${v.mt};}
 
-/* FLOATING FAB */
 @keyframes fabPop{0%,100%{box-shadow:0 6px 24px ${a.glow};}50%{box-shadow:0 6px 32px ${a.glow},0 0 0 8px ${a.glow.replace("40","15")};}}
 .fab{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--grad);border:none;border-radius:50px;color:#fff;cursor:pointer;display:flex;align-items:center;gap:8px;padding:14px 26px;font-size:14px;font-weight:700;font-family:'Inter',sans-serif;z-index:40;animation:fabPop 3s ease-in-out infinite;transition:transform .2s;}
 .fab:hover{transform:translateX(-50%) scale(1.05);}
 .fab:active{transform:translateX(-50%) scale(.97);}
 
-/* HISTORY card actions */
 .hactions{display:flex;gap:4px;flex-shrink:0;}
 .hact{background:none;border:none;color:${v.mt};cursor:pointer;padding:5px 6px;border-radius:8px;font-size:15px;line-height:1;}
 .hact:hover{color:var(--accent);background:${v.sf2};}
 .hact.del:hover{color:#ef4444;}
 
-/* INPUT BAR */
 .ibar{padding:9px 12px;border-top:1px solid ${v.bd};background:${v.bg};display:flex;gap:7px;align-items:flex-end;flex-shrink:0;}
 .tinp{flex:1;background:${v.sf};border:1.5px solid ${v.bd};border-radius:24px;color:${v.tx};font-family:'Inter',sans-serif;font-size:${fs}px;padding:11px 17px;outline:none;resize:none;max-height:110px;min-height:46px;transition:border-color .2s;line-height:1.5;}
 .tinp:focus{border-color:var(--accent);}.tinp::placeholder{color:${v.mt};}
@@ -542,13 +520,11 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .imgprev img{width:72px;height:72px;object-fit:cover;border-radius:12px;border:2px solid var(--accent);}
 .imgprev-x{position:absolute;top:-5px;right:-5px;background:#ef4444;border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:11px;width:18px;height:18px;display:flex;align-items:center;justify-content:center;}
 
-/* PAGES */
 .page{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
 .page::-webkit-scrollbar{width:0;}
 .page-inner{padding:14px 14px 30px;flex:1;}
 .ptitle{font-size:20px;font-weight:800;margin-bottom:16px;letter-spacing:-.4px;}
 
-/* SETTINGS */
 .sbar{display:flex;align-items:center;background:${v.sf};border:1.5px solid ${v.bd};border-radius:12px;padding:8px 13px;gap:7px;margin-bottom:10px;}
 .sbar input{flex:1;background:none;border:none;outline:none;color:${v.tx};font-size:14px;font-family:'Inter',sans-serif;}
 .sec{font-size:10px;font-weight:700;color:${v.mt};letter-spacing:.12em;text-transform:uppercase;padding:16px 0 6px;}
@@ -572,13 +548,11 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .tk{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s;}
 .tgl.on .tk{left:22px;}
 
-/* PROFILE */
 .pav{position:relative;display:inline-block;}
 .pavimg{width:64px;height:64px;border-radius:50%;object-fit:cover;border:3px solid var(--accent);}
 .pavph{width:64px;height:64px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:#fff;}
 .paved{position:absolute;bottom:0;right:0;background:var(--accent);border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:10px;}
 
-/* HISTORY */
 .hcard{background:${v.sf};border:1px solid ${v.bd};border-radius:14px;padding:13px 15px;display:flex;align-items:center;gap:11px;cursor:pointer;transition:border-color .2s;margin-bottom:6px;}
 .hcard:hover{border-color:var(--accent);}
 .hi{flex:1;overflow:hidden;}
@@ -587,7 +561,6 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .dbtn{background:none;border:none;color:${v.mt};cursor:pointer;font-size:16px;padding:5px 7px;border-radius:8px;}
 .dbtn:hover{color:#ef4444;}
 
-/* ADMIN */
 .sgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:10px;}
 .sct{background:${v.sf};border:1px solid ${v.bd};border-radius:14px;padding:15px;}
 .sv{font-size:26px;font-weight:800;color:var(--accent);}
@@ -599,7 +572,6 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .badge-y{background:linear-gradient(135deg,#eab308,#ca8a04);color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;}
 .gbar{display:flex;align-items:flex-end;gap:4px;height:64px;margin-top:4px;}
 
-/* MODAL */
 .mbg{position:fixed;inset:0;background:#000c;z-index:200;display:flex;align-items:flex-end;padding:14px;}
 .modal{background:${v.sf};border-radius:24px 24px 16px 16px;padding:26px 22px;width:100%;max-width:480px;margin:0 auto;display:flex;flex-direction:column;gap:13px;max-height:88vh;overflow-y:auto;}
 .modal h3{font-size:20px;font-weight:700;text-align:center;}
@@ -610,7 +582,6 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .pstep{font-size:13px;color:${v.tx};display:flex;gap:7px;}
 .ld{text-align:center;color:${v.mt};padding:20px;font-size:14px;}
 
-/* VOICE PAGE */
 .vpage{display:flex;flex-direction:column;flex:1;background:${dark?"#060606":v.bg};}
 .vbody{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:24px 20px;}
 .vccard{background:${v.sf};border:1px solid ${v.bd};border-radius:28px;padding:32px 24px;display:flex;flex-direction:column;align-items:center;gap:20px;width:100%;max-width:320px;}
@@ -634,14 +605,14 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .vendbtn{background:#ef444418;border:1.5px solid #ef4444;border-radius:14px;color:#ef4444;cursor:pointer;font-size:14px;font-weight:700;padding:13px 36px;font-family:'Inter',sans-serif;transition:background .2s;}
 .vendbtn:hover{background:#ef444428;}
 
-/* ADMIN CHAT */
 .achat{max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:7px;background:${v.sf2};border-radius:12px;}
 
-/* PREMIUM */
 .pc{background:var(--grad);border-radius:18px;padding:18px;margin-bottom:6px;cursor:pointer;}
 .pc h3{font-size:17px;font-weight:800;color:#fff;}
 .pc p{font-size:12px;color:#ffffffaa;margin-top:3px;}
 .pf{font-size:13px;color:#fff;display:flex;align-items:center;gap:7px;margin-top:5px;}
+
+.toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:${v.sf};border:1px solid var(--accent);border-radius:20px;padding:8px 16px;font-size:12px;font-weight:600;color:var(--accent);z-index:500;animation:fadeUp .3s ease;white-space:nowrap;box-shadow:0 4px 20px #0006;}
 `;
 }
 
@@ -676,7 +647,7 @@ export default function App() {
   const [themeKey, setThemeKey] = useState("dark");
   const [accentKey, setAccentKey] = useState("orange");
   const [fontSize, setFontSize] = useState(14);
-  const [language, setLanguage] = useState("auto"); // auto | hindi | english | hinglish
+  const [language, setLanguage] = useState("auto");
   const [memoryEnabled, setMemoryEnabled] = useState(true);
   const [showDeleteAcc, setShowDeleteAcc] = useState(false);
   const [delConfirmText, setDelConfirmText] = useState("");
@@ -697,12 +668,10 @@ export default function App() {
   const [payDone, setPayDone] = useState(false);
   const [copied, setCopied] = useState(null);
   const [speakId, setSpeakId] = useState(null);
-  // Mic state: "idle" | "active" — no permission prompts after first grant
   const [micActive, setMicActive] = useState(false);
-  const [micPerm, setMicPerm] = useState("unknown"); // unknown | granted | denied
+  const [micPerm, setMicPerm] = useState("unknown");
   const [imgB64, setImgB64] = useState(null);
   const [imgPrev, setImgPrev] = useState(null);
-  // File attachments: [{ name, ext, text, size }]
   const [attachments, setAttachments] = useState([]);
   const [attachLoading, setAttachLoading] = useState(false);
   const [hists, setHists] = useState([]);
@@ -710,19 +679,16 @@ export default function App() {
   const [hSearch, setHSearch] = useState("");
   const [renamingId, setRenamingId] = useState(null);
   const [renameVal, setRenameVal] = useState("");
-  const [hFilter, setHFilter] = useState("all"); // all | pinned | starred | archived
+  const [hFilter, setHFilter] = useState("all");
   const [editingMsgId, setEditingMsgId] = useState(null);
   const [editVal, setEditVal] = useState("");
-  // Image fullscreen viewer
   const [viewerSrc, setViewerSrc] = useState(null);
-  // Projects
   const [projects, setProjects] = useState([]);
   const [projLoad, setProjLoad] = useState(false);
   const [showNewProj, setShowNewProj] = useState(false);
   const [newProjName, setNewProjName] = useState("");
   const [renamingProjId, setRenamingProjId] = useState(null);
   const [renameProjVal, setRenameProjVal] = useState("");
-  // Upgrade plan selection
   const [upgradePlan, setUpgradePlan] = useState("monthly");
   const [showProfile, setShowProfile] = useState(false);
   const [pName, setPName] = useState("");
@@ -733,18 +699,15 @@ export default function App() {
   const [aSearch, setASearch] = useState("");
   const [aChat, setAChat] = useState(null);
   const [aChatLoad, setAChatLoad] = useState(false);
-  // Voice
   const [vs, setVs] = useState("idle");
   const [vLast, setVLast] = useState("");
   const [vTone, setVTone] = useState("female");
-  // Change password
   const [showChangePw, setShowChangePw] = useState(false);
   const [cpForm, setCpForm] = useState({ current: "", newP: "", confirm: "" });
   const [cpErr, setCpErr] = useState(""); const [cpOk, setCpOk] = useState(""); const [cpLoad, setCpLoad] = useState(false);
-  // Memory system
   const [memories, setMemories] = useState([]);
   const [memLoad, setMemLoad] = useState(false);
-  const [memSaved, setMemSaved] = useState(false); // shows "🧠 Memory updated" toast
+  const [memSaved, setMemSaved] = useState(false);
   const [showAddMem, setShowAddMem] = useState(false);
   const [newMemText, setNewMemText] = useState("");
   const [newMemCat, setNewMemCat] = useState("Other");
@@ -757,8 +720,11 @@ export default function App() {
   const pPhotoRef = useRef(null);
   const micRef = useRef(null);
   const voiceRef = useRef(null);
+  const voiceActiveRef = useRef(false);
+  const vsRef = useRef("idle");
 
-  // ── Mic permission check (one-time, no repeated prompts) ─────
+  useEffect(() => { vsRef.current = vs; }, [vs]);
+
   useEffect(() => {
     if (navigator.permissions?.query) {
       navigator.permissions.query({ name: "microphone" }).then(p => {
@@ -844,7 +810,6 @@ export default function App() {
     setMemories(p => p.filter(m => m.id !== id));
   }
 
-  // Silently analyzes a user message and saves a memory if worth it
   async function maybeSaveMemory(userText) {
     const result = await extractMemory(userText, memories);
     if (result) {
@@ -894,10 +859,8 @@ export default function App() {
     setAChatLoad(false);
   }
 
-  // ── AUTH ────────────────────────────────────────────────────
   async function handleAuth() {
     setFerr(""); setFok("");
-    // Forgot password = direct password reset via new password fields
     if (forgot) {
       if (!form.newPass || !form.confirmPass) { setFerr("Please fill all fields!"); return; }
       if (form.newPass.length < 8) { setFerr("Password must be 8+ characters!"); return; }
@@ -905,7 +868,6 @@ export default function App() {
       if (!form.email) { setFerr("Please enter your email!"); return; }
       setFload(true);
       try {
-        // Send reset link as fallback since we can't update password without being logged in
         await sendPasswordResetEmail(auth, form.email);
         setFok("✅ Password reset link sent to your email. Please check your inbox.");
         setForm(f => ({ ...f, email: "", newPass: "", confirmPass: "" }));
@@ -967,7 +929,6 @@ export default function App() {
     setPSaving(false);
   }
 
-  // ── Change Password (in-app, real backend) ──────────────────
   async function handleChangePw() {
     setCpErr(""); setCpOk("");
     if (!cpForm.current || !cpForm.newP || !cpForm.confirm) { setCpErr("Fill all fields!"); return; }
@@ -997,7 +958,6 @@ export default function App() {
     r.readAsDataURL(file);
   }
 
-  // ── Document attachments (PDF/DOCX/TXT/CSV/MD) — multiple files ──
   async function handleFiles(e) {
     const files = Array.from(e.target.files || []);
     e.target.value = "";
@@ -1022,7 +982,6 @@ export default function App() {
     r.readAsDataURL(file);
   }
 
-  // ── Mic — dev mode: no popup, silent fail ──────────────────
   function toggleMic() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert("Use Chrome or Edge for voice input."); return; }
@@ -1056,16 +1015,11 @@ export default function App() {
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" })); a.download = "saraswati-chat.txt"; a.click();
   }
 
-  // ── Export ALL user data (profile, chats+messages, memories, projects) as JSON ──
   async function exportAllData() {
     setExporting(true);
     try {
       const exportObj = { exportedAt: new Date().toISOString(), profile: null, chats: [], memories: [], projects: [] };
-
-      // Profile
       try { const d = await getDoc(doc(db, "users", user.uid)); if (d.exists()) exportObj.profile = { email: user.email, ...d.data() }; } catch {}
-
-      // Chats + their messages
       try {
         const chatsSnap = await getDocs(query(collection(db, "chats"), where("userId", "==", user.uid)));
         for (const cd of chatsSnap.docs) {
@@ -1077,27 +1031,20 @@ export default function App() {
           exportObj.chats.push(chat);
         }
       } catch {}
-
-      // Memories
       try {
         const memSnap = await getDocs(query(collection(db, "memories"), where("userId", "==", user.uid)));
         exportObj.memories = memSnap.docs.map(md => ({ id: md.id, ...md.data() }));
       } catch {}
-
-      // Projects
       try {
         const projSnap = await getDocs(query(collection(db, "projects"), where("userId", "==", user.uid)));
         exportObj.projects = projSnap.docs.map(pd => ({ id: pd.id, ...pd.data() }));
       } catch {}
-
       const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = "saraswati-ai-data-export.json";
       a.click();
-    } catch (e) {
-      alert("Export error: " + e.message);
-    }
+    } catch (e) { alert("Export error: " + e.message); }
     setExporting(false);
   }
 
@@ -1129,13 +1076,11 @@ export default function App() {
     } catch (e) { alert("Error: " + e.message); }
   }
 
-  // ── Delete account: wipe Firestore data + delete Auth user ──
   async function deleteAccount() {
     if (delConfirmText.trim().toUpperCase() !== "DELETE") return;
     setDelLoading(true);
     try {
       const uid = user.uid;
-      // Chats + messages
       try {
         const chatsSnap = await getDocs(query(collection(db, "chats"), where("userId", "==", uid)));
         for (const cd of chatsSnap.docs) {
@@ -1146,22 +1091,18 @@ export default function App() {
           await deleteDoc(doc(db, "chats", cd.id));
         }
       } catch {}
-      // Memories
       try {
         const memSnap = await getDocs(query(collection(db, "memories"), where("userId", "==", uid)));
         for (const md of memSnap.docs) { await deleteDoc(doc(db, "memories", md.id)); }
       } catch {}
-      // Projects
       try {
         const projSnap = await getDocs(query(collection(db, "projects"), where("userId", "==", uid)));
         for (const pd of projSnap.docs) { await deleteDoc(doc(db, "projects", pd.id)); }
       } catch {}
-      // User profile doc
       try { await deleteDoc(doc(db, "users", uid)); } catch {}
-      // Auth account
       await deleteUser(auth.currentUser);
     } catch (e) {
-      alert("Account delete karne mein error aaya: " + e.message + "\nAap manually logout karke fir try kar sakte hain, ya recently login karke phir try karein (Firebase ko fresh login chahiye ho sakta hai).");
+      alert("Account delete karne mein error aaya: " + e.message);
     }
     setDelLoading(false);
   }
@@ -1173,13 +1114,6 @@ export default function App() {
     window.speechSynthesis?.cancel();
     setVs("idle");
   }
-
-  // ── Voice Call — continuous conversation loop ───────────────
-  // voiceActiveRef tracks if call is still ongoing (not ended by user)
-  const voiceActiveRef = useRef(false);
-  // vsRef mirrors `vs` state so onend handler can read latest value without stale closures
-  const vsRef = useRef("idle");
-  useEffect(() => { vsRef.current = vs; }, [vs]);
 
   function startListening(currentMsgs, currentTone, currentSid, currentUserData) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1219,7 +1153,6 @@ export default function App() {
     };
 
     async function processUtterance(rawTranscript) {
-      // Basic auto-punctuation: capitalize first letter, add "?" for question words, else "."
       let transcript = rawTranscript.trim();
       const lower = transcript.toLowerCase();
       const isQuestion = /^(kya|kaun|kab|kahan|kyu|kyun|kaise|why|what|when|where|who|how|which|kitna|kitne)\b/.test(lower) || lower.includes("?");
@@ -1259,7 +1192,7 @@ export default function App() {
       const nc = (ud?.usageCount || 0) + 1;
       await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
       setUserData(p => ({ ...p, usageCount: nc }));
-      if (memoryEnabled) maybeSaveMemory(transcript); // fire-and-forget background memory check
+      if (memoryEnabled) maybeSaveMemory(transcript);
 
       try {
         const aiText = await callAI(newMsgs, null, tone, memoryEnabled ? memories : null, language);
@@ -1291,10 +1224,9 @@ export default function App() {
       }
     }
 
-    r.onerror = (e) => {
+    r.onerror = () => {
       if (silenceTimer) clearTimeout(silenceTimer);
       if (finished) return;
-      // "no-speech" / "aborted" are common and not fatal — just restart if still active
       if (voiceActiveRef.current) {
         setTimeout(() => { setVs("listen"); startListening(currentMsgs, currentTone, currentSid, currentUserData); }, 600);
       } else {
@@ -1304,7 +1236,6 @@ export default function App() {
 
     r.onend = () => {
       if (silenceTimer) clearTimeout(silenceTimer);
-      // Auto-restart recognition if call still active and we're not mid think/speak
       if (voiceActiveRef.current && !finished && vsRef.current !== "think" && vsRef.current !== "speak") {
         setVs("listen");
         setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300);
@@ -1316,14 +1247,12 @@ export default function App() {
   }
 
   async function handleOrb() {
-    // Tap while listening → stop listening
     if (vs === "listen") {
       voiceActiveRef.current = false;
       voiceRef.current?.stop?.();
       setVs("idle");
       return;
     }
-    // Tap while speaking → stop speaking
     if (vs === "speak") {
       voiceActiveRef.current = false;
       window.speechSynthesis?.cancel();
@@ -1332,7 +1261,6 @@ export default function App() {
     }
     if (vs === "think") return;
 
-    // Start voice call
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert("Use Chrome or Edge for Voice Call."); return; }
 
@@ -1341,8 +1269,6 @@ export default function App() {
     startListening(msgs, sessionTone || "female", sid, userData);
   }
 
-  // ── Send message ────────────────────────────────────────────
-  // ── Shared AI-call + typewriter helper (used by sendMsg & regenerateMessage) ──
   async function runAIAndAppend(newMsgs, b64, tone) {
     if (!b64 && needsImageGen(newMsgs[newMsgs.length - 1]?.text || "")) {
       const msgText = newMsgs[newMsgs.length - 1].text;
@@ -1415,19 +1341,16 @@ export default function App() {
     const nc = (ud?.usageCount || 0) + 1;
     await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
     setUserData(p => ({ ...p, usageCount: nc }));
-    if (!b64 && memoryEnabled) maybeSaveMemory(msgText); // fire-and-forget background memory check
+    if (!b64 && memoryEnabled) maybeSaveMemory(msgText);
     await runAIAndAppend(newMsgs, b64, tone);
   }
 
-  // ── Edit a user message: update it, drop everything after, regenerate ──
   async function editMessage(id, newText) {
     if (!newText.trim() || loading) return;
     const idx = msgs.findIndex(m => m.id === id);
     if (idx === -1) return;
     const target = msgs[idx];
-    // Update in Firestore
     try { await updateDoc(doc(db, "messages", id), { text: newText.trim(), edited: true }); } catch {}
-    // Delete all messages after this one (from Firestore + state)
     const toRemove = msgs.slice(idx + 1).filter(m => typeof m.id === "string" && !m.id.startsWith("ai_") && !m.id.startsWith("img_") && !m.id.startsWith("v_"));
     for (const m of toRemove) { try { await deleteDoc(doc(db, "messages", m.id)); } catch {} }
     const trimmed = msgs.slice(0, idx);
@@ -1438,19 +1361,16 @@ export default function App() {
     await runAIAndAppend(newMsgs, null, tone);
   }
 
-  // ── Delete any message (and keep Firestore in sync) ──
   async function deleteMessage(id) {
     if (!window.confirm("Delete this message?")) return;
     try { await deleteDoc(doc(db, "messages", id)); } catch {}
     setMsgs(p => p.filter(m => m.id !== id));
   }
 
-  // ── Regenerate an AI message: drop it (+ everything after), recreate ──
   async function regenerateMessage(id) {
     if (loading) return;
     const idx = msgs.findIndex(m => m.id === id);
     if (idx === -1) return;
-    // Remove this AI message and everything after it
     const toRemove = msgs.slice(idx).filter(m => typeof m.id === "string" && !m.id.startsWith("ai_") && !m.id.startsWith("img_") && !m.id.startsWith("v_"));
     for (const m of toRemove) { try { await deleteDoc(doc(db, "messages", m.id)); } catch {} }
     const newMsgs = msgs.slice(0, idx);
@@ -1482,7 +1402,6 @@ export default function App() {
     setRenamingId(null);
   }
 
-  // ── Pin / Star / Archive a chat (persisted on the chat doc) ──
   async function togglePin(id, e) {
     e?.stopPropagation();
     const cur = hists.find(h => h.id === id);
@@ -1566,7 +1485,6 @@ export default function App() {
     if (hFilter === "pinned") return !!h.pinned;
     if (hFilter === "starred") return !!h.starred;
     if (hFilter === "archived") return !!h.archived;
-    // "all" → exclude archived
     return !h.archived;
   });
   const pinnedHists = hists.filter(h => h.pinned && !h.archived);
@@ -1580,7 +1498,6 @@ export default function App() {
   const vStatusTxt = { idle: "Tap to Talk", listen: "Listening... (tap to stop)", think: "Thinking...", speak: "Speaking..." }[vs];
   const accentColor = ACCENTS[accentKey]?.primary || "#f97316";
 
-  // ── Loading screen (auth check only) ────────────────────────
   if (!authReady) return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100dvh", background: "#060606" }}>
       <style>{buildStyles("dark", "orange", 14)}</style>
@@ -1588,7 +1505,6 @@ export default function App() {
     </div>
   );
 
-  // ── Auth screen ──────────────────────────────────────────────
   if (!user) return (
     <div className="app">
       <style>{buildStyles(themeKey, accentKey, fontSize)}</style>
@@ -1600,18 +1516,9 @@ export default function App() {
           {forgot ? (
             <>
               <div className="card-head">🔑 Reset Password</div>
-              <div className="iw">
-                <div className="ilbl">Email</div>
-                <input className="inp" type="email" placeholder="your@email.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-              </div>
-              <div className="iw">
-                <div className="ilbl">New Password</div>
-                <input className="inp" type="password" placeholder="Min 8 characters" value={form.newPass} onChange={e => setForm(f => ({ ...f, newPass: e.target.value }))} />
-              </div>
-              <div className="iw">
-                <div className="ilbl">Confirm Password</div>
-                <input className="inp" type="password" placeholder="Re-enter password" value={form.confirmPass} onChange={e => setForm(f => ({ ...f, confirmPass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} />
-              </div>
+              <div className="iw"><div className="ilbl">Email</div><input className="inp" type="email" placeholder="your@email.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
+              <div className="iw"><div className="ilbl">New Password</div><input className="inp" type="password" placeholder="Min 8 characters" value={form.newPass} onChange={e => setForm(f => ({ ...f, newPass: e.target.value }))} /></div>
+              <div className="iw"><div className="ilbl">Confirm Password</div><input className="inp" type="password" placeholder="Re-enter password" value={form.confirmPass} onChange={e => setForm(f => ({ ...f, confirmPass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} /></div>
               {ferr && <div className="err">{ferr}</div>}
               {fok && <div className="ok">{fok}</div>}
               <button className="btn btn-p" onClick={handleAuth} disabled={fload}>{fload ? "Sending..." : "Reset Password"}</button>
@@ -1634,10 +1541,20 @@ export default function App() {
     </div>
   );
 
-  // ── MAIN APP ─────────────────────────────────────────────────
   return (
     <div className="app" onClick={() => { showRx && setShowRx(null); }}>
       <style>{buildStyles(themeKey, accentKey, fontSize)}</style>
+
+      {/* Memory saved toast */}
+      {memSaved && <div className="toast">🧠 Memory updated</div>}
+
+      {/* Image fullscreen viewer */}
+      {viewerSrc && (
+        <div className="imgviewer" onClick={() => setViewerSrc(null)}>
+          <img src={viewerSrc} alt="full" onClick={e => e.stopPropagation()} />
+          <button className="imgviewer-x" onClick={() => setViewerSrc(null)}>✕</button>
+        </div>
+      )}
 
       {/* PWA Install Banner */}
       {showPwa && pwaEvt && (
@@ -1659,7 +1576,6 @@ export default function App() {
               <span className="sb-title">Saraswati AI</span>
               <button className="sb-close" onClick={() => setShowSb(false)}>✕</button>
             </div>
-            {/* User info */}
             <div className="sb-user">
               {pPhotoUrl
                 ? <img src={pPhotoUrl} alt="" style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", border: `2px solid ${accentColor}`, flexShrink: 0 }} />
@@ -1673,27 +1589,23 @@ export default function App() {
             </div>
             <div className="sb-nav">
               <div className="sb-section">Menu</div>
-              <div className={"sb-item" + (page === "chat" ? " active" : "")} onClick={() => { setPage("chat"); setShowSb(false); }}>
-                <Ico.Chat /><span>Chat</span>
-              </div>
-              <div className={"sb-item" + (page === "voice" ? " active" : "")} onClick={() => { setPage("voice"); setShowSb(false); }}>
-                <Ico.Voice /><span>Voice Call</span>
-              </div>
-              <div className={"sb-item" + (page === "projects" ? " active" : "")} onClick={() => { setPage("projects"); setShowSb(false); }}>
-                <Ico.Project /><span>Projects</span>
-              </div>
-              <div className={"sb-item" + (page === "memory" ? " active" : "")} onClick={() => { setPage("memory"); setShowSb(false); }}>
-                <span style={{ fontSize: 20, width: 20, textAlign: "center" }}>🧠</span><span>Memory</span>
-              </div>
-              <div className={"sb-item" + (page === "settings" ? " active" : "")} onClick={() => { setPage("settings"); setShowSb(false); }}>
-                <Ico.Settings /><span>Settings</span>
-              </div>
+              {[
+                { id: "chat", icon: <Ico.Chat />, label: "Chat" },
+                { id: "voice", icon: <Ico.Voice />, label: "Voice Call" },
+                { id: "history", icon: <span style={{fontSize:18}}>📋</span>, label: "History" },
+                { id: "projects", icon: <Ico.Project />, label: "Projects" },
+                { id: "memory", icon: <span style={{fontSize:18}}>🧠</span>, label: "Memory" },
+                { id: "settings", icon: <Ico.Settings />, label: "Settings" },
+              ].map(item => (
+                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
+                  {item.icon}<span>{item.label}</span>
+                </div>
+              ))}
               {isAdmin && (
                 <div className={"sb-item" + (page === "admin" ? " active" : "")} onClick={() => { setPage("admin"); setShowSb(false); }}>
-                  <span style={{ fontSize: 20, width: 20, textAlign: "center" }}>🛡️</span><span>Admin</span>
+                  <span style={{ fontSize: 18 }}>🛡️</span><span>Admin</span>
                 </div>
               )}
-              {/* Pinned Chats */}
               {pinnedHists.length > 0 && (
                 <>
                   <div className="sb-section">📌 Pinned</div>
@@ -1708,7 +1620,6 @@ export default function App() {
                   </div>
                 </>
               )}
-              {/* Recent Chats */}
               {hists.filter(h => !h.archived).length > 0 && (
                 <>
                   <div className="sb-section">Recent</div>
@@ -1745,4 +1656,70 @@ export default function App() {
                   </div>
                 </div>
               )}
-              <div className="sb-logout" onClick={() => signOut(a
+              <div className="sb-logout" onClick={() => signOut(auth)}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                <span>Logout</span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── FREE LIMIT MODAL ── */}
+      {showLimit && (
+        <div className="mbg" onClick={() => setShowLimit(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="mi">🔒</div>
+            <h3>Free Limit Reached</h3>
+            <p>You've used all {FREE_LIMIT} free messages. Upgrade to Premium for unlimited access!</p>
+            <button className="btn btn-p" onClick={() => { setShowLimit(false); setShowUpgrade(true); }}>⭐ Upgrade Now</button>
+            <button className="btn btn-s" onClick={() => setShowLimit(false)}>Maybe Later</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── UPGRADE MODAL ── */}
+      {showUpgrade && (
+        <div className="mbg" onClick={() => { setShowUpgrade(false); setPayDone(false); }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            {payDone ? (
+              <>
+                <div className="mi">✅</div>
+                <h3>Payment Sent!</h3>
+                <p>Screenshot bhejo WhatsApp pe — 30 min mein activate ho jayega!</p>
+                <button className="btn btn-p" onClick={() => window.open("https://wa.me/91" + UPI + "?text=Maine%20Saraswati%20AI%20Premium%20ke%20liye%20payment%20kiya%20hai", "_blank")}>📲 WhatsApp karo</button>
+                <button className="btn btn-s" onClick={() => { setShowUpgrade(false); setPayDone(false); }}>Close</button>
+              </>
+            ) : (
+              <>
+                <div className="mi">⭐</div>
+                <h3>Saraswati AI {upgradePlan === "monthly" ? "Monthly" : "Weekly"} Premium</h3>
+                <p>Unlimited chats · Voice Call · Faster AI · Ad-free</p>
+                <div className="pbox">
+                  <div className="pnum">{upgradePlan === "monthly" ? "₹99 / month" : "₹29 / week"}</div>
+                  <div className="pstep"><span>1️⃣</span><span>UPI pe pay karo: <strong>{UPI}@upi</strong></span></div>
+                  <div className="pstep"><span>2️⃣</span><span>Screenshot lo</span></div>
+                  <div className="pstep"><span>3️⃣</span><span>WhatsApp karo confirmation ke liye</span></div>
+                </div>
+                <button className="btn btn-p" onClick={() => { window.open("upi://pay?pa=" + UPI + "@upi&pn=SaraswatiAI&am=" + (upgradePlan === "monthly" ? "99" : "29") + "&cu=INR", "_blank"); setPayDone(true); }}>💳 Pay Now</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className={"btn btn-s" + (upgradePlan === "monthly" ? " " : "")} style={{ flex: 1, opacity: upgradePlan === "monthly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("monthly")}>Monthly ₹99</button>
+                  <button className="btn btn-s" style={{ flex: 1, opacity: upgradePlan === "weekly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("weekly")}>Weekly ₹29</button>
+                </div>
+                <button className="btn btn-s" onClick={() => setShowUpgrade(false)}>Cancel</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── PROFILE MODAL ── */}
+      {showProfile && (
+        <div className="mbg" onClick={() => setShowProfile(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>Edit Profile</h3>
+            <div style={{ display: "flex", justifyContent: "center" }}>
+              <div className="pav">
+                {(pPhoto || pPhotoUrl)
+                  ? <img className="pavimg" src={pPhoto || pPhotoUrl} alt="" />
+                  : <div className="pavp
