@@ -417,29 +417,56 @@ function speakText(text, tone, speed, onDone) {
   if (!window.speechSynthesis.getVoices().length) { window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; go(); }; } else go();
 }
 
-// ── SARASWATI LOGO (animated SVG) ─────────────────────────────
-function SaraswatiLogo({ size = 32, animate = false }) {
+// ── SARASWATI LOGO — Premium 3D Digital Lotus ─────────────────
+function SaraswatiLogo({ size = 32, animate = false, state = "idle" }) {
+  // state: "idle" | "thinking" | "speaking"
+  const animStyle = {
+    idle:     { animation: "logoGlow 3s ease-in-out infinite" },
+    thinking: { animation: "logoRotate 1.6s linear infinite" },
+    speaking: { animation: "logoPulse 0.7s ease-in-out infinite" },
+  }[state] || {};
+  const finalStyle = animate ? animStyle : {};
+
   return (
-    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"
-      style={animate ? { animation: "logoSpin 1.8s ease-in-out infinite" } : {}}>
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style={finalStyle}>
       <defs>
-        <linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#f97316"/>
-          <stop offset="100%" stopColor="#ea580c"/>
+        <linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#f5c842"/>
+          <stop offset="100%" stopColor="#e8a020"/>
         </linearGradient>
+        <linearGradient id="blueGrad" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0%" stopColor="#1e3a8a"/>
+          <stop offset="100%" stopColor="#3b82f6"/>
+        </linearGradient>
+        <linearGradient id="petalGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#60a5fa"/>
+          <stop offset="100%" stopColor="#1d4ed8"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="1.5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
       </defs>
-      {/* Outer petals */}
-      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.9" transform="rotate(0 20 20)"/>
-      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.75" transform="rotate(45 20 20)"/>
-      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.6" transform="rotate(90 20 20)"/>
-      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.75" transform="rotate(135 20 20)"/>
-      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.9" transform="rotate(180 20 20)"/>
-      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.75" transform="rotate(225 20 20)"/>
-      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.6" transform="rotate(270 20 20)"/>
-      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.75" transform="rotate(315 20 20)"/>
-      {/* Center */}
-      <circle cx="20" cy="20" r="6" fill="url(#lg1)"/>
-      <circle cx="20" cy="20" r="3" fill="#fff" opacity="0.9"/>
+
+      {/* Outer ring */}
+      <circle cx="24" cy="24" r="22" stroke="url(#blueGrad)" strokeWidth="0.8" opacity="0.4"/>
+      <circle cx="24" cy="24" r="18" stroke="url(#goldGrad)" strokeWidth="0.5" opacity="0.3"/>
+
+      {/* 8 digital lotus petals */}
+      {[0,45,90,135,180,225,270,315].map((deg, i) => (
+        <g key={i} transform={`rotate(${deg} 24 24)`} filter="url(#glow)">
+          <ellipse cx="24" cy="10" rx="2.8" ry="7" fill="url(#petalGrad)" opacity={i % 2 === 0 ? 0.95 : 0.6}/>
+          {/* digital line detail on each petal */}
+          <line x1="24" y1="5" x2="24" y2="15" stroke="#93c5fd" strokeWidth="0.4" opacity="0.7"/>
+        </g>
+      ))}
+
+      {/* Inner gold ring */}
+      <circle cx="24" cy="24" r="7" fill="url(#goldGrad)" filter="url(#glow)"/>
+      {/* Center white core */}
+      <circle cx="24" cy="24" r="4" fill="white" opacity="0.95"/>
+      {/* Center dot */}
+      <circle cx="24" cy="24" r="1.5" fill="url(#goldGrad)"/>
     </svg>
   );
 }
@@ -750,7 +777,9 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .pf{font-size:13px;color:#fff;display:flex;align-items:center;gap:7px;margin-top:5px;}
 
 .toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:${v.sf};border:1px solid var(--accent);border-radius:20px;padding:8px 16px;font-size:12px;font-weight:600;color:var(--accent);z-index:500;animation:fadeUp .3s ease;white-space:nowrap;box-shadow:0 4px 20px #0006;}
-@keyframes logoSpin{0%,100%{transform:rotate(0deg) scale(1);}50%{transform:rotate(180deg) scale(1.15);}}
+@keyframes logoGlow{0%,100%{filter:drop-shadow(0 0 3px #3b82f680);}50%{filter:drop-shadow(0 0 10px #3b82f6cc);}}
+@keyframes logoRotate{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+@keyframes logoPulse{0%,100%{transform:scale(1);filter:drop-shadow(0 0 4px #f5c84280);}50%{transform:scale(1.18);filter:drop-shadow(0 0 12px #f5c842cc);}}
 .plusmenu{position:absolute;bottom:60px;left:12px;background:${v.sf};border:1px solid ${v.bd};border-radius:16px;padding:8px;display:flex;flex-direction:column;gap:4px;z-index:50;box-shadow:0 8px 28px #0008;animation:fadeUp .18s ease;min-width:140px;}
 .plusmenu-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;color:${v.tx};border:none;background:none;width:100%;text-align:left;font-family:'Inter',sans-serif;}
 .plusmenu-item:hover{background:${v.sf2};}
@@ -1044,7 +1073,32 @@ export default function App() {
     try {
       const q = query(collection(db, "chats"), where("userId", "==", user.uid), orderBy("updatedAt", "desc"));
       const snap = await getDocs(q);
-      setHists(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const chats = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // For each chat without searchIndex, load last 5 messages and build index
+      const enriched = await Promise.all(chats.map(async h => {
+        if (h.searchIndex) return h; // already indexed
+        try {
+          const mq = query(
+            collection(db, "messages"),
+            where("sessionId", "==", h.id),
+            orderBy("createdAt", "desc"),
+            limit(5)
+          );
+          const mSnap = await getDocs(mq);
+          const texts = mSnap.docs.map(d => d.data().text || "").join(" ");
+          const searchIndex = texts.slice(0, 500).toLowerCase();
+          // Save index back to Firestore for future searches
+          if (searchIndex) {
+            setDoc(doc(db, "chats", h.id), { searchIndex }, { merge: true }).catch(() => {});
+          }
+          return { ...h, searchIndex };
+        } catch {
+          return h;
+        }
+      }));
+
+      setHists(enriched);
     } catch {
       try {
         const q2 = query(collection(db, "chats"), where("userId", "==", user.uid));
@@ -1607,7 +1661,9 @@ export default function App() {
       const t = await genTitle(msgText);
       titleUpdate = { title: t || msgText.slice(0, 38), createdAt: serverTimestamp() };
     }
-    await setDoc(doc(db, "chats", sid), { userId: user.uid, ...titleUpdate, updatedAt: serverTimestamp() }, { merge: true });
+    // Build searchIndex from last messages for content search
+    const existingIndex = (msgs.slice(-4).map(m => m.text || "").join(" ") + " " + msgText).slice(0, 500).toLowerCase();
+    await setDoc(doc(db, "chats", sid), { userId: user.uid, ...titleUpdate, updatedAt: serverTimestamp(), searchIndex: existingIndex }, { merge: true });
     const nc = (ud?.usageCount || 0) + 1;
     await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
     setUserData(p => ({ ...p, usageCount: nc }));
@@ -1753,7 +1809,17 @@ export default function App() {
   const chatsLeft = userData?.premium ? null : Math.max(0, FREE_LIMIT - (userData?.usageCount || 0));
   const displayName = userData?.name || user?.displayName || "User";
   const filtHists = hists.filter(h => {
-    if (!(h.title || "").toLowerCase().includes(hSearch.toLowerCase())) return false;
+    const q = hSearch.toLowerCase().trim();
+    if (!q) {
+      if (hFilter === "pinned") return !!h.pinned;
+      if (hFilter === "starred") return !!h.starred;
+      if (hFilter === "archived") return !!h.archived;
+      return !h.archived;
+    }
+    // Search in title AND message content (searchIndex)
+    const inTitle = (h.title || "").toLowerCase().includes(q);
+    const inContent = (h.searchIndex || "").toLowerCase().includes(q);
+    if (!inTitle && !inContent) return false;
     if (hFilter === "pinned") return !!h.pinned;
     if (hFilter === "starred") return !!h.starred;
     if (hFilter === "archived") return !!h.archived;
@@ -1860,7 +1926,7 @@ export default function App() {
           <div className="sb-overlay" onClick={() => setShowSb(false)} />
           <div className="sidebar">
             <div className="sb-head">
-              <span className="sb-logo">🪷</span>
+              <SaraswatiLogo size={30} animate={true} state="idle" />
               <span className="sb-title">Saraswati AI</span>
               <button className="sb-close" onClick={() => setShowSb(false)}>✕</button>
             </div>
@@ -2118,8 +2184,9 @@ export default function App() {
         <button className="dots" onClick={() => { setShowSb(true); if (user) loadHists(); }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
-        <div className="hdr-name">
-          {page === "chat" ? "🪷 Saraswati AI" : page === "history" ? "📋 History" : page === "settings" ? "⚙️ Settings" : page === "admin" ? "🛡️ Admin" : page === "voice" ? "🎙️ Voice Call" : page === "projects" ? "📁 Projects" : page === "memory" ? "🧠 Memory" : "🪷 Saraswati AI"}
+        <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <SaraswatiLogo size={26} animate={false} state="idle" />
+          {page === "chat" ? "Saraswati AI" : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : "Saraswati AI"}
         </div>
         {page === "chat" && (
           <>
@@ -2178,7 +2245,20 @@ export default function App() {
       {page === "history" && (
         <div className="page">
           <div className="page-inner">
-            <div className="sbar"><Ico.Search /><input placeholder="Search chats..." value={hSearch} onChange={e => setHSearch(e.target.value)} /></div>
+            <div className="sbar">
+              <Ico.Search />
+              <input
+                placeholder="Search chats & messages..."
+                value={hSearch}
+                onChange={e => setHSearch(e.target.value)}
+              />
+              {hSearch && <button onClick={() => setHSearch("")} style={{ background: "none", border: "none", color: "var(--mt)", cursor: "pointer", fontSize: 16 }}>✕</button>}
+            </div>
+            {hSearch && (
+              <div style={{ fontSize: 11, color: "var(--mt)", marginBottom: 8, paddingLeft: 4 }}>
+                {filtHists.length} result{filtHists.length !== 1 ? "s" : ""} — title aur messages dono mein search ho raha hai
+              </div>
+            )}
             <div className="opt-row" style={{ marginBottom: 12 }}>
               {["all","pinned","starred","archived"].map(f => (
                 <button key={f} className={"opt-pill" + (hFilter === f ? " sel" : "")} onClick={() => setHFilter(f)}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
@@ -2195,6 +2275,14 @@ export default function App() {
                       autoFocus onClick={e => e.stopPropagation()} />
                   ) : (
                     <div className="ht">{h.pinned ? "📌 " : ""}{h.title || "Chat"}</div>
+                  )}
+                  {hSearch && h.searchIndex?.toLowerCase().includes(hSearch.toLowerCase()) && !(h.title || "").toLowerCase().includes(hSearch.toLowerCase()) && (
+                    <div style={{ fontSize: 11, color: "var(--accent)", marginTop: 2 }}>
+                      💬 Message mein milا: "...{(() => {
+                        const idx = h.searchIndex.toLowerCase().indexOf(hSearch.toLowerCase());
+                        return h.searchIndex.slice(Math.max(0, idx - 20), idx + 40);
+                      })()}..."
+                    </div>
                   )}
                   <div className="hm">{fmtDate(h.updatedAt)}</div>
                 </div>
@@ -2604,18 +2692,25 @@ export default function App() {
             </div>
           )}
           <div className="chat" onClick={() => setShowPlusMenu(false)}>
-            {msgs.length === 0 && (
-              <div className="welcome">
-                <span style={{ fontSize: 72, lineHeight: 1 }}>🌸</span>
-                <h2>Saraswati AI</h2>
-                <div className="wsub">Kuch bhi puchho — main hoon na!</div>
-              </div>
-            )}
+            {msgs.length === 0 && (() => {
+              const hr = new Date().getHours();
+              const greeting = hr < 12 ? "Good Morning" : hr < 17 ? "Good Afternoon" : hr < 21 ? "Good Evening" : "Good Night";
+              const firstName = (userData?.name || user?.displayName || "").split(" ")[0] || "";
+              return (
+                <div className="welcome">
+                  <SaraswatiLogo size={80} animate={true} state="idle" />
+                  <h2 style={{ fontSize: 26, fontWeight: 700, marginTop: 8 }}>
+                    {greeting}{firstName ? `, ${firstName}` : ""}
+                  </h2>
+                  <div className="wsub">Kuch bhi puchho — main hoon na!</div>
+                </div>
+              );
+            })()}
 
             {msgs.map((m, idx) => (
               <div key={m.id} className="mwrap">
                 <div className={"mrow" + (m.role === "user" ? " user" : "")}>
-                  {m.role === "ai" && <div className="aiav"><SaraswatiLogo size={18} /></div>}
+                  {m.role === "ai" && <div className="aiav"><SaraswatiLogo size={18} animate={speakId === m.id} state={speakId === m.id ? "speaking" : "idle"} /></div>}
                   <div className="bwrap" style={{ position: "relative" }}>
                     {m.image && m.role === "user" && (
                       <img src={m.image} alt="sent" className="mimg" onClick={() => setViewerSrc(m.image)} />
@@ -2660,9 +2755,9 @@ export default function App() {
 
             {(loading || searching) && (
               <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
-                <div className="aiav"><SaraswatiLogo size={18} animate={true} /></div>
+                <div className="aiav"><SaraswatiLogo size={18} animate={true} state="thinking" /></div>
                 <div className="tbub" style={{ alignItems: "center" }}>
-                  <SaraswatiLogo size={16} animate={true} />
+                  <SaraswatiLogo size={16} animate={true} state="thinking" />
                   <span className="think-step">{loadingStep || "Thinking..."}</span>
                 </div>
               </div>
@@ -2735,7 +2830,7 @@ export default function App() {
                   <Ico.Mic on={micActive} />
                 </button>
                 <button className="sbtn" onClick={() => { if (micActive) { micRef.current?.stop(); setMicActive(false); setMicTranscript(""); } sendMsg(); }} disabled={loading || (!input.trim() && !imgB64 && !imgPrev && !attachments.length && !micTranscript)}>
-                  {loading ? <SaraswatiLogo size={18} animate={true} /> : "➤"}
+                  {loading ? <SaraswatiLogo size={18} animate={true} state="thinking" /> : "➤"}
                 </button>
               </div>
             </div>
