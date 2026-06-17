@@ -288,12 +288,13 @@ function getRelevantMemories(allMemories, queryText, topN = 8) {
   if (!allMemories || !allMemories.length) return [];
   const scored = allMemories.map(m => ({
     ...m,
-    _score: (m.importance_score || 5) * 0.3 + memoryRelevanceScore(m.memory_content || m.text, queryText) * 0.7
+    _score: (m.importance_score || 5) * 0.4 + memoryRelevanceScore(m.memory_content || m.text, queryText) * 0.6
   }));
-  return scored
-    .sort((a, b) => b._score - a._score)
-    .slice(0, topN)
-    .filter(m => m._score > 0.05);
+  const sorted = scored.sort((a, b) => b._score - a._score);
+  // Always include high-importance memories (>=8) regardless of keyword match
+  const highImp = sorted.filter(m => (m.importance_score || 5) >= 8);
+  const rest = sorted.filter(m => (m.importance_score || 5) < 8).slice(0, Math.max(0, topN - highImp.length));
+  return [...highImp, ...rest].slice(0, topN);
 }
 
 // Full AI-powered memory analysis: detect save/update/skip, category, importance
@@ -340,15 +341,20 @@ Respond with ONLY valid JSON (no markdown):
       body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "system", content: sys }, { role: "user", content: userText }], max_tokens: 200, temperature: 0.1 })
     });
     const d = await r.json();
-    let raw = (d.choices?.[0]?.message?.content || "").trim().replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(raw);
+    let raw = (d.choices?.[0]?.message?.content || "").trim();
+    // Strip markdown code fences if present
+    raw = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+    // Extract JSON object if wrapped in extra text
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]);
     if (!parsed || parsed.action === "skip" || !parsed.memory_content) return null;
     return {
-      action: parsed.action || "save",
-      memory_content: parsed.memory_content,
+      action: parsed.action === "update" ? "update" : "save",
+      memory_content: String(parsed.memory_content).trim(),
       category: MEM_CATEGORIES.includes(parsed.category) ? parsed.category : "personal",
       importance_score: Math.min(10, Math.max(1, parseInt(parsed.importance_score) || 5)),
-      update_id: parsed.update_id || null
+      update_id: parsed.update_id && parsed.update_id !== "null" ? String(parsed.update_id) : null
     };
   } catch { return null; }
 }
@@ -878,27 +884,31 @@ export default function App() {
     const data = {
       userId: user.uid,
       memory_content: text.trim(),
-      text: text.trim(), // backward compat
+      text: text.trim(),
       category: category || "personal",
       importance_score: importance || 5,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    const ref = await addDoc(collection(db, "memories"), data);
-    setMemories(p => [{ id: ref.id, ...data, createdAt: now, updatedAt: now }, ...p]);
+    try {
+      const ref = await addDoc(collection(db, "memories"), data);
+      setMemories(p => [{ id: ref.id, ...data, createdAt: now, updatedAt: now }, ...p]);
+    } catch (e) { alert("Memory save failed: " + e.message); }
   }
 
   async function editMemory(id, text) {
     if (!text.trim()) return;
-    await updateDoc(doc(db, "memories", id), {
-      memory_content: text.trim(),
-      text: text.trim(),
-      updatedAt: serverTimestamp()
-    });
-    setMemories(p => p.map(m => m.id === id
-      ? { ...m, memory_content: text.trim(), text: text.trim(), updatedAt: { seconds: Date.now() / 1000 } }
-      : m
-    ));
+    try {
+      await updateDoc(doc(db, "memories", id), {
+        memory_content: text.trim(),
+        text: text.trim(),
+        updatedAt: serverTimestamp()
+      });
+      setMemories(p => p.map(m => m.id === id
+        ? { ...m, memory_content: text.trim(), text: text.trim(), updatedAt: { seconds: Date.now() / 1000 } }
+        : m
+      ));
+    } catch (e) { alert("Memory update failed: " + e.message); }
     setEditingMemId(null);
   }
 
@@ -914,7 +924,9 @@ export default function App() {
     const isExplicit = isExplicitMemoryCommand(userText);
     if (isExplicit) textToAnalyze = extractExplicitFact(userText) || userText;
 
-    const result = await analyzeMemory(textToAnalyze, memories);
+    // Capture memories snapshot at call time to avoid stale closure
+    const memoriesSnapshot = memories;
+    const result = await analyzeMemory(textToAnalyze, memoriesSnapshot);
     if (!result) return;
 
     const now = { seconds: Date.now() / 1000 };
@@ -930,7 +942,7 @@ export default function App() {
 
     if (result.action === "update" && result.update_id) {
       // Update existing memory instead of creating duplicate
-      const existingIdx = memories.findIndex(m => m.id === result.update_id);
+      const existingIdx = memoriesSnapshot.findIndex(m => m.id === result.update_id);
       if (existingIdx !== -1) {
         try {
           await updateDoc(doc(db, "memories", result.update_id), { ...memData, updatedAt: serverTimestamp() });
@@ -1332,7 +1344,7 @@ export default function App() {
       const nc = (ud?.usageCount || 0) + 1;
       await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
       setUserData(p => ({ ...p, usageCount: nc }));
-      if (memoryEnabled) maybeSaveMemory(transcript);
+      if (memoryEnabled) maybeSaveMemory(transcript).catch(() => {});
 
       try {
         const aiText = await callAI(newMsgs, null, tone, memoryEnabled ? memories : null, language);
@@ -1481,8 +1493,9 @@ export default function App() {
     const nc = (ud?.usageCount || 0) + 1;
     await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
     setUserData(p => ({ ...p, usageCount: nc }));
-    // Always analyze for memory — explicit commands get priority
-    if (memoryEnabled) maybeSaveMemory(msgText);
+    // Fire memory save in background — intentionally not awaited so AI response isn't blocked
+    // Explicit "remember" commands still work because maybeSaveMemory handles them first
+    if (memoryEnabled) maybeSaveMemory(msgText).catch(() => {});
     await runAIAndAppend(newMsgs, b64, tone);
   }
 
@@ -1792,4 +1805,756 @@ export default function App() {
                         <div className="pplan-label">/month</div>
                         <div className="pplan-feats">{"✓ Unlimited Chats\n✓ No Ads\n✓ Faster AI\n✓ Voice Access"}</div>
                       </div>
-   
+                      <div className="pplan week" onClick={() => { setUpgradePlan("weekly"); setShowUpgrade(true); setShowSb(false); }}>
+                        <div className="pplan-price">₹29</div>
+                        <div className="pplan-label">/week</div>
+                        <div className="pplan-feats">{"✓ Unlimited Msgs\n✓ Ad-Free\n✓ Premium AI"}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="sb-logout" onClick={() => signOut(auth)}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                <span>Logout</span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── FREE LIMIT MODAL ── */}
+      {showLimit && (
+        <div className="mbg" onClick={() => setShowLimit(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="mi">🔒</div>
+            <h3>Free Limit Reached</h3>
+            <p>You've used all {FREE_LIMIT} free messages. Upgrade to Premium for unlimited access!</p>
+            <button className="btn btn-p" onClick={() => { setShowLimit(false); setShowUpgrade(true); }}>⭐ Upgrade Now</button>
+            <button className="btn btn-s" onClick={() => setShowLimit(false)}>Maybe Later</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── UPGRADE MODAL ── */}
+      {showUpgrade && (
+        <div className="mbg" onClick={() => { setShowUpgrade(false); setPayDone(false); }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            {payDone ? (
+              <>
+                <div className="mi">✅</div>
+                <h3>Payment Sent!</h3>
+                <p>Screenshot bhejo WhatsApp pe — 30 min mein activate ho jayega!</p>
+                <button className="btn btn-p" onClick={() => window.open("https://wa.me/91" + UPI + "?text=Maine%20Saraswati%20AI%20Premium%20ke%20liye%20payment%20kiya%20hai", "_blank")}>📲 WhatsApp karo</button>
+                <button className="btn btn-s" onClick={() => { setShowUpgrade(false); setPayDone(false); }}>Close</button>
+              </>
+            ) : (
+              <>
+                <div className="mi">⭐</div>
+                <h3>Saraswati AI {upgradePlan === "monthly" ? "Monthly" : "Weekly"} Premium</h3>
+                <p>Unlimited chats · Voice Call · Faster AI · Ad-free</p>
+                <div className="pbox">
+                  <div className="pnum">{upgradePlan === "monthly" ? "₹99 / month" : "₹29 / week"}</div>
+                  <div className="pstep"><span>1️⃣</span><span>UPI pe pay karo: <strong>{UPI}@upi</strong></span></div>
+                  <div className="pstep"><span>2️⃣</span><span>Screenshot lo</span></div>
+                  <div className="pstep"><span>3️⃣</span><span>WhatsApp karo confirmation ke liye</span></div>
+                </div>
+                <button className="btn btn-p" onClick={() => { window.open("upi://pay?pa=" + UPI + "@upi&pn=SaraswatiAI&am=" + (upgradePlan === "monthly" ? "99" : "29") + "&cu=INR", "_blank"); setPayDone(true); }}>💳 Pay Now</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className={"btn btn-s" + (upgradePlan === "monthly" ? " " : "")} style={{ flex: 1, opacity: upgradePlan === "monthly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("monthly")}>Monthly ₹99</button>
+                  <button className="btn btn-s" style={{ flex: 1, opacity: upgradePlan === "weekly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("weekly")}>Weekly ₹29</button>
+                </div>
+                <button className="btn btn-s" onClick={() => setShowUpgrade(false)}>Cancel</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── PROFILE MODAL ── */}
+      {showProfile && (
+        <div className="mbg" onClick={() => setShowProfile(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>Edit Profile</h3>
+            <div style={{ display: "flex", justifyContent: "center" }}>
+              <div className="pav">
+                {(pPhoto || pPhotoUrl)
+                  ? <img className="pavimg" src={pPhoto || pPhotoUrl} alt="" />
+                  : <div className="pavph">{(pName || displayName)[0]?.toUpperCase()}</div>
+                }
+                <div className="paved" onClick={() => pPhotoRef.current?.click()}>📷</div>
+                <input ref={pPhotoRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handlePPhoto} />
+              </div>
+            </div>
+            <div className="iw"><div className="ilbl">Name</div><input className="inp" value={pName} onChange={e => setPName(e.target.value)} placeholder="Your name" /></div>
+            <div style={{ fontSize: 13, color: "var(--mt)", textAlign: "center" }}>{user.email}</div>
+            <button className="btn btn-p" onClick={saveProfile} disabled={pSaving}>{pSaving ? "Saving..." : "Save Changes"}</button>
+            <button className="btn btn-s" onClick={() => setShowProfile(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── CHANGE PASSWORD MODAL ── */}
+      {showChangePw && (
+        <div className="mbg" onClick={() => setShowChangePw(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>🔐 Change Password</h3>
+            <div className="iw"><div className="ilbl">Current Password</div><input className="inp" type="password" placeholder="Current password" value={cpForm.current} onChange={e => setCpForm(f => ({ ...f, current: e.target.value }))} /></div>
+            <div className="iw"><div className="ilbl">New Password</div><input className="inp" type="password" placeholder="Min 8 characters" value={cpForm.newP} onChange={e => setCpForm(f => ({ ...f, newP: e.target.value }))} /></div>
+            <div className="iw"><div className="ilbl">Confirm New Password</div><input className="inp" type="password" placeholder="Repeat new password" value={cpForm.confirm} onChange={e => setCpForm(f => ({ ...f, confirm: e.target.value }))} /></div>
+            {cpErr && <div className="err">{cpErr}</div>}
+            {cpOk && <div className="ok">{cpOk}</div>}
+            <button className="btn btn-p" onClick={handleChangePw} disabled={cpLoad}>{cpLoad ? "Changing..." : "Change Password"}</button>
+            <button className="btn btn-s" onClick={() => setShowChangePw(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETE ACCOUNT MODAL ── */}
+      {showDeleteAcc && (
+        <div className="mbg" onClick={() => setShowDeleteAcc(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="mi">⚠️</div>
+            <h3>Delete Account</h3>
+            <p>Ye action permanent hai. Saara data delete ho jayega. Type <strong>DELETE</strong> to confirm.</p>
+            <input className="inp" placeholder='Type "DELETE" to confirm' value={delConfirmText} onChange={e => setDelConfirmText(e.target.value)} />
+            <button className="btn" style={{ background: "#ef4444", color: "#fff" }} onClick={deleteAccount} disabled={delLoading || delConfirmText.trim().toUpperCase() !== "DELETE"}>{delLoading ? "Deleting..." : "Delete My Account"}</button>
+            <button className="btn btn-s" onClick={() => setShowDeleteAcc(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── ADD MEMORY MODAL ── */}
+      {showAddMem && (
+        <div className="mbg" onClick={() => setShowAddMem(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>🧠 Add Memory</h3>
+            <div className="iw">
+              <div className="ilbl">What to remember?</div>
+              <textarea className="inp" rows={3}
+                placeholder="e.g. User is a software engineer who loves Python"
+                value={newMemText} onChange={e => setNewMemText(e.target.value)} style={{ resize: "none" }} />
+            </div>
+            <div className="iw">
+              <div className="ilbl">Category</div>
+              <div className="opt-row">
+                {MEM_CATEGORIES.map(c => (
+                  <button key={c} className={"opt-pill" + (newMemCat === c ? " sel" : "")} onClick={() => setNewMemCat(c)}>
+                    {MEM_CATEGORY_LABELS[c]?.split(" ")[0]} {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="iw">
+              <div className="ilbl">Importance: {newMemImportance || 5}/10</div>
+              <input type="range" min={1} max={10} value={newMemImportance || 5}
+                onChange={e => setNewMemImportance(parseInt(e.target.value))}
+                style={{ width: "100%", accentColor: "var(--accent)" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--mt)", marginTop: 2 }}>
+                <span>Low</span><span>Medium</span><span>Critical</span>
+              </div>
+            </div>
+            <button className="btn btn-p" onClick={async () => {
+              if (!newMemText.trim()) return;
+              await addMemory(newMemText, newMemCat, newMemImportance || 5);
+              setNewMemText(""); setNewMemCat("personal"); setNewMemImportance(5); setShowAddMem(false);
+            }}>Save Memory</button>
+            <button className="btn btn-s" onClick={() => setShowAddMem(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── ADMIN USER CHAT MODAL ── */}
+      {aChat && (
+        <div className="mbg" onClick={() => setAChat(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>💬 {aChat.user.name || aChat.user.email}</h3>
+            {aChatLoad ? <div className="ld">Loading...</div> : (
+              <div className="achat">
+                {aChat.msgs.length === 0 && <div className="ld">No messages</div>}
+                {aChat.msgs.map(m => (
+                  <div key={m.id} style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+                    <div style={{ flex: 1, fontSize: 12, padding: "7px 10px", background: m.role === "user" ? "var(--glow)" : "var(--sf2)", borderRadius: 10, color: "var(--tx)" }}><strong style={{ fontSize: 10, color: "var(--mt)" }}>{m.role === "user" ? "User" : "AI"}</strong><br />{m.text?.slice(0, 200)}{m.text?.length > 200 ? "..." : ""}</div>
+                    <button onClick={() => adminDelChat(m.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: "4px", flexShrink: 0 }}>🗑</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button className="btn btn-s" onClick={() => setAChat(null)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── HEADER ── */}
+      <div className="hdr">
+        <button className="dots" onClick={() => { setShowSb(true); if (user) loadHists(); }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div className="hdr-name">
+          {page === "chat" ? "🪷 Saraswati AI" : page === "history" ? "📋 History" : page === "settings" ? "⚙️ Settings" : page === "admin" ? "🛡️ Admin" : page === "voice" ? "🎙️ Voice Call" : page === "projects" ? "📁 Projects" : page === "memory" ? "🧠 Memory" : "🪷 Saraswati AI"}
+        </div>
+        {page === "chat" && (
+          <>
+            {chatsLeft !== null && chatsLeft <= 10 && (
+              <div style={{ fontSize: 11, color: chatsLeft <= 3 ? "#ef4444" : "var(--mt)", fontWeight: 600 }}>{chatsLeft} left</div>
+            )}
+            <button className="nbtn" onClick={newChat}>+ New</button>
+          </>
+        )}
+        <button className="dots" onClick={() => setShowProfile(true)}>
+          {pPhotoUrl
+            ? <img src={pPhotoUrl} alt="" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", border: `2px solid ${accentColor}` }} />
+            : <div style={{ width: 28, height: 28, borderRadius: "50%", background: `linear-gradient(135deg,${accentColor},#ea580c)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#fff", fontSize: 12 }}>{displayName[0]?.toUpperCase()}</div>
+          }
+        </button>
+      </div>
+
+      {/* ── VOICE PAGE ── */}
+      {page === "voice" && (
+        <div className="vpage">
+          <div className="vbody">
+            <div className="vccard">
+              <div className="vorb-wrap">
+                <div className="vring vr1" />
+                <div className="vring vr2" />
+                <div className={"vorb" + (vs !== "idle" ? " " + vs : "")} onClick={handleOrb}>{vOrbIcon}</div>
+              </div>
+              <div className="vstatus">{vStatusTxt}</div>
+              <div className="vsub">
+                {vs === "idle" ? "Tap the lotus to start a voice conversation" : vs === "listen" ? "Bol rahe hain... main sun rahi hoon 👂" : vs === "think" ? "Soch rahi hoon... ek second 🤔" : "Bol rahi hoon..."}
+              </div>
+              {vs === "speak" && (
+                <div className="vwave">
+                  {Array.from({ length: 6 }, (_, i) => <div key={i} className="wb" style={{ animationDelay: i * 0.12 + "s" }} />)}
+                </div>
+              )}
+              {vLast && (
+                <div className="vlast">
+                  <div style={{ fontSize: 11, color: "var(--accent)", marginBottom: 5, fontWeight: 600 }}>🪷 Last reply</div>
+                  <div style={{ fontSize: 13, color: "var(--tx)", lineHeight: 1.6 }}>{vLast.slice(0, 180)}{vLast.length > 180 ? "..." : ""}</div>
+                </div>
+              )}
+              {vs !== "idle" && <button className="vendbtn" onClick={endVoice}>End Call</button>}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--mt)", textAlign: "center", maxWidth: 260, lineHeight: 1.6 }}>
+              Works best on Chrome/Edge. Hindi aur English dono mein baat kar sakte hain.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── HISTORY PAGE ── */}
+      {page === "history" && (
+        <div className="page">
+          <div className="page-inner">
+            <div className="sbar"><Ico.Search /><input placeholder="Search chats..." value={hSearch} onChange={e => setHSearch(e.target.value)} /></div>
+            <div className="opt-row" style={{ marginBottom: 12 }}>
+              {["all","pinned","starred","archived"].map(f => (
+                <button key={f} className={"opt-pill" + (hFilter === f ? " sel" : "")} onClick={() => setHFilter(f)}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
+              ))}
+            </div>
+            {histLoad ? <div className="ld">Loading...</div> : filtHists.length === 0 ? <div className="ld">No chats found</div> : filtHists.map(h => (
+              <div key={h.id} className="hcard" onClick={() => loadSession(h)}>
+                <div style={{ fontSize: 20 }}>💬</div>
+                <div className="hi">
+                  {renamingId === h.id ? (
+                    <input className="inp" style={{ fontSize: 13, padding: "5px 9px" }} value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                      onBlur={() => renameSession(h.id, renameVal)}
+                      onKeyDown={e => { if (e.key === "Enter") renameSession(h.id, renameVal); if (e.key === "Escape") setRenamingId(null); }}
+                      autoFocus onClick={e => e.stopPropagation()} />
+                  ) : (
+                    <div className="ht">{h.pinned ? "📌 " : ""}{h.starred ? "⭐ " : ""}{h.title || "Chat"}</div>
+                  )}
+                  <div className="hm">{fmtDate(h.updatedAt)}</div>
+                </div>
+                <div className="hactions" onClick={e => e.stopPropagation()}>
+                  <button className="hact" title="Pin" onClick={e => togglePin(h.id, e)}>{h.pinned ? "📌" : "📍"}</button>
+                  <button className="hact" title="Star" onClick={e => toggleStar(h.id, e)}>{h.starred ? "⭐" : "☆"}</button>
+                  <button className="hact" title="Archive" onClick={e => toggleArchive(h.id, e)}>{h.archived ? "📦" : "🗃"}</button>
+                  <button className="hact" title="Rename" onClick={e => { e.stopPropagation(); setRenamingId(h.id); setRenameVal(h.title || ""); }}>✏️</button>
+                  <button className="hact del" title="Delete" onClick={e => delSession(h.id, e)}>🗑</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── PROJECTS PAGE ── */}
+      {page === "projects" && (
+        <div className="page">
+          <div className="page-inner">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div className="ptitle" style={{ marginBottom: 0 }}>Projects</div>
+              <button className="nbtn" onClick={() => setShowNewProj(true)}>+ New</button>
+            </div>
+            {showNewProj && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                <input className="inp" placeholder="Project name..." value={newProjName} onChange={e => setNewProjName(e.target.value)} onKeyDown={e => e.key === "Enter" && createProject()} autoFocus />
+                <button className="btn btn-p" style={{ width: "auto", padding: "0 16px" }} onClick={createProject}>Create</button>
+                <button className="btn btn-s" style={{ width: "auto", padding: "0 12px" }} onClick={() => setShowNewProj(false)}>✕</button>
+              </div>
+            )}
+            {projLoad ? <div className="ld">Loading...</div> : projects.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📁</div>
+                <div>No projects yet. Create one!</div>
+              </div>
+            ) : projects.map(pr => (
+              <div key={pr.id} className="hcard">
+                <div style={{ fontSize: 22 }}>📁</div>
+                <div className="hi">
+                  {renamingProjId === pr.id ? (
+                    <input className="inp" style={{ fontSize: 13, padding: "5px 9px" }} value={renameProjVal} onChange={e => setRenameProjVal(e.target.value)}
+                      onBlur={() => renameProject(pr.id, renameProjVal)}
+                      onKeyDown={e => { if (e.key === "Enter") renameProject(pr.id, renameProjVal); if (e.key === "Escape") setRenamingProjId(null); }}
+                      autoFocus />
+                  ) : (
+                    <div className="ht">{pr.title}</div>
+                  )}
+                  <div className="hm">{fmtDate(pr.createdAt)}</div>
+                </div>
+                <div className="hactions">
+                  <button className="hact" onClick={() => { setRenamingProjId(pr.id); setRenameProjVal(pr.title); }}>✏️</button>
+                  <button className="hact del" onClick={() => deleteProject(pr.id)}>🗑</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── MEMORY PAGE ── */}
+      {page === "memory" && (
+        <div className="page">
+          <div className="page-inner">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div className="ptitle" style={{ marginBottom: 0 }}>🧠 Memory</div>
+              <button className="nbtn" onClick={() => setShowAddMem(true)}>+ Add</button>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 12, lineHeight: 1.6 }}>
+              Conversations se automatically seekhti hoon. "Remember that I am a developer" bol kar bhi save kar sakte ho.
+            </div>
+
+            {/* Auto Memory toggle */}
+            <div className="scard" style={{ marginBottom: 12 }}>
+              <div className="srow">
+                <div className="sicon">🧠</div>
+                <div className="stxt"><div className="slbl">Auto Memory</div><div className="sdesc">Conversations se automatically seekho</div></div>
+                <div className="sright">
+                  <div className={"tgl" + (memoryEnabled ? " on" : "")} onClick={() => savePref("memoryEnabled", !memoryEnabled)}><div className="tk" /></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Stats bar */}
+            {memories.length > 0 && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+                <div style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 10, padding: "7px 12px", fontSize: 12 }}>
+                  <span style={{ fontWeight: 700, color: "var(--accent)" }}>{memories.length}</span> <span style={{ color: "var(--mt)" }}>total</span>
+                </div>
+                {MEM_CATEGORIES.map(cat => {
+                  const n = memories.filter(m => m.category === cat).length;
+                  if (!n) return null;
+                  return (
+                    <div key={cat} style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 10, padding: "7px 12px", fontSize: 11 }}>
+                      <span style={{ fontWeight: 700, color: "var(--accent)" }}>{n}</span> <span style={{ color: "var(--mt)" }}>{cat}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {memLoad ? (
+              <div className="ld">Loading memories...</div>
+            ) : memories.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🧠</div>
+                <div style={{ fontSize: 14, marginBottom: 8 }}>Koi memory nahi hai abhi</div>
+                <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+                  Chat karo main seekhungi, ya<br />
+                  <span style={{ color: "var(--accent)" }}>"Remember that I am a developer"</span><br />
+                  type karo
+                </div>
+              </div>
+            ) : (
+              <>
+                {MEM_CATEGORIES.map(cat => {
+                  const catMems = memories
+                    .filter(m => (m.category || "personal") === cat)
+                    .sort((a, b) => (b.importance_score || 5) - (a.importance_score || 5));
+                  if (!catMems.length) return null;
+                  return (
+                    <div key={cat}>
+                      <div className="sec">{MEM_CATEGORY_LABELS[cat] || cat}</div>
+                      {catMems.map(m => {
+                        const content = m.memory_content || m.text || "";
+                        const score = m.importance_score || 5;
+                        const isEditing = editingMemId === m.id;
+                        return (
+                          <div key={m.id} style={{
+                            background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 14,
+                            padding: "12px 14px", marginBottom: 7, display: "flex", gap: 11, alignItems: "flex-start"
+                          }}>
+                            {/* Importance indicator */}
+                            <div style={{
+                              width: 6, borderRadius: 3, flexShrink: 0, alignSelf: "stretch", minHeight: 36,
+                              background: score >= 8 ? "#22c55e" : score >= 5 ? "var(--accent)" : "var(--bd)"
+                            }} title={`Importance: ${score}/10`} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              {isEditing ? (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                  <textarea
+                                    className="inp"
+                                    rows={2}
+                                    style={{ fontSize: 13, padding: "7px 10px", resize: "none", borderRadius: 10 }}
+                                    value={editMemVal}
+                                    onChange={e => setEditMemVal(e.target.value)}
+                                    autoFocus
+                                  />
+                                  <div style={{ display: "flex", gap: 6 }}>
+                                    <button className="btn btn-p" style={{ padding: "6px 14px", fontSize: 12, width: "auto" }}
+                                      onClick={() => editMemory(m.id, editMemVal)}>Save</button>
+                                    <button className="btn btn-s" style={{ padding: "6px 14px", fontSize: 12, width: "auto" }}
+                                      onClick={() => setEditingMemId(null)}>Cancel</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div style={{ fontSize: 13, fontWeight: 500, color: "var(--tx)", lineHeight: 1.5 }}>{content}</div>
+                                  <div style={{ display: "flex", gap: 8, marginTop: 5, alignItems: "center" }}>
+                                    <span style={{ fontSize: 10, color: "var(--mt)" }}>
+                                      {m.updatedAt ? fmtDate(m.updatedAt) : fmtDate(m.createdAt)}
+                                    </span>
+                                    <span style={{ fontSize: 10, color: "var(--mt)" }}>·</span>
+                                    <span style={{ fontSize: 10, color: score >= 8 ? "#22c55e" : score >= 5 ? "var(--accent)" : "var(--mt)", fontWeight: 600 }}>
+                                      ★ {score}/10
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                            {!isEditing && (
+                              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                <button className="hact" onClick={() => { setEditingMemId(m.id); setEditMemVal(content); }} title="Edit">✏️</button>
+                                <button className="hact del" onClick={() => deleteMemory(m.id)} title="Delete">🗑</button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                <button className="btn btn-s" style={{ marginTop: 8, color: "#ef4444", borderColor: "#ef444430" }} onClick={clearAllMemories}>
+                  🗑 Clear All Memories
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── SETTINGS PAGE ── */}
+      {page === "settings" && (
+        <div className="page">
+          <div className="page-inner">
+            <div className="ptitle">Settings</div>
+
+            <div className="sec">Appearance</div>
+            <div className="scard">
+              <ExpandRow icon="🎨" label="Theme" desc={themeKey.charAt(0).toUpperCase() + themeKey.slice(1)}>
+                <div className="opt-row">
+                  {Object.keys(THEMES).map(t => <button key={t} className={"opt-pill" + (themeKey === t ? " sel" : "")} onClick={() => savePref("theme", t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>)}
+                </div>
+              </ExpandRow>
+              <ExpandRow icon="🎨" label="Accent Color">
+                <div className="opt-row">
+                  {Object.entries(ACCENTS).map(([k, v]) => (
+                    <div key={k} className={"cdot" + (accentKey === k ? " sel" : "")} style={{ background: v.primary }} onClick={() => savePref("accent", k)} title={k} />
+                  ))}
+                </div>
+              </ExpandRow>
+              <ExpandRow icon="📝" label="Font Size" desc={fontSize + "px"}>
+                <div className="opt-row">
+                  {[12, 13, 14, 15, 16].map(s => <button key={s} className={"opt-pill" + (fontSize === s ? " sel" : "")} onClick={() => savePref("fontSize", s)}>{s}px</button>)}
+                </div>
+              </ExpandRow>
+            </div>
+
+            <div className="sec">AI Behavior</div>
+            <div className="scard">
+              <ExpandRow icon="🌐" label="Language" desc={language.charAt(0).toUpperCase() + language.slice(1)}>
+                <div className="opt-row">
+                  {["auto","hindi","english","hinglish"].map(l => <button key={l} className={"opt-pill" + (language === l ? " sel" : "")} onClick={() => savePref("language", l)}>{l.charAt(0).toUpperCase() + l.slice(1)}</button>)}
+                </div>
+              </ExpandRow>
+              <div className="srow">
+                <div className="sicon">🧠</div>
+                <div className="stxt"><div className="slbl">Memory</div><div className="sdesc">Remember info across chats</div></div>
+                <div className="sright"><div className={"tgl" + (memoryEnabled ? " on" : "")} onClick={() => savePref("memoryEnabled", !memoryEnabled)}><div className="tk" /></div></div>
+              </div>
+            </div>
+
+            <div className="sec">Account</div>
+            <div className="scard">
+              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowProfile(true)}>
+                <div className="sicon">👤</div>
+                <div className="stxt"><div className="slbl">Edit Profile</div><div className="sdesc">{displayName}</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowChangePw(true)}>
+                <div className="sicon">🔐</div>
+                <div className="stxt"><div className="slbl">Change Password</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+              {!userData?.premium && (
+                <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowUpgrade(true)}>
+                  <div className="sicon">⭐</div>
+                  <div className="stxt"><div className="slbl">Upgrade to Premium</div><div className="sdesc">Unlimited chats + Voice</div></div>
+                  <div className="sright"><Ico.ChevRight /></div>
+                </div>
+              )}
+            </div>
+
+            <div className="sec">Data</div>
+            <div className="scard">
+              <div className="srow" style={{ cursor: "pointer" }} onClick={exportChat}>
+                <div className="sicon">💾</div>
+                <div className="stxt"><div className="slbl">Export Current Chat</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={exportAllData}>
+                <div className="sicon">📦</div>
+                <div className="stxt"><div className="slbl">{exporting ? "Exporting..." : "Export All Data"}</div><div className="sdesc">JSON format</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={clearAllChatHistory}>
+                <div className="sicon">🗑</div>
+                <div className="stxt"><div className="slbl">Clear Chat History</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={clearAllMemories}>
+                <div className="sicon">🧠</div>
+                <div className="stxt"><div className="slbl">Clear All Memories</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowDeleteAcc(true)}>
+                <div className="sicon" style={{ color: "#ef4444" }}>⚠️</div>
+                <div className="stxt"><div className="slbl" style={{ color: "#ef4444" }}>Delete Account</div><div className="sdesc">Permanent, cannot be undone</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+            </div>
+
+            <div className="sec">About</div>
+            <div className="scard">
+              <div className="srow">
+                <div className="sicon">🪷</div>
+                <div className="stxt"><div className="slbl">Saraswati AI</div><div className="sdesc">Made with ❤️ by Kunal Saraswat</div></div>
+              </div>
+              <div className="srow">
+                <div className="sicon">📊</div>
+                <div className="stxt"><div className="slbl">Usage</div><div className="sdesc">{userData?.usageCount || 0} messages sent · {userData?.premium ? "Premium" : `${chatsLeft} free left`}</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ADMIN PAGE ── */}
+      {page === "admin" && isAdmin && (
+        <div className="page">
+          <div className="page-inner">
+            <div className="ptitle">Admin Panel</div>
+            <div className="sgrid">
+              <div className="sct"><div className="sv">{adminUsers.length}</div><div className="sl">Total Users</div></div>
+              <div className="sct"><div className="sv">{adminUsers.filter(u => u.premium).length}</div><div className="sl">Premium</div></div>
+              <div className="sct"><div className="sv">{adminUsers.filter(u => u.premiumPending).length}</div><div className="sl">Pending</div></div>
+              <div className="sct"><div className="sv">{adminUsers.reduce((a, u) => a + (u.usageCount || 0), 0)}</div><div className="sl">Total Msgs</div></div>
+            </div>
+            <div className="sec">New Users (7d)</div>
+            <div className="scard" style={{ padding: "14px 16px" }}>
+              <div className="gbar">
+                {adminGraph.map((d, i) => (
+                  <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                    <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end" }}>
+                      <div style={{ width: "100%", height: Math.max(4, (d.v / maxG) * 56) + "px", background: "var(--grad)", borderRadius: "4px 4px 0 0", transition: "height .3s" }} />
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--mt)" }}>{d.l}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="sec">Users</div>
+            <div className="sbar"><Ico.Search /><input placeholder="Search users..." value={aSearch} onChange={e => setASearch(e.target.value)} /></div>
+            {filtAdminU.map(u => (
+              <div key={u.id} className="ucard">
+                <div className="uav">{(u.name || u.email || "?")[0].toUpperCase()}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name || "No name"}</div>
+                  <div style={{ fontSize: 11, color: "var(--mt)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.email}</div>
+                  <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 2 }}>{u.usageCount || 0} msgs · {fmtDate(u.createdAt)}</div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+                  {u.premium && <span className="badge">PRO</span>}
+                  {u.premiumPending && <span className="badge-y">Pending</span>}
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button onClick={() => viewUserChat(u)} style={{ background: "none", border: "1px solid var(--bd)", borderRadius: 8, color: "var(--mt)", cursor: "pointer", fontSize: 11, padding: "3px 7px" }}>Chat</button>
+                    <button onClick={() => adminToggle(u.id, u.premium)} style={{ background: "var(--grad)", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", fontSize: 11, padding: "3px 7px" }}>{u.premium ? "Revoke" : "Grant"}</button>
+                    <button onClick={() => adminDelUser(u.id)} style={{ background: "none", border: "1px solid #ef4444", borderRadius: 8, color: "#ef4444", cursor: "pointer", fontSize: 11, padding: "3px 7px" }}>Del</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── CHAT PAGE ── */}
+      {page === "chat" && (
+        <>
+          <div className="chat">
+            {msgs.length === 0 && (
+              <div className="welcome">
+                <span className="wlotus" onClick={newChat}>🪷</span>
+                <h2>Saraswati AI</h2>
+                <div className="wsub">India's smartest AI — coding, farming, education, sab kuch!</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 320, marginTop: 8 }}>
+                  {["💻 Mujhe Python sikhao", "🌾 Wheat ki best variety kaunsi hai?", "📚 UPSC preparation tips", "🎨 Ek motivational quote do"].map(s => (
+                    <button key={s} onClick={() => sendMsg(s)} style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 14, color: "var(--tx)", cursor: "pointer", fontSize: 13, padding: "11px 16px", textAlign: "left", fontFamily: "Inter,sans-serif", transition: "border-color .2s" }}>{s}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {msgs.map((m, idx) => (
+              <div key={m.id} className="mwrap">
+                <div className={"mrow" + (m.role === "user" ? " user" : "")}>
+                  {m.role === "ai" && <div className="aiav">🪷</div>}
+                  <div className="bwrap" style={{ position: "relative" }}>
+                    {showRx === m.id && (
+                      <div className="rbar">
+                        {REACTIONS.map(r => (
+                          <button key={r} className="rbtn" onClick={e => { e.stopPropagation(); setReactions(p => ({ ...p, [m.id]: r })); setShowRx(null); }}>{r}</button>
+                        ))}
+                      </div>
+                    )}
+                    {m.image && m.role === "user" && (
+                      <img src={m.image} alt="sent" className="mimg" onClick={() => setViewerSrc(m.image)} />
+                    )}
+                    {m.files && m.files.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 5 }}>
+                        {m.files.map((f, fi) => (
+                          <div key={fi} style={{ background: "var(--sf2)", border: "1px solid var(--bd)", borderRadius: 8, padding: "4px 9px", fontSize: 11, color: "var(--mt)", display: "flex", alignItems: "center", gap: 4 }}>
+                            <span>{f.error ? "⚠️" : "📎"}</span><span>{f.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {editingMsgId === m.id ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <textarea className="tinp" value={editVal} onChange={e => setEditVal(e.target.value)} style={{ borderRadius: 14, minHeight: 60 }} autoFocus />
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="btn btn-p" style={{ padding: "7px 14px", fontSize: 12, width: "auto" }} onClick={() => { editMessage(m.id, editVal); setEditingMsgId(null); }}>Save & Send</button>
+                          <button className="btn btn-s" style={{ padding: "7px 14px", fontSize: 12, width: "auto" }} onClick={() => setEditingMsgId(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={"bub " + m.role} onLongPress={() => setShowRx(m.id)}>
+                        {m.role === "ai" ? <AIText text={m.text} /> : <span>{m.text}{m.edited && <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 6 }}>(edited)</span>}</span>}
+                        {m.image && m.role === "ai" && (
+                          <img src={m.image} alt="gen" className="mimg gen" onClick={() => setViewerSrc(m.image)} onError={e => { e.target.src = ""; e.target.style.display = "none"; }} />
+                        )}
+                      </div>
+                    )}
+                    {reactions[m.id] && <div className="react">{reactions[m.id]}</div>}
+                    <div className="acts">
+                      {m.role === "ai" && (
+                        <>
+                          <button className={"abtn" + (speakId === m.id ? " on" : "")} onClick={() => toggleSpeak(m.id, m.text)} title="Speak">
+                            {speakId === m.id ? <Ico.Stop s={13} /> : <Ico.Speak s={13} />}
+                          </button>
+                          <button className={"abtn" + (copied === m.id ? " on" : "")} onClick={() => copyMsg(m.text, m.id)} title="Copy">
+                            {copied === m.id ? <Ico.Check s={13} /> : <Ico.Copy s={13} />}
+                          </button>
+                          <button className="abtn" onClick={() => shareWA(m.text)} title="Share"><Ico.Share s={13} /></button>
+                          <button className="abtn" onClick={() => setShowRx(showRx === m.id ? null : m.id)} title="React">😊</button>
+                          <button className="abtn" onClick={() => regenerateMessage(m.id)} title="Regenerate">🔄</button>
+                          <button className="abtn" onClick={() => deleteMessage(m.id)} title="Delete">🗑</button>
+                        </>
+                      )}
+                      {m.role === "user" && (
+                        <>
+                          <button className="abtn" onClick={() => { setEditingMsgId(m.id); setEditVal(m.text); }} title="Edit">✏️</button>
+                          <button className="abtn" onClick={() => deleteMessage(m.id)} title="Delete">🗑</button>
+                        </>
+                      )}
+                    </div>
+                    <div className={"mtime" + (m.role === "user" ? " user" : "")}>{fmtTime(m.time || m.createdAt)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {searching && (
+              <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+                <div className="aiav">🪷</div>
+                <div className="sind">🔍 Searching web...</div>
+              </div>
+            )}
+            {loading && !searching && (
+              <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
+                <div className="aiav">🪷</div>
+                <div className="tbub"><div className="dot" /><div className="dot" /><div className="dot" /></div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Input bar */}
+          <div className="ibar">
+            <input ref={galleryRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleGallery} />
+            <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log" multiple style={{ display: "none" }} onChange={handleFiles} />
+
+            <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 5 }}>
+              {(imgPrev || attachments.length > 0) && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingLeft: 4 }}>
+                  {imgPrev && (
+                    <div className="imgprev">
+                      <img src={imgPrev} alt="preview" />
+                      <button className="imgprev-x" onClick={() => { setImgB64(null); setImgPrev(null); }}>✕</button>
+                    </div>
+                  )}
+                  {attachments.map((a, i) => (
+                    <div key={i} style={{ background: "var(--sf2)", border: "1px solid var(--bd)", borderRadius: 10, padding: "5px 10px", fontSize: 12, display: "flex", alignItems: "center", gap: 5, position: "relative" }}>
+                      <span>{a.error ? "⚠️" : "📎"}</span>
+                      <span style={{ color: "var(--tx)" }}>{a.name.slice(0, 18)}</span>
+                      <button onClick={() => removeAttachment(i)} style={{ background: "#ef4444", border: "none", borderRadius: "50%", color: "#fff", cursor: "pointer", fontSize: 10, width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                    </div>
+                  ))}
+                  {attachLoading && <div style={{ fontSize: 12, color: "var(--accent)", alignSelf: "center" }}>Reading file...</div>}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
+                <button className="ibtn" onClick={() => galleryRef.current?.click()} title="Image"><Ico.Img /></button>
+                <button className="ibtn" onClick={() => fileRef.current?.click()} title="Attach file" style={{ fontSize: 18 }}>📎</button>
+                <textarea
+                  className="tinp"
+                  placeholder="Kuch bhi puchho..."
+                  value={input}
+                  onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 110) + "px"; }}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }}
+                  rows={1}
+                />
+                <button className={"ibtn" + (micActive ? " rec" : "")} onClick={toggleMic} title="Voice input"><Ico.Mic on={micActive} /></button>
+                <button className="sbtn" onClick={() => sendMsg()} disabled={loading || (!input.trim() && !imgB64 && !attachments.length)}>
+                  {loading ? "⏳" : "➤"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
