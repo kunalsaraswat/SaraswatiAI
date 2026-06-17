@@ -102,7 +102,7 @@ async function extractPdfText(arrayBuffer) {
 
 async function requestMicrophoneAccess() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediadevices.getUserMedia({ audio: true });
     localAudioRef.current.srcObject = stream;
   } catch (err) {
     console.error("Error accessing microphone:", err);
