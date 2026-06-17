@@ -30,6 +30,7 @@ const UPI = "8126630980";
 const FREE_LIMIT = 49;
 const REACTIONS = ["👍","❤️","😂","😮","🙏","🔥"];
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+const localAudioRef = useRef(null);
 const CHAT_MODEL   = "llama-3.3-70b-versatile";
 const TRIVIAL = /^(hi|hello|hey|hii|ok|okay|hmm|ha|bhai|yaar|bro|dost|thanks|thx|yes|no|nahi|haan|k|👍|😊)[\s!?.]*$/i;
 
