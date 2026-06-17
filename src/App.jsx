@@ -100,6 +100,15 @@ async function extractPdfText(arrayBuffer) {
   return text;
 }
 
+async function requestMicrophoneAccess() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    localAudioRef.current.srcObject = stream;
+  } catch (err) {
+    console.error("Error accessing microphone:", err);
+  }
+}
+
 async function extractDocxText(arrayBuffer) {
   await loadScriptOnce("https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js", () => !!window.mammoth);
   const result = await window.mammoth.extractRawText({ arrayBuffer });
