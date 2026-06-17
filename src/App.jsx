@@ -134,8 +134,32 @@ async function extractFileText(file) {
       text = await extractDocxText(buf);
     } else if (["txt", "csv", "md", "json", "log"].includes(ext)) {
       text = await readFileAsText(file);
+    } else if (ext === "xlsx" || ext === "xls") {
+      await loadScriptOnce("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", () => !!window.XLSX);
+      const buf = await readFileAsArrayBuffer(file);
+      const wb = window.XLSX.read(buf, { type: "array" });
+      const rows = [];
+      wb.SheetNames.slice(0, 5).forEach(name => {
+        const ws = wb.Sheets[name];
+        const csv = window.XLSX.utils.sheet_to_csv(ws);
+        rows.push(`[Sheet: ${name}]\n${csv}`);
+      });
+      text = rows.join("\n\n");
+    } else if (ext === "pptx") {
+      // Extract text from PPTX using JSZip (available via cdnjs)
+      await loadScriptOnce("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", () => !!window.JSZip);
+      const buf = await readFileAsArrayBuffer(file);
+      const zip = await window.JSZip.loadAsync(buf);
+      const slideTexts = [];
+      const slideFiles = Object.keys(zip.files).filter(f => /ppt\/slides\/slide[0-9]+\.xml$/.test(f)).sort();
+      for (const sf of slideFiles.slice(0, 20)) {
+        const xml = await zip.files[sf].async("string");
+        const text = xml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        if (text) slideTexts.push(text);
+      }
+      text = slideTexts.join("\n\n");
     } else {
-      return { name: file.name, ext, error: "Unsupported file type" };
+      return { name: file.name, ext, error: "Unsupported file type. Supported: PDF, DOCX, TXT, CSV, XLSX, PPTX" };
     }
     text = (text || "").trim();
     if (text.length > ATTACH_PER_FILE_LIMIT) text = text.slice(0, ATTACH_PER_FILE_LIMIT) + "\n...[truncated]";
@@ -1239,6 +1263,33 @@ export default function App() {
   }
 
   function shareWA(text) { window.open("https://wa.me/?text=" + encodeURIComponent("Saraswati AI:\n\n" + text.slice(0, 500)), "_blank"); }
+
+  async function shareChat(histId) {
+    // Find chat in hists or use current msgs
+    const chatMsgs = histId === sid ? msgs : null;
+    let exportText = `Saraswati AI — Chat Export\n${"=".repeat(30)}\n\n`;
+    if (chatMsgs) {
+      exportText += chatMsgs.map(m => `${m.role === "user" ? "You" : "Saraswati AI"}:\n${m.text}`).join("\n\n---\n\n");
+    } else {
+      // Load from Firestore
+      try {
+        const q = query(collection(db, "messages"), where("sessionId", "==", histId));
+        const snap = await getDocs(q);
+        const loaded = snap.docs.map(d => d.data()).sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+        exportText += loaded.map(m => `${m.role === "user" ? "You" : "Saraswati AI"}:\n${m.text || ""}`).join("\n\n---\n\n");
+      } catch { exportText += "(Could not load messages)"; }
+    }
+    // Try native share → fallback to clipboard → fallback to WA
+    if (navigator.share) {
+      try { await navigator.share({ title: "Saraswati AI Chat", text: exportText.slice(0, 2000) }); return; } catch {}
+    }
+    try {
+      await navigator.clipboard.writeText(exportText);
+      alert("✅ Chat copied to clipboard! Paste anywhere to share.");
+    } catch {
+      window.open("https://wa.me/?text=" + encodeURIComponent(exportText.slice(0, 1000)), "_blank");
+    }
+  }
 
   function exportChat() {
     if (!msgs.length) { alert("No messages to export."); return; }
@@ -2578,23 +2629,12 @@ export default function App() {
                         ))}
                       </div>
                     )}
-                    {editingMsgId === m.id ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        <textarea className="tinp" value={editVal} onChange={e => setEditVal(e.target.value)} style={{ borderRadius: 14, minHeight: 60 }} autoFocus />
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button className="btn btn-p" style={{ padding: "7px 14px", fontSize: 12, width: "auto" }} onClick={() => { editMessage(m.id, editVal); setEditingMsgId(null); }}>Save & Send</button>
-                          <button className="btn btn-s" style={{ padding: "7px 14px", fontSize: 12, width: "auto" }} onClick={() => setEditingMsgId(null)}>Cancel</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className={"bub " + m.role} onLongPress={() => setShowRx(m.id)}>
-                        {m.role === "ai" ? <AIText text={m.text} /> : <span>{m.text}{m.edited && <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 6 }}>(edited)</span>}</span>}
-                        {m.image && m.role === "ai" && (
-                          <img src={m.image} alt="gen" className="mimg gen" onClick={() => setViewerSrc(m.image)} onError={e => { e.target.src = ""; e.target.style.display = "none"; }} />
-                        )}
-                      </div>
-                    )}
-                    {reactions[m.id] && <div className="react">{reactions[m.id]}</div>}
+                    <div className={"bub " + m.role}>
+                      {m.role === "ai" ? <AIText text={m.text} /> : <span>{m.text}</span>}
+                      {m.image && m.role === "ai" && (
+                        <img src={m.image} alt="gen" className="mimg gen" onClick={() => setViewerSrc(m.image)} onError={e => { e.target.src = ""; e.target.style.display = "none"; }} />
+                      )}
+                    </div>
                     <div className="acts">
                       {m.role === "ai" && (
                         <>
@@ -2633,7 +2673,7 @@ export default function App() {
           {/* Input bar */}
           <div className="ibar" style={{ position: "relative" }}>
             <input ref={galleryRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleGallery} />
-            <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log" multiple style={{ display: "none" }} onChange={handleFiles} />
+            <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log,.xlsx,.xls,.pptx" multiple style={{ display: "none" }} onChange={handleFiles} />
 
             {/* + attach menu popup */}
             {showPlusMenu && (
