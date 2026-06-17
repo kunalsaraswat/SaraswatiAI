@@ -1272,35 +1272,23 @@ export default function App() {
     if (!SR || !voiceActiveRef.current) return;
 
     const r = new SR();
-    r.lang = "hi-IN"; r.continuous = true; r.interimResults = true;
+    // Support both Hindi and English speech recognition
+    r.lang = language === "english" ? "en-IN" : "hi-IN";
+    r.continuous = false; // false is more reliable on mobile Chrome
+    r.interimResults = false; // false = only final results, avoids double-processing
     r.maxAlternatives = 1;
 
-    let silenceTimer = null;
     let finished = false;
 
     r.onresult = e => {
-      let finalTranscript = "", interim = "";
-      for (let i = 0; i < e.results.length; i++) {
+      if (finished) return;
+      let finalTranscript = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript;
-        else interim += e.results[i][0].transcript;
       }
-
-      if (silenceTimer) clearTimeout(silenceTimer);
-
       if (finalTranscript.trim()) {
-        silenceTimer = setTimeout(() => {
-          if (finished) return;
-          finished = true;
-          try { r.stop(); } catch {}
-          processUtterance(finalTranscript);
-        }, 600);
-      } else if (interim.trim()) {
-        silenceTimer = setTimeout(() => {
-          if (finished) return;
-          finished = true;
-          try { r.stop(); } catch {}
-          processUtterance(interim);
-        }, 1500);
+        finished = true;
+        processUtterance(finalTranscript);
       }
     };
 
@@ -1377,20 +1365,19 @@ export default function App() {
     }
 
     r.onerror = () => {
-      if (silenceTimer) clearTimeout(silenceTimer);
       if (finished) return;
       if (voiceActiveRef.current) {
-        setTimeout(() => { setVs("listen"); startListening(currentMsgs, currentTone, currentSid, currentUserData); }, 600);
+        setTimeout(() => { setVs("listen"); startListening(currentMsgs, currentTone, currentSid, currentUserData); }, 800);
       } else {
         setVs("idle");
       }
     };
 
     r.onend = () => {
-      if (silenceTimer) clearTimeout(silenceTimer);
+      // Auto-restart if call still active and not mid-processing
       if (voiceActiveRef.current && !finished && vsRef.current !== "think" && vsRef.current !== "speak") {
         setVs("listen");
-        setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300);
+        setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 400);
       }
     };
 
@@ -1457,9 +1444,9 @@ export default function App() {
   }
 
   async function sendMsg(text) {
-    const txt = text || input.trim();
-    if ((!txt && !imgB64 && !attachments.length) || loading) return;
-    const ud = userData;
+    const txt = (text !== undefined && text !== null) ? String(text).trim() : input.trim();
+    if ((!txt && !imgB64 && !imgPrev && !attachments.length) || loading) return;
+    const ud = userData || {};
     if (!ud?.premium && (ud?.usageCount || 0) >= FREE_LIMIT) { setShowLimit(true); return; }
     const msgText = txt || (attachments.length ? "Is file ko padho aur samjhao." : "What is in this image?");
     setInput("");
@@ -1652,12 +1639,7 @@ export default function App() {
   const vStatusTxt = { idle: "Tap to Talk", listen: "Listening... (tap to stop)", think: "Thinking...", speak: "Speaking..." }[vs];
   const accentColor = ACCENTS[accentKey]?.primary || "#f97316";
 
-  if (!authReady) return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100dvh", background: "#060606" }}>
-      <style>{buildStyles("dark", "orange", 14)}</style>
-      <span style={{ fontSize: 60 }}>🪷</span>
-    </div>
-  );
+  if (!authReady) return null;
 
   if (!user) return (
     <div className="app">
@@ -1752,7 +1734,6 @@ export default function App() {
                 { id: "voice", icon: <Ico.Voice />, label: "Voice Call" },
                 { id: "history", icon: <span style={{fontSize:18}}>📋</span>, label: "History" },
                 { id: "projects", icon: <Ico.Project />, label: "Projects" },
-                { id: "memory", icon: <span style={{fontSize:18}}>🧠</span>, label: "Memory" },
                 { id: "settings", icon: <Ico.Settings />, label: "Settings" },
               ].map(item => (
                 <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
@@ -2284,9 +2265,11 @@ export default function App() {
 
             <div className="sec">AI Behavior</div>
             <div className="scard">
-              <ExpandRow icon="🌐" label="Language" desc={language.charAt(0).toUpperCase() + language.slice(1)}>
+              <ExpandRow icon="🌐" label="Language" desc={language === "auto" ? "Auto Detect" : language === "hindi" ? "Hindi" : "English"}>
                 <div className="opt-row">
-                  {["auto","hindi","english","hinglish"].map(l => <button key={l} className={"opt-pill" + (language === l ? " sel" : "")} onClick={() => savePref("language", l)}>{l.charAt(0).toUpperCase() + l.slice(1)}</button>)}
+                  {[["auto","Auto Detect"],["hindi","Hindi"],["english","English"]].map(([val, lbl]) => (
+                    <button key={val} className={"opt-pill" + (language === val ? " sel" : "")} onClick={() => savePref("language", val)}>{lbl}</button>
+                  ))}
                 </div>
               </ExpandRow>
               <div className="srow">
@@ -2295,6 +2278,54 @@ export default function App() {
                 <div className="sright"><div className={"tgl" + (memoryEnabled ? " on" : "")} onClick={() => savePref("memoryEnabled", !memoryEnabled)}><div className="tk" /></div></div>
               </div>
             </div>
+
+            {/* ── MEMORY MANAGEMENT inside Settings ── */}
+            <div className="sec">🧠 Memory</div>
+            <div className="scard" style={{ marginBottom: 8 }}>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowAddMem(true)}>
+                <div className="sicon">➕</div>
+                <div className="stxt"><div className="slbl">Add Memory</div><div className="sdesc">Manually save a fact</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={clearAllMemories}>
+                <div className="sicon">🗑</div>
+                <div className="stxt"><div className="slbl">Clear All Memories</div><div className="sdesc">{memories.length} saved</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+            </div>
+            {memories.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                {memories.slice(0, 20).map(m => {
+                  const content = m.memory_content || m.text || "";
+                  return (
+                    <div key={m.id} style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 12, padding: "10px 14px", marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        {editingMemId === m.id ? (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <input className="inp" style={{ fontSize: 12, padding: "5px 9px", flex: 1 }} value={editMemVal}
+                              onChange={e => setEditMemVal(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") editMemory(m.id, editMemVal); if (e.key === "Escape") setEditingMemId(null); }}
+                              autoFocus />
+                            <button className="btn btn-p" style={{ width: "auto", padding: "5px 10px", fontSize: 11 }} onClick={() => editMemory(m.id, editMemVal)}>Save</button>
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 13, color: "var(--tx)" }}>{content}</div>
+                            <div style={{ fontSize: 10, color: "var(--mt)", marginTop: 2 }}>{m.category} · ★{m.importance_score || 5}</div>
+                          </>
+                        )}
+                      </div>
+                      {editingMemId !== m.id && (
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button className="hact" onClick={() => { setEditingMemId(m.id); setEditMemVal(content); }}>✏️</button>
+                          <button className="hact del" onClick={() => deleteMemory(m.id)}>🗑</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="sec">Account</div>
             <div className="scard">
@@ -2416,14 +2447,9 @@ export default function App() {
           <div className="chat">
             {msgs.length === 0 && (
               <div className="welcome">
-                <span className="wlotus" onClick={newChat}>🪷</span>
+                <span style={{ fontSize: 72, lineHeight: 1 }}>🌸</span>
                 <h2>Saraswati AI</h2>
-                <div className="wsub">India's smartest AI — coding, farming, education, sab kuch!</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 320, marginTop: 8 }}>
-                  {["💻 Mujhe Python sikhao", "🌾 Wheat ki best variety kaunsi hai?", "📚 UPSC preparation tips", "🎨 Ek motivational quote do"].map(s => (
-                    <button key={s} onClick={() => sendMsg(s)} style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 14, color: "var(--tx)", cursor: "pointer", fontSize: 13, padding: "11px 16px", textAlign: "left", fontFamily: "Inter,sans-serif", transition: "border-color .2s" }}>{s}</button>
-                  ))}
-                </div>
+                <div className="wsub">Kuch bhi puchho — main hoon na!</div>
               </div>
             )}
 
@@ -2547,7 +2573,7 @@ export default function App() {
                   rows={1}
                 />
                 <button className={"ibtn" + (micActive ? " rec" : "")} onClick={toggleMic} title="Voice input"><Ico.Mic on={micActive} /></button>
-                <button className="sbtn" onClick={() => sendMsg()} disabled={loading || (!input.trim() && !imgB64 && !attachments.length)}>
+                <button className="sbtn" onClick={() => sendMsg()} disabled={loading || (!input.trim() && !imgB64 && !imgPrev && !attachments.length)}>
                   {loading ? "⏳" : "➤"}
                 </button>
               </div>
