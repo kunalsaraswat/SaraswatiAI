@@ -393,6 +393,33 @@ function speakText(text, tone, speed, onDone) {
   if (!window.speechSynthesis.getVoices().length) { window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; go(); }; } else go();
 }
 
+// ── SARASWATI LOGO (animated SVG) ─────────────────────────────
+function SaraswatiLogo({ size = 32, animate = false }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"
+      style={animate ? { animation: "logoSpin 1.8s ease-in-out infinite" } : {}}>
+      <defs>
+        <linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#f97316"/>
+          <stop offset="100%" stopColor="#ea580c"/>
+        </linearGradient>
+      </defs>
+      {/* Outer petals */}
+      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.9" transform="rotate(0 20 20)"/>
+      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.75" transform="rotate(45 20 20)"/>
+      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.6" transform="rotate(90 20 20)"/>
+      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.75" transform="rotate(135 20 20)"/>
+      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.9" transform="rotate(180 20 20)"/>
+      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.75" transform="rotate(225 20 20)"/>
+      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.6" transform="rotate(270 20 20)"/>
+      <ellipse cx="20" cy="8"  rx="3.5" ry="6" fill="url(#lg1)" opacity="0.75" transform="rotate(315 20 20)"/>
+      {/* Center */}
+      <circle cx="20" cy="20" r="6" fill="url(#lg1)"/>
+      <circle cx="20" cy="20" r="3" fill="#fff" opacity="0.9"/>
+    </svg>
+  );
+}
+
 // ── CODE BLOCK ─────────────────────────────────────────────────
 function CodeBlock({ code, lang }) {
   const [cp, setCp] = useState(false);
@@ -699,6 +726,18 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .pf{font-size:13px;color:#fff;display:flex;align-items:center;gap:7px;margin-top:5px;}
 
 .toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:${v.sf};border:1px solid var(--accent);border-radius:20px;padding:8px 16px;font-size:12px;font-weight:600;color:var(--accent);z-index:500;animation:fadeUp .3s ease;white-space:nowrap;box-shadow:0 4px 20px #0006;}
+@keyframes logoSpin{0%,100%{transform:rotate(0deg) scale(1);}50%{transform:rotate(180deg) scale(1.15);}}
+.plusmenu{position:absolute;bottom:60px;left:12px;background:${v.sf};border:1px solid ${v.bd};border-radius:16px;padding:8px;display:flex;flex-direction:column;gap:4px;z-index:50;box-shadow:0 8px 28px #0008;animation:fadeUp .18s ease;min-width:140px;}
+.plusmenu-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;color:${v.tx};border:none;background:none;width:100%;text-align:left;font-family:'Inter',sans-serif;}
+.plusmenu-item:hover{background:${v.sf2};}
+.chat-ctx{position:fixed;background:${v.sf};border:1px solid ${v.bd};border-radius:14px;padding:6px;z-index:200;box-shadow:0 8px 28px #0009;animation:fadeIn .15s ease;min-width:160px;}
+.chat-ctx-item{display:flex;align-items:center;gap:9px;padding:9px 13px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;color:${v.tx};border:none;background:none;width:100%;text-align:left;font-family:'Inter',sans-serif;}
+.chat-ctx-item:hover{background:${v.sf2};}
+.chat-ctx-item.red{color:#ef4444;}.chat-ctx-item.red:hover{background:#ef444414;}
+.topbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid ${v.bd};background:${v.bg};flex-shrink:0;}
+.topbar input{flex:1;background:${v.sf};border:1.5px solid ${v.bd};border-radius:20px;color:${v.tx};font-size:13px;padding:8px 14px;outline:none;font-family:'Inter',sans-serif;}
+.topbar input:focus{border-color:var(--accent);}
+.think-step{font-size:11px;color:var(--accent);margin-left:6px;font-style:italic;}
 `;
 }
 
@@ -749,6 +788,10 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [reactions, setReactions] = useState({});
   const [showRx, setShowRx] = useState(null);
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [chatContextMenu, setChatContextMenu] = useState(null); // { histId, x, y }
+  const [loadingStep, setLoadingStep] = useState(""); // "Searching...", "Thinking...", etc.
+  const [chatSearch, setChatSearch] = useState(null); // null=hidden, ""=open empty
   const [showLimit, setShowLimit] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [payDone, setPayDone] = useState(false);
@@ -1134,16 +1177,52 @@ export default function App() {
     r.readAsDataURL(file);
   }
 
+  // ── SPEECH TO TEXT (input bar mic) ─────────────────────────────
+  const [micTranscript, setMicTranscript] = useState(""); // live interim transcript
+
   function toggleMic() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert("Use Chrome or Edge for voice input."); return; }
-    if (micActive) { micRef.current?.stop(); setMicActive(false); return; }
+    if (!SR) { alert("Voice input Chrome/Edge mein kaam karta hai. Please Chrome use karein."); return; }
+
+    if (micActive) {
+      micRef.current?.stop();
+      micRef.current?.abort();
+      setMicActive(false);
+      setMicTranscript("");
+      return;
+    }
+
     const r = new SR();
-    r.lang = "hi-IN"; r.continuous = false; r.interimResults = false;
-    r.onstart = () => setMicActive(true);
-    r.onresult = e => { const t = e.results[0][0].transcript; if (t) setInput(p => p ? p + " " + t : t); };
-    r.onerror = () => setMicActive(false);
-    r.onend = () => setMicActive(false);
+    r.lang = language === "english" ? "en-IN" : "hi-IN";
+    r.continuous = true;       // keep listening until user stops
+    r.interimResults = true;   // show live transcript
+    r.maxAlternatives = 1;
+
+    r.onstart = () => { setMicActive(true); setMicTranscript(""); };
+
+    r.onresult = e => {
+      let final = "";
+      let interim = "";
+      for (let i = 0; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
+        else interim += e.results[i][0].transcript;
+      }
+      // Final words go into input permanently, interim shown as live preview
+      if (final.trim()) setInput(p => (p + " " + final).trim());
+      setMicTranscript(interim);
+    };
+
+    r.onerror = ev => {
+      if (ev.error === "no-speech") return; // ignore silence
+      setMicActive(false);
+      setMicTranscript("");
+    };
+
+    r.onend = () => {
+      setMicActive(false);
+      setMicTranscript("");
+    };
+
     micRef.current = r;
     try { r.start(); } catch { setMicActive(false); }
   }
@@ -1423,13 +1502,14 @@ export default function App() {
       return;
     }
     const lastUserMsg = [...newMsgs].reverse().find(m => m.role === "user");
-    if (lastUserMsg && needsSearch(lastUserMsg.text)) setSearching(true);
+    if (lastUserMsg && needsSearch(lastUserMsg.text)) { setSearching(true); setLoadingStep("Searching web..."); }
+    else setLoadingStep("Thinking...");
     setLoading(true);
     try {
       const aiText = await callAI(newMsgs, b64, tone, memoryEnabled ? memories : null, language);
-      setSearching(false);
+      setSearching(false); setLoadingStep("Writing response...");
       const tid = "ai_" + Date.now();
-      setLoading(false);
+      setLoading(false); setLoadingStep("");
       setMsgs(p => [...p, { id: tid, role: "ai", text: "", time: new Date() }]);
       let shown = "", sc = 0;
       for (let i = 0; i < aiText.length; i++) {
@@ -1440,7 +1520,7 @@ export default function App() {
         await new Promise(r => setTimeout(r, 7));
       }
       await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "ai", text: aiText, createdAt: serverTimestamp() });
-    } catch (e) { setSearching(false); setLoading(false); setMsgs(p => [...p, { id: Date.now(), role: "ai", text: "❌ Error: " + e.message, time: new Date() }]); }
+    } catch (e) { setSearching(false); setLoading(false); setLoadingStep(""); setMsgs(p => [...p, { id: Date.now(), role: "ai", text: "❌ Error: " + e.message, time: new Date() }]); }
   }
 
   async function sendMsg(text) {
@@ -1678,7 +1758,24 @@ export default function App() {
   );
 
   return (
-    <div className="app" onClick={() => { showRx && setShowRx(null); }}>
+    <div className="app" onClick={() => { setShowRx(null); setShowPlusMenu(false); setChatContextMenu(null); }}>
+      <style>{buildStyles(themeKey, accentKey, fontSize)}</style>
+
+      {/* Chat context menu */}
+      {chatContextMenu && (() => {
+        const h = hists.find(x => x.id === chatContextMenu.histId);
+        if (!h) return null;
+        return (
+          <div className="chat-ctx" style={{ top: Math.min(chatContextMenu.y, window.innerHeight - 260), left: Math.min(chatContextMenu.x, window.innerWidth - 180) }}
+            onClick={e => e.stopPropagation()}>
+            <button className="chat-ctx-item" onClick={() => { loadSession(h); setChatContextMenu(null); }}>💬 Open Chat</button>
+            <button className="chat-ctx-item" onClick={() => { setRenamingId(h.id); setRenameVal(h.title || ""); setChatContextMenu(null); setPage("history"); }}>✏️ Rename</button>
+            <button className="chat-ctx-item" onClick={() => { togglePin(h.id, { stopPropagation: () => {} }); setChatContextMenu(null); }}>{h.pinned ? "📍 Unpin" : "📌 Pin"}</button>
+            <button className="chat-ctx-item" onClick={() => { shareWA((h.title || "Chat") + " - Saraswati AI"); setChatContextMenu(null); }}>📤 Share</button>
+            <button className="chat-ctx-item red" onClick={() => { delSession(h.id, { stopPropagation: () => {} }); setChatContextMenu(null); }}>🗑 Delete</button>
+          </div>
+        );
+      })()}
       <style>{buildStyles(themeKey, accentKey, fontSize)}</style>
 
       {/* Memory saved toast */}
@@ -1731,7 +1828,6 @@ export default function App() {
               <div className="sb-section">Menu</div>
               {[
                 { id: "chat", icon: <Ico.Chat />, label: "Chat" },
-                { id: "voice", icon: <Ico.Voice />, label: "Voice Call" },
                 { id: "history", icon: <span style={{fontSize:18}}>📋</span>, label: "History" },
                 { id: "projects", icon: <Ico.Project />, label: "Projects" },
                 { id: "settings", icon: <Ico.Settings />, label: "Settings" },
@@ -1979,6 +2075,9 @@ export default function App() {
             {chatsLeft !== null && chatsLeft <= 10 && (
               <div style={{ fontSize: 11, color: chatsLeft <= 3 ? "#ef4444" : "var(--mt)", fontWeight: 600 }}>{chatsLeft} left</div>
             )}
+            <button className="dots" onClick={() => setChatSearch(v => v === null ? "" : null)} title="Search">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </button>
             <button className="nbtn" onClick={newChat}>+ New</button>
           </>
         )}
@@ -2044,17 +2143,13 @@ export default function App() {
                       onKeyDown={e => { if (e.key === "Enter") renameSession(h.id, renameVal); if (e.key === "Escape") setRenamingId(null); }}
                       autoFocus onClick={e => e.stopPropagation()} />
                   ) : (
-                    <div className="ht">{h.pinned ? "📌 " : ""}{h.starred ? "⭐ " : ""}{h.title || "Chat"}</div>
+                    <div className="ht">{h.pinned ? "📌 " : ""}{h.title || "Chat"}</div>
                   )}
                   <div className="hm">{fmtDate(h.updatedAt)}</div>
                 </div>
-                <div className="hactions" onClick={e => e.stopPropagation()}>
-                  <button className="hact" title="Pin" onClick={e => togglePin(h.id, e)}>{h.pinned ? "📌" : "📍"}</button>
-                  <button className="hact" title="Star" onClick={e => toggleStar(h.id, e)}>{h.starred ? "⭐" : "☆"}</button>
-                  <button className="hact" title="Archive" onClick={e => toggleArchive(h.id, e)}>{h.archived ? "📦" : "🗃"}</button>
-                  <button className="hact" title="Rename" onClick={e => { e.stopPropagation(); setRenamingId(h.id); setRenameVal(h.title || ""); }}>✏️</button>
-                  <button className="hact del" title="Delete" onClick={e => delSession(h.id, e)}>🗑</button>
-                </div>
+                <button className="hact" title="More" onClick={e => { e.stopPropagation(); setChatContextMenu(chatContextMenu?.histId === h.id ? null : { histId: h.id, x: e.clientX, y: e.clientY }); }}>
+                  <Ico.More />
+                </button>
               </div>
             ))}
           </div>
@@ -2444,7 +2539,20 @@ export default function App() {
       {/* ── CHAT PAGE ── */}
       {page === "chat" && (
         <>
-          <div className="chat">
+          {/* Top search bar */}
+          {chatSearch !== null && (
+            <div className="topbar">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input
+                placeholder="Search messages..."
+                value={chatSearch}
+                onChange={e => setChatSearch(e.target.value)}
+                autoFocus
+              />
+              {chatSearch && <button onClick={() => setChatSearch("")} style={{ background: "none", border: "none", color: "var(--mt)", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>✕</button>}
+            </div>
+          )}
+          <div className="chat" onClick={() => setShowPlusMenu(false)}>
             {msgs.length === 0 && (
               <div className="welcome">
                 <span style={{ fontSize: 72, lineHeight: 1 }}>🌸</span>
@@ -2456,15 +2564,8 @@ export default function App() {
             {msgs.map((m, idx) => (
               <div key={m.id} className="mwrap">
                 <div className={"mrow" + (m.role === "user" ? " user" : "")}>
-                  {m.role === "ai" && <div className="aiav">🪷</div>}
+                  {m.role === "ai" && <div className="aiav"><SaraswatiLogo size={18} /></div>}
                   <div className="bwrap" style={{ position: "relative" }}>
-                    {showRx === m.id && (
-                      <div className="rbar">
-                        {REACTIONS.map(r => (
-                          <button key={r} className="rbtn" onClick={e => { e.stopPropagation(); setReactions(p => ({ ...p, [m.id]: r })); setShowRx(null); }}>{r}</button>
-                        ))}
-                      </div>
-                    )}
                     {m.image && m.role === "user" && (
                       <img src={m.image} alt="sent" className="mimg" onClick={() => setViewerSrc(m.image)} />
                     )}
@@ -2503,17 +2604,12 @@ export default function App() {
                           <button className={"abtn" + (copied === m.id ? " on" : "")} onClick={() => copyMsg(m.text, m.id)} title="Copy">
                             {copied === m.id ? <Ico.Check s={13} /> : <Ico.Copy s={13} />}
                           </button>
-                          <button className="abtn" onClick={() => shareWA(m.text)} title="Share"><Ico.Share s={13} /></button>
-                          <button className="abtn" onClick={() => setShowRx(showRx === m.id ? null : m.id)} title="React">😊</button>
                           <button className="abtn" onClick={() => regenerateMessage(m.id)} title="Regenerate">🔄</button>
                           <button className="abtn" onClick={() => deleteMessage(m.id)} title="Delete">🗑</button>
                         </>
                       )}
                       {m.role === "user" && (
-                        <>
-                          <button className="abtn" onClick={() => { setEditingMsgId(m.id); setEditVal(m.text); }} title="Edit">✏️</button>
-                          <button className="abtn" onClick={() => deleteMessage(m.id)} title="Delete">🗑</button>
-                        </>
+                        <button className="abtn" onClick={() => deleteMessage(m.id)} title="Delete">🗑</button>
                       )}
                     </div>
                     <div className={"mtime" + (m.role === "user" ? " user" : "")}>{fmtTime(m.time || m.createdAt)}</div>
@@ -2522,25 +2618,34 @@ export default function App() {
               </div>
             ))}
 
-            {searching && (
-              <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
-                <div className="aiav">🪷</div>
-                <div className="sind">🔍 Searching web...</div>
-              </div>
-            )}
-            {loading && !searching && (
+            {(loading || searching) && (
               <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
-                <div className="aiav">🪷</div>
-                <div className="tbub"><div className="dot" /><div className="dot" /><div className="dot" /></div>
+                <div className="aiav"><SaraswatiLogo size={18} animate={true} /></div>
+                <div className="tbub" style={{ alignItems: "center" }}>
+                  <SaraswatiLogo size={16} animate={true} />
+                  <span className="think-step">{loadingStep || "Thinking..."}</span>
+                </div>
               </div>
             )}
             <div ref={bottomRef} />
           </div>
 
           {/* Input bar */}
-          <div className="ibar">
+          <div className="ibar" style={{ position: "relative" }}>
             <input ref={galleryRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleGallery} />
             <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log" multiple style={{ display: "none" }} onChange={handleFiles} />
+
+            {/* + attach menu popup */}
+            {showPlusMenu && (
+              <div className="plusmenu">
+                <button className="plusmenu-item" onClick={() => { setShowPlusMenu(false); galleryRef.current?.click(); }}>
+                  🖼️ <span>Image / Photo</span>
+                </button>
+                <button className="plusmenu-item" onClick={() => { setShowPlusMenu(false); fileRef.current?.click(); }}>
+                  📎 <span>File (PDF, DOCX…)</span>
+                </button>
+              </div>
+            )}
 
             <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 5 }}>
               {(imgPrev || attachments.length > 0) && (
@@ -2562,19 +2667,35 @@ export default function App() {
                 </div>
               )}
               <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
-                <button className="ibtn" onClick={() => galleryRef.current?.click()} title="Image"><Ico.Img /></button>
-                <button className="ibtn" onClick={() => fileRef.current?.click()} title="Attach file" style={{ fontSize: 18 }}>📎</button>
+                {/* Gemini-style + button */}
+                <button
+                  className="ibtn"
+                  onClick={() => setShowPlusMenu(v => !v)}
+                  title="Attach"
+                  style={showPlusMenu ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
                 <textarea
                   className="tinp"
-                  placeholder="Kuch bhi puchho..."
-                  value={input}
-                  onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 110) + "px"; }}
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }}
+                  placeholder={micActive ? "🎙️ Bol rahe ho..." : "Message..."}
+                  value={micActive && micTranscript ? input + (input ? " " : "") + micTranscript : input}
+                  onChange={e => { if (!micActive) { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 110) + "px"; } }}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (micActive) { micRef.current?.stop(); setMicActive(false); setMicTranscript(""); } sendMsg(); } }}
                   rows={1}
+                  readOnly={micActive}
+                  style={micActive ? { borderColor: "#ef4444" } : {}}
                 />
-                <button className={"ibtn" + (micActive ? " rec" : "")} onClick={toggleMic} title="Voice input"><Ico.Mic on={micActive} /></button>
-                <button className="sbtn" onClick={() => sendMsg()} disabled={loading || (!input.trim() && !imgB64 && !imgPrev && !attachments.length)}>
-                  {loading ? "⏳" : "➤"}
+                <button
+                  className={"ibtn" + (micActive ? " rec" : "")}
+                  onClick={toggleMic}
+                  title={micActive ? "Stop" : "Voice"}
+                  style={micActive ? { borderColor: "#ef4444", color: "#ef4444", background: "#ef444418" } : {}}
+                >
+                  <Ico.Mic on={micActive} />
+                </button>
+                <button className="sbtn" onClick={() => { if (micActive) { micRef.current?.stop(); setMicActive(false); setMicTranscript(""); } sendMsg(); }} disabled={loading || (!input.trim() && !imgB64 && !imgPrev && !attachments.length && !micTranscript)}>
+                  {loading ? <SaraswatiLogo size={18} animate={true} /> : "➤"}
                 </button>
               </div>
             </div>
