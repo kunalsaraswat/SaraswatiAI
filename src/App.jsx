@@ -30,13 +30,6 @@ const UPI = "8126630980";
 const FREE_LIMIT = 49;
 const REACTIONS = ["👍","❤️","😂","😮","🙏","🔥"];
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
-const localAudioRef = useRef(null);
-useEffect(() => {
- if (page === "voice") {
- requestMicrophoneAccess();
- }
-}, [page]);
-
 const CHAT_MODEL   = "llama-3.3-70b-versatile";
 const TRIVIAL = /^(hi|hello|hey|hii|ok|okay|hmm|ha|bhai|yaar|bro|dost|thanks|thx|yes|no|nahi|haan|k|👍|😊)[\s!?.]*$/i;
 
@@ -104,15 +97,6 @@ async function extractPdfText(arrayBuffer) {
     if (text.length > ATTACH_PER_FILE_LIMIT) break;
   }
   return text;
-}
-
-async function requestMicrophoneAccess() {
-  try {
-    const stream = await navigator.mediadevices.getUserMedia({ audio: true });
-    localAudioRef.current.srcObject = stream;
-  } catch (err) {
-    console.error("Error accessing microphone:", err);
-  }
 }
 
 async function extractDocxText(arrayBuffer) {
@@ -240,7 +224,7 @@ async function genTitle(msg) {
   } catch { return null; }
 }
 
-async function callAI(messages, imageB64, tone, memories, language) {
+async function callAI(messages, imageB64, tone, memories, language, extraNote = "") {
   const last = messages[messages.length - 1];
   if (last?.role === "user" && isOwnerQ(last.text)) return "I was created by **Kunal Saraswat**! 😊";
   let ctx = "";
@@ -268,7 +252,7 @@ Be warm, emotional, helpful — like a best friend.
 For coding: complete working copy-paste ready code always.
 For education: clear explanations with examples (class 1 to UPSC).
 For farming: expert advice on crops, mandi rates, government schemes.
-For images: carefully read ALL visible text, describe objects, colors, and context in detail.${memCtx}${ctx}`;
+For images: carefully read ALL visible text, describe objects, colors, and context in detail.${memCtx}${ctx}${extraNote}`;
 
   if (imageB64) {
     const visionMsgs = [
@@ -433,9 +417,8 @@ function speakText(text, tone, speed, onDone) {
   if (!window.speechSynthesis.getVoices().length) { window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; go(); }; } else go();
 }
 
-// ── SARASWATI LOGO — Premium 3D Digital Lotus ─────────────────
+// ── SARASWATI LOGO — Premium Saffron Lotus ─────────────────────
 function SaraswatiLogo({ size = 32, animate = false, state = "idle" }) {
-  // state: "idle" | "thinking" | "speaking"
   const animStyle = {
     idle:     { animation: "logoGlow 3s ease-in-out infinite" },
     thinking: { animation: "logoRotate 1.6s linear infinite" },
@@ -446,17 +429,17 @@ function SaraswatiLogo({ size = 32, animate = false, state = "idle" }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style={finalStyle}>
       <defs>
-        <linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#f5c842"/>
-          <stop offset="100%" stopColor="#e8a020"/>
+        <linearGradient id="saffronGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#ff9933"/>
+          <stop offset="100%" stopColor="#e8650a"/>
         </linearGradient>
-        <linearGradient id="blueGrad" x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0%" stopColor="#1e3a8a"/>
-          <stop offset="100%" stopColor="#3b82f6"/>
+        <linearGradient id="deepSaffron" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0%" stopColor="#c94e00"/>
+          <stop offset="100%" stopColor="#ff7722"/>
         </linearGradient>
         <linearGradient id="petalGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#60a5fa"/>
-          <stop offset="100%" stopColor="#1d4ed8"/>
+          <stop offset="0%" stopColor="#ffb347"/>
+          <stop offset="100%" stopColor="#e8550a"/>
         </linearGradient>
         <filter id="glow">
           <feGaussianBlur stdDeviation="1.5" result="blur"/>
@@ -465,24 +448,23 @@ function SaraswatiLogo({ size = 32, animate = false, state = "idle" }) {
       </defs>
 
       {/* Outer ring */}
-      <circle cx="24" cy="24" r="22" stroke="url(#blueGrad)" strokeWidth="0.8" opacity="0.4"/>
-      <circle cx="24" cy="24" r="18" stroke="url(#goldGrad)" strokeWidth="0.5" opacity="0.3"/>
+      <circle cx="24" cy="24" r="22" stroke="url(#saffronGrad)" strokeWidth="0.8" opacity="0.4"/>
+      <circle cx="24" cy="24" r="18" stroke="url(#deepSaffron)" strokeWidth="0.5" opacity="0.3"/>
 
-      {/* 8 digital lotus petals */}
+      {/* 8 lotus petals — saffron bhagva */}
       {[0,45,90,135,180,225,270,315].map((deg, i) => (
         <g key={i} transform={`rotate(${deg} 24 24)`} filter="url(#glow)">
-          <ellipse cx="24" cy="10" rx="2.8" ry="7" fill="url(#petalGrad)" opacity={i % 2 === 0 ? 0.95 : 0.6}/>
-          {/* digital line detail on each petal */}
-          <line x1="24" y1="5" x2="24" y2="15" stroke="#93c5fd" strokeWidth="0.4" opacity="0.7"/>
+          <ellipse cx="24" cy="10" rx="2.8" ry="7" fill="url(#petalGrad)" opacity={i % 2 === 0 ? 0.95 : 0.65}/>
+          <line x1="24" y1="5" x2="24" y2="15" stroke="#ffd280" strokeWidth="0.4" opacity="0.7"/>
         </g>
       ))}
 
       {/* Inner gold ring */}
-      <circle cx="24" cy="24" r="7" fill="url(#goldGrad)" filter="url(#glow)"/>
+      <circle cx="24" cy="24" r="7" fill="url(#saffronGrad)" filter="url(#glow)"/>
       {/* Center white core */}
       <circle cx="24" cy="24" r="4" fill="white" opacity="0.95"/>
       {/* Center dot */}
-      <circle cx="24" cy="24" r="1.5" fill="url(#goldGrad)"/>
+      <circle cx="24" cy="24" r="1.5" fill="url(#saffronGrad)"/>
     </svg>
   );
 }
@@ -539,24 +521,109 @@ function AIText({ text }) {
   );
 }
 
-// ── ICONS ──────────────────────────────────────────────────────
+// ── ICONS — Gemini/Google Style ────────────────────────────────
 const Ico = {
-  Speak: ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>,
-  Stop: ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>,
-  Copy: ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>,
-  Check: ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>,
-  Share: ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" /></svg>,
-  Mic: ({ on }) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="2" width="6" height="11" rx="3" fill={on ? "#ef4444" : "currentColor"} stroke="none" /><path d="M5 11a7 7 0 0 0 14 0" strokeLinecap="round" /><line x1="12" y1="18" x2="12" y2="22" strokeLinecap="round" /><line x1="8" y1="22" x2="16" y2="22" strokeLinecap="round" /></svg>,
-  Img: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" stroke="none" /><path d="m21 15-5-5L5 21" /></svg>,
-  Search: ({ s = 15 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>,
-  ChevRight: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>,
-  Back: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>,
-  Chat: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>,
-  Settings: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>,
-  Voice: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></svg>,
-  Apps: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>,
-  Project: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>,
-  More: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="5" cy="12" r="1" fill="currentColor" /><circle cx="12" cy="12" r="1" fill="currentColor" /><circle cx="19" cy="12" r="1" fill="currentColor" /></svg>,
+  // Speaker icon — rounded wave style
+  Speak: ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 5 6 9H3a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h3l5 4V5z"/>
+    <path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>
+  </svg>,
+
+  // Stop — rounded square
+  Stop: ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor">
+    <rect x="5" y="5" width="14" height="14" rx="3"/>
+  </svg>,
+
+  // Copy — Google style two-page icon
+  Copy: ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="12" height="12" rx="2.5"/>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </svg>,
+
+  // Check — thick rounded tick
+  Check: ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 6 9 17 4 12"/>
+  </svg>,
+
+  // Share — upload style arrow
+  Share: ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
+    <polyline points="16 8 12 4 8 8"/><line x1="12" y1="4" x2="12" y2="16"/>
+  </svg>,
+
+  // Mic — Google style rounded mic
+  Mic: ({ on }) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <rect x="9" y="2" width="6" height="12" rx="3" fill={on ? "#ef4444" : "none"} stroke={on ? "#ef4444" : "currentColor"} strokeWidth="1.8"/>
+    <path d="M5 10a7 7 0 0 0 14 0"/>
+    <line x1="12" y1="17" x2="12" y2="21"/><line x1="8" y1="21" x2="16" y2="21"/>
+  </svg>,
+
+  // Search — clean circle + handle
+  Search: ({ s = 15 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/>
+  </svg>,
+
+  // Chevron right
+  ChevRight: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m9 18 6-6-6-6"/>
+  </svg>,
+
+  // Back arrow
+  Back: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m15 18-6-6 6-6"/>
+  </svg>,
+
+  // Chat bubble — Google rounded style
+  Chat: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>,
+
+  // Settings — gear Gemini style
+  Settings: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+  </svg>,
+
+  // Voice — waveform style (Gemini)
+  Voice: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+    <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+  </svg>,
+
+  // Project folder — rounded
+  Project: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+  </svg>,
+
+  // More — vertical 3 dots (Gemini style)
+  More: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+    <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
+  </svg>,
+
+  // History — clock with arrow
+  History: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+    <path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>
+  </svg>,
+
+  // Regen — refresh arrows
+  Regen: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+    <path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+    <path d="M3 21v-5h5"/>
+  </svg>,
+
+  // Delete — trash
+  Delete: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+    <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+  </svg>,
+
+  // Hamburger menu
+  Menu: () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+  </svg>,
 };
 
 // ── STYLES ──────────────────────────────────────────────────────
@@ -688,13 +755,21 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .hact:hover{color:var(--accent);background:${v.sf2};}
 .hact.del:hover{color:#ef4444;}
 
-.ibar{padding:9px 12px;border-top:1px solid ${v.bd};background:${v.bg};display:flex;gap:7px;align-items:flex-end;flex-shrink:0;}
-.tinp{flex:1;background:${v.sf};border:1.5px solid ${v.bd};border-radius:24px;color:${v.tx};font-family:'Inter',sans-serif;font-size:${fs}px;padding:11px 17px;outline:none;resize:none;max-height:110px;min-height:46px;transition:border-color .2s;line-height:1.5;}
-.tinp:focus{border-color:var(--accent);}.tinp::placeholder{color:${v.mt};}
-.sbtn{background:var(--grad);border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:18px;width:46px;height:46px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s;}
-.sbtn:hover{transform:scale(1.05);}.sbtn:disabled{opacity:.4;cursor:not-allowed;}
-.ibtn{background:${v.sf2};border:1.5px solid ${v.bd};border-radius:50%;color:${v.tx};cursor:pointer;width:42px;height:42px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;}
+.ibar{padding:0 12px 12px;background:${v.bg};flex-shrink:0;}
+.ibar-upgrade{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:${v.sf2};border-radius:14px 14px 0 0;margin-bottom:0;border:1px solid ${v.bd};border-bottom:none;}
+.ibar-upgrade-txt{font-size:12px;color:${v.mt};}
+.ibar-upgrade-btn{font-size:12px;font-weight:700;color:var(--accent);cursor:pointer;border:none;background:none;font-family:'Inter',sans-serif;}
+.ibar-box{background:${v.sf};border:1.5px solid ${v.bd};border-radius:${dark?"0 0 18px 18px":"0 0 18px 18px"};padding:12px 14px 10px;}
+.tinp{width:100%;background:transparent;border:none;color:${v.tx};font-family:'Inter',sans-serif;font-size:${fs}px;padding:0;outline:none;resize:none;max-height:130px;min-height:24px;line-height:1.6;}
+.tinp::placeholder{color:${v.mt};}
+.ibar-bottom{display:flex;align-items:center;justify-content:space-between;margin-top:10px;}
+.ibar-left{display:flex;align-items:center;gap:8px;}
+.ibar-right{display:flex;align-items:center;gap:8px;}
+.ibtn{background:${v.sf2};border:1.5px solid ${v.bd};border-radius:50%;color:${v.tx};cursor:pointer;width:38px;height:38px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;}
 .ibtn:hover{border-color:var(--accent);}.ibtn.rec{border-color:#ef4444;background:#ef444418;animation:mPulse 1s infinite;}
+.model-pill{background:${v.sf2};border:1.5px solid ${v.bd};border-radius:20px;color:${v.mt};font-size:12px;font-weight:600;padding:6px 12px;cursor:pointer;font-family:'Inter',sans-serif;}
+.sbtn{background:var(--grad);border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:18px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s;}
+.sbtn:hover{transform:scale(1.05);}.sbtn:disabled{opacity:.4;cursor:not-allowed;}
 @keyframes mPulse{0%,100%{box-shadow:0 0 0 0 #ef444438;}50%{box-shadow:0 0 0 5px transparent;}}
 .imgprev{position:relative;display:inline-block;margin-bottom:7px;}
 .imgprev img{width:72px;height:72px;object-fit:cover;border-radius:12px;border:2px solid var(--accent);}
@@ -762,28 +837,31 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .pstep{font-size:13px;color:${v.tx};display:flex;gap:7px;}
 .ld{text-align:center;color:${v.mt};padding:20px;font-size:14px;}
 
-.vpage{display:flex;flex-direction:column;flex:1;background:${dark?"#060606":v.bg};}
-.vbody{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:24px 20px;}
-.vccard{background:${v.sf};border:1px solid ${v.bd};border-radius:28px;padding:32px 24px;display:flex;flex-direction:column;align-items:center;gap:20px;width:100%;max-width:320px;}
-.vorb-wrap{position:relative;display:flex;align-items:center;justify-content:center;width:160px;height:160px;}
+.vpage{position:fixed;inset:0;background:#000;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:60px 24px 48px;}
+.vorb-wrap{position:relative;display:flex;align-items:center;justify-content:center;width:200px;height:200px;}
 .vring{position:absolute;border-radius:50%;pointer-events:none;}
-.vr1{animation:vra 2s ease-out infinite;background:${a.glow};}
-.vr2{animation:vra 2s ease-out .5s infinite;background:${a.glow.replace("40","20")};}
-@keyframes vra{0%{width:110px;height:110px;opacity:.9;}100%{width:180px;height:180px;opacity:0;}}
-.vorb{width:116px;height:116px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;position:relative;font-size:46px;box-shadow:0 8px 32px ${a.glow};transition:all .25s;}
-.vorb:hover{transform:scale(1.04);}
-.vorb.listen{background:linear-gradient(135deg,#ef4444,#dc2626);box-shadow:0 0 0 12px #ef444422;animation:orbP 1s infinite;}
-.vorb.speak{background:linear-gradient(135deg,#22c55e,#16a34a);box-shadow:0 8px 32px #22c55e55;}
-.vorb.think{background:linear-gradient(135deg,#8b5cf6,#6d28d9);}
-@keyframes orbP{0%,100%{transform:scale(1);}50%{transform:scale(1.06);}}
-.vstatus{font-size:18px;font-weight:700;text-align:center;}
-.vsub{font-size:12px;color:${v.mt};text-align:center;line-height:1.6;}
-.vwave{display:flex;align-items:center;gap:3px;height:28px;}
-.wb{width:3px;border-radius:3px;background:#22c55e;animation:wv .9s ease-in-out infinite;}
-@keyframes wv{0%,100%{height:5px;opacity:.5;}50%{height:24px;opacity:1;}}
-.vlast{width:100%;background:${v.sf2};border-radius:14px;padding:12px 14px;}
-.vendbtn{background:#ef444418;border:1.5px solid #ef4444;border-radius:14px;color:#ef4444;cursor:pointer;font-size:14px;font-weight:700;padding:13px 36px;font-family:'Inter',sans-serif;transition:background .2s;}
-.vendbtn:hover{background:#ef444428;}
+.vr1{animation:vra 2.2s ease-out infinite;background:radial-gradient(circle,#ff993440,transparent);}
+.vr2{animation:vra 2.2s ease-out .7s infinite;background:radial-gradient(circle,#ff772240,transparent);}
+@keyframes vra{0%{width:120px;height:120px;opacity:1;}100%{width:240px;height:240px;opacity:0;}}
+.vorb{width:130px;height:130px;border-radius:50%;background:linear-gradient(135deg,#c94e00,#ff9933);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;position:relative;box-shadow:0 0 60px #ff993360;transition:all .3s;}
+.vorb.listen{background:linear-gradient(135deg,#c94e00,#ffb347);box-shadow:0 0 80px #ff9933aa;animation:orbBreath 1.5s ease-in-out infinite;}
+.vorb.think{background:linear-gradient(135deg,#e8650a,#ff7722);box-shadow:0 0 60px #ff772280;}
+.vorb.speak{background:linear-gradient(135deg,#ff7722,#ff9933);box-shadow:0 0 80px #ff9933cc;animation:orbPulse 0.8s ease-in-out infinite;}
+@keyframes orbBreath{0%,100%{transform:scale(1);}50%{transform:scale(1.06);}}
+@keyframes orbPulse{0%,100%{transform:scale(1);box-shadow:0 0 60px #3b82f6aa;}50%{transform:scale(1.08);box-shadow:0 0 100px #3b82f6ee;}}
+.vtranscript{min-height:60px;max-height:120px;width:100%;text-align:center;font-size:16px;color:#fff;line-height:1.6;padding:0 12px;}
+.vtranscript-interim{color:#93c5fd;font-style:italic;}
+.vstatus{font-size:16px;font-weight:600;color:#fff;text-align:center;letter-spacing:.3px;}
+.vsub{font-size:13px;color:#4b5563;text-align:center;}
+.vwave{display:flex;align-items:center;gap:4px;height:32px;justify-content:center;}
+.wb{width:3px;border-radius:3px;background:#ff9933;animation:wv .9s ease-in-out infinite;}
+@keyframes wv{0%,100%{height:5px;opacity:.4;}50%{height:28px;opacity:1;}}
+.vbottom{display:flex;align-items:center;gap:24px;}
+.vbtn{width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:22px;transition:all .2s;}
+.vbtn-end{background:#ef4444;color:#fff;width:70px;height:70px;font-size:26px;}
+.vbtn-end:hover{background:#dc2626;}
+.vbtn-mute{background:#1f2937;color:#9ca3af;}
+.vbtn-mute.active{background:#374151;color:#fff;}
 
 .achat{max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:7px;background:${v.sf2};border-radius:12px;}
 
@@ -793,16 +871,19 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .pf{font-size:13px;color:#fff;display:flex;align-items:center;gap:7px;margin-top:5px;}
 
 .toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:${v.sf};border:1px solid var(--accent);border-radius:20px;padding:8px 16px;font-size:12px;font-weight:600;color:var(--accent);z-index:500;animation:fadeUp .3s ease;white-space:nowrap;box-shadow:0 4px 20px #0006;}
-@keyframes logoGlow{0%,100%{filter:drop-shadow(0 0 3px #3b82f680);}50%{filter:drop-shadow(0 0 10px #3b82f6cc);}}
+@keyframes logoGlow{0%,100%{filter:drop-shadow(0 0 3px #ff993380);}50%{filter:drop-shadow(0 0 12px #ff9933cc);}}
 @keyframes logoRotate{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
-@keyframes logoPulse{0%,100%{transform:scale(1);filter:drop-shadow(0 0 4px #f5c84280);}50%{transform:scale(1.18);filter:drop-shadow(0 0 12px #f5c842cc);}}
+@keyframes logoPulse{0%,100%{transform:scale(1);filter:drop-shadow(0 0 4px #ff993380);}50%{transform:scale(1.18);filter:drop-shadow(0 0 16px #ff9933cc);}}
 .plusmenu{position:absolute;bottom:60px;left:12px;background:${v.sf};border:1px solid ${v.bd};border-radius:16px;padding:8px;display:flex;flex-direction:column;gap:4px;z-index:50;box-shadow:0 8px 28px #0008;animation:fadeUp .18s ease;min-width:140px;}
 .plusmenu-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;color:${v.tx};border:none;background:none;width:100%;text-align:left;font-family:'Inter',sans-serif;}
 .plusmenu-item:hover{background:${v.sf2};}
-.chat-ctx{position:fixed;background:${v.sf};border:1px solid ${v.bd};border-radius:14px;padding:6px;z-index:200;box-shadow:0 8px 28px #0009;animation:fadeIn .15s ease;min-width:160px;}
-.chat-ctx-item{display:flex;align-items:center;gap:9px;padding:9px 13px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;color:${v.tx};border:none;background:none;width:100%;text-align:left;font-family:'Inter',sans-serif;}
+.chat-ctx{position:fixed;background:${v.sf};border:1px solid ${v.bd};border-radius:18px;padding:8px;z-index:200;box-shadow:0 12px 40px #0009;animation:fadeIn .15s ease;min-width:200px;}
+.chat-ctx-title{font-size:11px;font-weight:700;color:${v.mt};padding:6px 12px 4px;letter-spacing:.05em;text-transform:uppercase;}
+.chat-ctx-item{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;cursor:pointer;font-size:15px;font-weight:500;color:${v.tx};border:none;background:none;width:100%;text-align:left;font-family:'Inter',sans-serif;gap:12px;}
 .chat-ctx-item:hover{background:${v.sf2};}
-.chat-ctx-item.red{color:#ef4444;}.chat-ctx-item.red:hover{background:#ef444414;}
+.chat-ctx-item.red{color:#ef4444;}
+.chat-ctx-item.red:hover{background:#ef444414;}
+.chat-ctx-sep{height:1px;background:${v.bd};margin:4px 0;}
 .topbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid ${v.bd};background:${v.bg};flex-shrink:0;}
 .topbar input{flex:1;background:${v.sf};border:1.5px solid ${v.bd};border-radius:20px;color:${v.tx};font-size:13px;padding:8px 14px;outline:none;font-family:'Inter',sans-serif;}
 .topbar input:focus{border-color:var(--accent);}
@@ -900,6 +981,9 @@ export default function App() {
   const [vs, setVs] = useState("idle");
   const [vLast, setVLast] = useState("");
   const [vTone, setVTone] = useState("female");
+  const [showVoiceCall, setShowVoiceCall] = useState(false);
+  const [micMuted, setMicMuted] = useState(false);
+  const [vTranscript, setVTranscript] = useState(""); // live user speech transcript
   const [showChangePw, setShowChangePw] = useState(false);
   const [cpForm, setCpForm] = useState({ current: "", newP: "", confirm: "" });
   const [cpErr, setCpErr] = useState(""); const [cpOk, setCpOk] = useState(""); const [cpLoad, setCpLoad] = useState(false);
@@ -1465,6 +1549,7 @@ export default function App() {
     voiceRef.current?.abort?.();
     window.speechSynthesis?.cancel();
     setVs("idle");
+    setVTranscript("");
   }
 
   function startListening(currentMsgs, currentTone, currentSid, currentUserData) {
@@ -1472,10 +1557,9 @@ export default function App() {
     if (!SR || !voiceActiveRef.current) return;
 
     const r = new SR();
-    // Support both Hindi and English speech recognition
     r.lang = language === "english" ? "en-IN" : "hi-IN";
-    r.continuous = false; // false is more reliable on mobile Chrome
-    r.interimResults = false; // false = only final results, avoids double-processing
+    r.continuous = false;
+    r.interimResults = true; // show live transcript
     r.maxAlternatives = 1;
 
     let finished = false;
@@ -1483,11 +1567,16 @@ export default function App() {
     r.onresult = e => {
       if (finished) return;
       let finalTranscript = "";
+      let interimTranscript = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript;
+        else interimTranscript += e.results[i][0].transcript;
       }
+      // Show live interim transcript on screen
+      if (interimTranscript) setVTranscript(interimTranscript);
       if (finalTranscript.trim()) {
         finished = true;
+        setVTranscript(finalTranscript);
         processUtterance(finalTranscript);
       }
     };
@@ -1509,6 +1598,7 @@ export default function App() {
       const tone = currentTone || "female";
 
       setVs("think");
+      setVTranscript(""); // clear user transcript while AI is thinking
 
       const ud = currentUserData;
       if (!ud?.premium && (ud?.usageCount || 0) >= FREE_LIMIT) {
@@ -1535,7 +1625,11 @@ export default function App() {
       if (memoryEnabled) maybeSaveMemory(transcript).catch(() => {});
 
       try {
-        const aiText = await callAI(newMsgs, null, tone, memoryEnabled ? memories : null, language);
+        // Voice mode: shorter responses, no markdown
+        const voiceMsgs = [...newMsgs];
+        const lastMsg = voiceMsgs[voiceMsgs.length - 1];
+        const voiceSystemNote = "\n\nIMPORTANT: This is a VOICE conversation. Reply in maximum 2-3 short sentences. No bullet points, no markdown, no code blocks. Speak naturally like a friend.";
+        const aiText = await callAI(voiceMsgs, null, tone, memoryEnabled ? memories : null, language, voiceSystemNote);
         const tid = "v_" + Date.now();
         const updatedMsgs = [...newMsgs, { id: tid, role: "ai", text: aiText, time: new Date() }];
         setMsgs(updatedMsgs);
@@ -1590,22 +1684,46 @@ export default function App() {
       voiceActiveRef.current = false;
       voiceRef.current?.stop?.();
       setVs("idle");
+      setVTranscript("");
       return;
     }
     if (vs === "speak") {
       voiceActiveRef.current = false;
       window.speechSynthesis?.cancel();
       setVs("idle");
+      setVTranscript("");
       return;
     }
     if (vs === "think") return;
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert("Use Chrome or Edge for Voice Call."); return; }
+    if (!SR) { alert("Voice Call ke liye Chrome ya Edge use karein."); return; }
 
     voiceActiveRef.current = true;
     setVs("listen");
+    setVTranscript("");
+    setVLast("");
     startListening(msgs, sessionTone || "female", sid, userData);
+  }
+
+  function openVoiceCall() {
+    setShowVoiceCall(true);
+    setVTranscript("");
+    setVLast("");
+    // Auto-start listening after short delay for UI to render
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setVs("idle"); return; }
+    setTimeout(() => {
+      voiceActiveRef.current = true;
+      setVs("listen");
+      startListening(msgs, sessionTone || "female", sid, userData);
+    }, 600);
+  }
+
+  function closeVoiceCall() {
+    endVoice();
+    setShowVoiceCall(false);
+    setVTranscript("");
   }
 
   async function runAIAndAppend(newMsgs, b64, tone) {
@@ -1848,7 +1966,7 @@ export default function App() {
     return { l: ["M", "T", "W", "T", "F", "S", "S"][i], v: val };
   });
   const maxG = Math.max(...adminGraph.map(d => d.v), 1);
-  const vOrbIcon = vs === "listen" ? "🎙️" : vs === "think" ? "🤔" : vs === "speak" ? "🔊" : "🪷";
+  // vOrbIcon handled inline
   const vStatusTxt = { idle: "Tap to Talk", listen: "Listening... (tap to stop)", think: "Thinking...", speak: "Speaking..." }[vs];
   const accentColor = ACCENTS[accentKey]?.primary || "#f97316";
 
@@ -1858,7 +1976,7 @@ export default function App() {
     <div className="app">
       <style>{buildStyles(themeKey, accentKey, fontSize)}</style>
       <div className="auth">
-        <div className="auth-logo">🪷</div>
+        <div className="auth-logo" style={{display:"flex",justifyContent:"center"}}><SaraswatiLogo size={56} animate={true} state="idle" /></div>
         <div className="auth-title">Saraswati AI</div>
         <div className="auth-sub">India's AI assistant</div>
         <div className="card">
@@ -1896,16 +2014,56 @@ export default function App() {
 
       {/* Chat context menu */}
       {chatContextMenu && (() => {
-        const h = hists.find(x => x.id === chatContextMenu.histId);
-        if (!h) return null;
+        const h = hists.find(x => x.id === chatContextMenu.histId) || { id: sid, title: msgs[0]?.text?.slice(0, 30) || "Current Chat", pinned: false };
+        // Position below header (top right)
+        const menuTop = Math.min(chatContextMenu.y + 8, window.innerHeight - 300);
+        const menuLeft = Math.min(chatContextMenu.x - 200, window.innerWidth - 220);
         return (
-          <div className="chat-ctx" style={{ top: Math.min(chatContextMenu.y, window.innerHeight - 260), left: Math.min(chatContextMenu.x, window.innerWidth - 180) }}
+          <div className="chat-ctx" style={{ top: menuTop, left: Math.max(8, menuLeft) }}
             onClick={e => e.stopPropagation()}>
-            <button className="chat-ctx-item" onClick={() => { loadSession(h); setChatContextMenu(null); }}>💬 Open Chat</button>
-            <button className="chat-ctx-item" onClick={() => { setRenamingId(h.id); setRenameVal(h.title || ""); setChatContextMenu(null); setPage("history"); }}>✏️ Rename</button>
-            <button className="chat-ctx-item" onClick={() => { togglePin(h.id, { stopPropagation: () => {} }); setChatContextMenu(null); }}>{h.pinned ? "📍 Unpin" : "📌 Pin"}</button>
-            <button className="chat-ctx-item" onClick={() => { shareWA((h.title || "Chat") + " - Saraswati AI"); setChatContextMenu(null); }}>📤 Share</button>
-            <button className="chat-ctx-item red" onClick={() => { delSession(h.id, { stopPropagation: () => {} }); setChatContextMenu(null); }}>🗑 Delete</button>
+            {/* Chat title */}
+            <div className="chat-ctx-title">{h.title?.slice(0, 24) || "Chat"}</div>
+            <div className="chat-ctx-sep" />
+
+            {/* Share */}
+            <button className="chat-ctx-item" onClick={() => { shareChat(h.id); setChatContextMenu(null); }}>
+              <span>Share</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="16 8 12 4 8 8"/><line x1="12" y1="4" x2="12" y2="16"/></svg>
+            </button>
+
+            {/* Rename */}
+            <button className="chat-ctx-item" onClick={() => {
+              const newTitle = prompt("Chat ka naya naam:", h.title || "Chat");
+              if (newTitle?.trim()) {
+                setDoc(doc(db, "chats", h.id), { title: newTitle.trim() }, { merge: true }).catch(() => {});
+                setHists(p => p.map(x => x.id === h.id ? { ...x, title: newTitle.trim() } : x));
+              }
+              setChatContextMenu(null);
+            }}>
+              <span>Rename</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+
+            {/* Star/Pin */}
+            <button className="chat-ctx-item" onClick={() => { togglePin(h.id, { stopPropagation: () => {} }); setChatContextMenu(null); }}>
+              <span>{h.pinned ? "Unpin" : "Pin"}</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill={h.pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </button>
+
+            <div className="chat-ctx-sep" />
+
+            {/* Delete */}
+            <button className="chat-ctx-item red" onClick={() => {
+              if (window.confirm("Is chat ko delete karein?")) {
+                deleteDoc(doc(db, "chats", h.id)).catch(() => {});
+                setHists(p => p.filter(x => x.id !== h.id));
+                if (h.id === sid) newChat();
+              }
+              setChatContextMenu(null);
+            }}>
+              <span>Delete</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            </button>
           </div>
         );
       })()}
@@ -1929,7 +2087,7 @@ export default function App() {
       {/* PWA Install Banner */}
       {showPwa && pwaEvt && (
         <div className="pwa">
-          <span style={{ fontSize: 26 }}>🪷</span>
+          <SaraswatiLogo size={28} animate={false} state="idle" />
           <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>Install App</div><div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>Add to home screen</div></div>
           <button className="pwa-btn" onClick={async () => { pwaEvt.prompt(); await pwaEvt.userChoice; setShowPwa(false); }}>Install</button>
           <button className="pwa-x" onClick={() => setShowPwa(false)}>✕</button>
@@ -1961,7 +2119,7 @@ export default function App() {
               <div className="sb-section">Menu</div>
               {[
                 { id: "chat", icon: <Ico.Chat />, label: "Chat" },
-                { id: "history", icon: <span style={{fontSize:18}}>📋</span>, label: "History" },
+                { id: "history", icon: <Ico.History />, label: "History" },
                 { id: "projects", icon: <Ico.Project />, label: "Projects" },
                 { id: "settings", icon: <Ico.Settings />, label: "Settings" },
               ].map(item => (
@@ -1971,7 +2129,7 @@ export default function App() {
               ))}
               {isAdmin && (
                 <div className={"sb-item" + (page === "admin" ? " active" : "")} onClick={() => { setPage("admin"); setShowSb(false); }}>
-                  <span style={{ fontSize: 18 }}>🛡️</span><span>Admin</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>Admin</span>
                 </div>
               )}
               {pinnedHists.length > 0 && (
@@ -1980,7 +2138,7 @@ export default function App() {
                   <div className="sb-recent">
                     {pinnedHists.map(h => (
                       <div key={h.id} className="sb-ritem" onClick={() => loadSession(h)}>
-                        <span style={{ fontSize: 13, flexShrink: 0 }}>📌</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                         <span className="sb-rtxt">{h.title || "Chat"}</span>
                         <span className="sb-rdate">{fmtDate(h.updatedAt)}</span>
                       </div>
@@ -1994,7 +2152,7 @@ export default function App() {
                   <div className="sb-recent">
                     {hists.filter(h => !h.archived).slice(0, 10).map(h => (
                       <div key={h.id} className="sb-ritem" onClick={() => loadSession(h)}>
-                        <span style={{ fontSize: 13, flexShrink: 0 }}>💬</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         <span className="sb-rtxt">{h.title || "Chat"}</span>
                         <span className="sb-rdate">{fmtDate(h.updatedAt)}</span>
                       </div>
@@ -2185,7 +2343,7 @@ export default function App() {
                 {aChat.msgs.map(m => (
                   <div key={m.id} style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                     <div style={{ flex: 1, fontSize: 12, padding: "7px 10px", background: m.role === "user" ? "var(--glow)" : "var(--sf2)", borderRadius: 10, color: "var(--tx)" }}><strong style={{ fontSize: 10, color: "var(--mt)" }}>{m.role === "user" ? "User" : "AI"}</strong><br />{m.text?.slice(0, 200)}{m.text?.length > 200 ? "..." : ""}</div>
-                    <button onClick={() => adminDelChat(m.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: "4px", flexShrink: 0 }}>🗑</button>
+                    <button onClick={() => adminDelChat(m.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: "4px", flexShrink: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
                   </div>
                 ))}
               </div>
@@ -2198,7 +2356,7 @@ export default function App() {
       {/* ── HEADER ── */}
       <div className="hdr">
         <button className="dots" onClick={() => { setShowSb(true); if (user) loadHists(); }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          <Ico.Menu />
         </button>
         <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <SaraswatiLogo size={26} animate={false} state="idle" />
@@ -2210,9 +2368,14 @@ export default function App() {
               <div style={{ fontSize: 11, color: chatsLeft <= 3 ? "#ef4444" : "var(--mt)", fontWeight: 600 }}>{chatsLeft} left</div>
             )}
             <button className="dots" onClick={() => setChatSearch(v => v === null ? "" : null)} title="Search">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <Ico.Search s={18} />
             </button>
             <button className="nbtn" onClick={newChat}>+ New</button>
+            {/* 3-dot menu — header right */}
+            <button className="dots" title="Chat options"
+              onClick={e => { e.stopPropagation(); setChatContextMenu(chatContextMenu?.histId === sid ? null : { histId: sid, x: e.clientX, y: e.clientY }); }}>
+              <Ico.More />
+            </button>
           </>
         )}
         <button className="dots" onClick={() => setShowProfile(true)}>
@@ -2224,35 +2387,63 @@ export default function App() {
       </div>
 
       {/* ── VOICE PAGE ── */}
-      {page === "voice" && (
+      {/* ── VOICE CALL FULLSCREEN OVERLAY ── */}
+      {showVoiceCall && (
         <div className="vpage">
-          <div className="vbody">
-            <div className="vccard">
-              <div className="vorb-wrap">
-                <div className="vring vr1" />
-                <div className="vring vr2" />
-                <div className={"vorb" + (vs !== "idle" ? " " + vs : "")} onClick={handleOrb}>{vOrbIcon}</div>
+          {/* Top: live transcript area */}
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px" }}>
+            {vTranscript ? (
+              <div className="vtranscript">
+                <span className={vs === "listen" ? "vtranscript-interim" : ""}>{vTranscript}</span>
               </div>
-              <div className="vstatus">{vStatusTxt}</div>
+            ) : vLast ? (
+              <div className="vtranscript" style={{ color: "#e5e7eb" }}>
+                {vLast.slice(0, 200)}{vLast.length > 200 ? "..." : ""}
+              </div>
+            ) : (
               <div className="vsub">
-                {vs === "idle" ? "Tap the lotus to start a voice conversation" : vs === "listen" ? "Bol rahe hain... main sun rahi hoon 👂" : vs === "think" ? "Soch rahi hoon... ek second 🤔" : "Bol rahi hoon..."}
+                {vs === "idle" ? "Tap orb to start talking" : vs === "listen" ? "Listening..." : vs === "think" ? "Thinking..." : "Speaking..."}
               </div>
-              {vs === "speak" && (
-                <div className="vwave">
-                  {Array.from({ length: 6 }, (_, i) => <div key={i} className="wb" style={{ animationDelay: i * 0.12 + "s" }} />)}
-                </div>
-              )}
-              {vLast && (
-                <div className="vlast">
-                  <div style={{ fontSize: 11, color: "var(--accent)", marginBottom: 5, fontWeight: 600 }}>🪷 Last reply</div>
-                  <div style={{ fontSize: 13, color: "var(--tx)", lineHeight: 1.6 }}>{vLast.slice(0, 180)}{vLast.length > 180 ? "..." : ""}</div>
-                </div>
-              )}
-              {vs !== "idle" && <button className="vendbtn" onClick={endVoice}>End Call</button>}
+            )}
+          </div>
+
+          {/* Center: animated orb */}
+          <div className="vorb-wrap">
+            <div className="vring vr1" />
+            <div className="vring vr2" />
+            <div className={"vorb" + (vs !== "idle" ? " " + vs : "")} onClick={handleOrb}>
+              {vs === "speak"
+                ? <SaraswatiLogo size={56} animate={true} state="speaking" />
+                : vs === "think"
+                  ? <SaraswatiLogo size={56} animate={true} state="thinking" />
+                  : vs === "listen"
+                    ? <SaraswatiLogo size={56} animate={true} state="idle" />
+                    : <SaraswatiLogo size={56} animate={true} state="idle" />
+              }
             </div>
-            <div style={{ fontSize: 12, color: "var(--mt)", textAlign: "center", maxWidth: 260, lineHeight: 1.6 }}>
-              Works best on Chrome/Edge. Hindi aur English dono mein baat kar sakte hain.
-            </div>
+          </div>
+
+          {/* Status text */}
+          <div className="vstatus" style={{ marginTop: 20 }}>
+            {vs === "idle" ? "Tap to Talk" : vs === "listen" ? "Listening..." : vs === "think" ? "Thinking..." : "Speaking..."}
+          </div>
+
+          {/* Bottom buttons */}
+          <div className="vbottom" style={{ marginTop: 32 }}>
+            <button className="vbtn vbtn-mute" onClick={() => {
+              setMicMuted(v => {
+                const next = !v;
+                if (next) { voiceRef.current?.stop?.(); }
+                return next;
+              });
+            }} style={micMuted ? { background: "#374151", color: "#fff" } : {}}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="9" y="2" width="6" height="12" rx="3" fill={micMuted ? "#374151" : "none"} stroke="currentColor" strokeWidth="1.8"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="8" y1="21" x2="16" y2="21"/>{micMuted && <line x1="4" y1="4" x2="20" y2="20" stroke="#ef4444" strokeWidth="2"/>}</svg>
+            </button>
+            <button className="vbtn vbtn-end" onClick={closeVoiceCall}>✕</button>
+            <button className="vbtn" style={{ background: "#1f2937", color: "#9ca3af" }}
+              onClick={() => { window.speechSynthesis?.cancel(); if (vs === "speak") { setVs("listen"); setTimeout(() => startListening(msgs, sessionTone || "female", sid, userData), 300); } }}>
+              
+            </button>
           </div>
         </div>
       )}
@@ -2282,7 +2473,7 @@ export default function App() {
             </div>
             {histLoad ? <div className="ld">Loading...</div> : filtHists.length === 0 ? <div className="ld">No chats found</div> : filtHists.map(h => (
               <div key={h.id} className="hcard" onClick={() => loadSession(h)}>
-                <div style={{ fontSize: 20 }}>💬</div>
+                <div style={{ color: "var(--mt)" }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
                 <div className="hi">
                   {renamingId === h.id ? (
                     <input className="inp" style={{ fontSize: 13, padding: "5px 9px" }} value={renameVal} onChange={e => setRenameVal(e.target.value)}
@@ -2294,7 +2485,7 @@ export default function App() {
                   )}
                   {hSearch && h.searchIndex?.toLowerCase().includes(hSearch.toLowerCase()) && !(h.title || "").toLowerCase().includes(hSearch.toLowerCase()) && (
                     <div style={{ fontSize: 11, color: "var(--accent)", marginTop: 2 }}>
-                      💬 Message mein milا: "...{(() => {
+                      Message mein milا: "...{(() => {
                         const idx = h.searchIndex.toLowerCase().indexOf(hSearch.toLowerCase());
                         return h.searchIndex.slice(Math.max(0, idx - 20), idx + 40);
                       })()}..."
@@ -2328,12 +2519,12 @@ export default function App() {
             )}
             {projLoad ? <div className="ld">Loading...</div> : projects.length === 0 ? (
               <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
-                <div style={{ fontSize: 48, marginBottom: 12 }}>📁</div>
+                <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.3 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg></div>
                 <div>No projects yet. Create one!</div>
               </div>
             ) : projects.map(pr => (
               <div key={pr.id} className="hcard">
-                <div style={{ fontSize: 22 }}>📁</div>
+                <div style={{ color: "var(--mt)" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg></div>
                 <div className="hi">
                   {renamingProjId === pr.id ? (
                     <input className="inp" style={{ fontSize: 13, padding: "5px 9px" }} value={renameProjVal} onChange={e => setRenameProjVal(e.target.value)}
@@ -2346,8 +2537,8 @@ export default function App() {
                   <div className="hm">{fmtDate(pr.createdAt)}</div>
                 </div>
                 <div className="hactions">
-                  <button className="hact" onClick={() => { setRenamingProjId(pr.id); setRenameProjVal(pr.title); }}>✏️</button>
-                  <button className="hact del" onClick={() => deleteProject(pr.id)}>🗑</button>
+                  <button className="hact" onClick={() => { setRenamingProjId(pr.id); setRenameProjVal(pr.title); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                  <button className="hact del" onClick={() => deleteProject(pr.id)}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
                 </div>
               </div>
             ))}
@@ -2400,7 +2591,7 @@ export default function App() {
               <div className="ld">Loading memories...</div>
             ) : memories.length === 0 ? (
               <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
-                <div style={{ fontSize: 48, marginBottom: 12 }}>🧠</div>
+                <div style={{ opacity: 0.3, marginBottom: 12 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24A2.5 2.5 0 0 0 14.5 2z"/></svg></div>
                 <div style={{ fontSize: 14, marginBottom: 8 }}>Koi memory nahi hai abhi</div>
                 <div style={{ fontSize: 12, lineHeight: 1.7 }}>
                   Chat karo main seekhungi, ya<br />
@@ -2467,8 +2658,12 @@ export default function App() {
                             </div>
                             {!isEditing && (
                               <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                                <button className="hact" onClick={() => { setEditingMemId(m.id); setEditMemVal(content); }} title="Edit">✏️</button>
-                                <button className="hact del" onClick={() => deleteMemory(m.id)} title="Delete">🗑</button>
+                                <button className="hact" onClick={() => { setEditingMemId(m.id); setEditMemVal(content); }} title="Edit">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                </button>
+                                <button className="hact del" onClick={() => deleteMemory(m.id)} title="Delete">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                                </button>
                               </div>
                             )}
                           </div>
@@ -2478,7 +2673,7 @@ export default function App() {
                   );
                 })}
                 <button className="btn btn-s" style={{ marginTop: 8, color: "#ef4444", borderColor: "#ef444430" }} onClick={clearAllMemories}>
-                  🗑 Clear All Memories
+                  Clear All Memories
                 </button>
               </>
             )}
@@ -2492,30 +2687,50 @@ export default function App() {
           <div className="page-inner">
             <div className="ptitle">Settings</div>
 
-            <div className="sec">Appearance</div>
+            {/* Profile card at top like Claude */}
+            <div className="scard" style={{ marginBottom: 16 }}>
+              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowProfile(true)}>
+                <div style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--grad)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#fff", fontSize: 16, flexShrink: 0 }}>
+                  {pPhotoUrl ? <img src={pPhotoUrl} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover" }} alt="" /> : displayName[0]?.toUpperCase()}
+                </div>
+                <div className="stxt">
+                  <div className="slbl">{displayName}</div>
+                  <div className="sdesc">{user?.email}</div>
+                </div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+              {!userData?.premium && (
+                <div style={{ padding: "10px 16px", borderTop: "1px solid var(--bd)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 13, color: "var(--mt)" }}>Free plan · {chatsLeft} messages left</span>
+                  <button className="nbtn" onClick={() => setShowUpgrade(true)} style={{ background: "var(--grad)", color: "#fff", border: "none" }}>Upgrade</button>
+                </div>
+              )}
+            </div>
+
+            {/* Appearance */}
             <div className="scard">
-              <ExpandRow icon="🎨" label="Theme" desc={themeKey.charAt(0).toUpperCase() + themeKey.slice(1)}>
+              <ExpandRow icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>} label="Color mode" desc={themeKey === "dark" ? "Dark" : themeKey === "light" ? "Light" : themeKey}>
                 <div className="opt-row">
                   {Object.keys(THEMES).map(t => <button key={t} className={"opt-pill" + (themeKey === t ? " sel" : "")} onClick={() => savePref("theme", t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>)}
                 </div>
               </ExpandRow>
-              <ExpandRow icon="🎨" label="Accent Color">
+              <ExpandRow icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>} label="Accent Color">
                 <div className="opt-row">
                   {Object.entries(ACCENTS).map(([k, v]) => (
                     <div key={k} className={"cdot" + (accentKey === k ? " sel" : "")} style={{ background: v.primary }} onClick={() => savePref("accent", k)} title={k} />
                   ))}
                 </div>
               </ExpandRow>
-              <ExpandRow icon="📝" label="Font Size" desc={fontSize + "px"}>
+              <ExpandRow icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>} label="Font style" desc={fontSize + "px"}>
                 <div className="opt-row">
                   {[12, 13, 14, 15, 16].map(s => <button key={s} className={"opt-pill" + (fontSize === s ? " sel" : "")} onClick={() => savePref("fontSize", s)}>{s}px</button>)}
                 </div>
               </ExpandRow>
             </div>
 
-            <div className="sec">AI Behavior</div>
+            <div className="sec" style={{ marginTop: 8 }}>Capabilities</div>
             <div className="scard">
-              <ExpandRow icon="🌐" label="Language" desc={language === "auto" ? "Auto Detect" : language === "hindi" ? "Hindi" : "English"}>
+              <ExpandRow icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>} label="Language" desc={language === "auto" ? "Auto Detect" : language === "hindi" ? "Hindi" : "English"}>
                 <div className="opt-row">
                   {[["auto","Auto Detect"],["hindi","Hindi"],["english","English"]].map(([val, lbl]) => (
                     <button key={val} className={"opt-pill" + (language === val ? " sel" : "")} onClick={() => savePref("language", val)}>{lbl}</button>
@@ -2523,22 +2738,27 @@ export default function App() {
                 </div>
               </ExpandRow>
               <div className="srow">
-                <div className="sicon">🧠</div>
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></div>
+                <div className="stxt"><div className="slbl">Voice</div><div className="sdesc">Hindi + English</div></div>
+                <div className="sright"><span style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600 }}>Enabled</span></div>
+              </div>
+              <div className="srow">
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="12" rx="10" ry="4"/><path d="M2 12c0 4.418 4.477 8 10 8s10-3.582 10-8"/><path d="M2 12c0-4.418 4.477-8 10-8s10 3.582 10 8"/><line x1="12" y1="4" x2="12" y2="20"/></svg></div>
                 <div className="stxt"><div className="slbl">Memory</div><div className="sdesc">Remember info across chats</div></div>
                 <div className="sright"><div className={"tgl" + (memoryEnabled ? " on" : "")} onClick={() => savePref("memoryEnabled", !memoryEnabled)}><div className="tk" /></div></div>
               </div>
             </div>
 
-            {/* ── MEMORY MANAGEMENT inside Settings ── */}
-            <div className="sec">🧠 Memory</div>
+            {/* Memory section */}
+            <div className="sec" style={{ marginTop: 8 }}>Memory</div>
             <div className="scard" style={{ marginBottom: 8 }}>
               <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowAddMem(true)}>
-                <div className="sicon">➕</div>
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
                 <div className="stxt"><div className="slbl">Add Memory</div><div className="sdesc">Manually save a fact</div></div>
                 <div className="sright"><Ico.ChevRight /></div>
               </div>
               <div className="srow" style={{ cursor: "pointer" }} onClick={clearAllMemories}>
-                <div className="sicon">🗑</div>
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
                 <div className="stxt"><div className="slbl">Clear All Memories</div><div className="sdesc">{memories.length} saved</div></div>
                 <div className="sright"><Ico.ChevRight /></div>
               </div>
@@ -2567,8 +2787,12 @@ export default function App() {
                       </div>
                       {editingMemId !== m.id && (
                         <div style={{ display: "flex", gap: 4 }}>
-                          <button className="hact" onClick={() => { setEditingMemId(m.id); setEditMemVal(content); }}>✏️</button>
-                          <button className="hact del" onClick={() => deleteMemory(m.id)}>🗑</button>
+                          <button className="hact" onClick={() => { setEditingMemId(m.id); setEditMemVal(content); }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                          <button className="hact del" onClick={() => deleteMemory(m.id)}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -2577,66 +2801,52 @@ export default function App() {
               </div>
             )}
 
-            <div className="sec">Account</div>
+            <div className="sec" style={{ marginTop: 8 }}>Account</div>
             <div className="scard">
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowProfile(true)}>
-                <div className="sicon">👤</div>
-                <div className="stxt"><div className="slbl">Edit Profile</div><div className="sdesc">{displayName}</div></div>
-                <div className="sright"><Ico.ChevRight /></div>
-              </div>
               <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowChangePw(true)}>
-                <div className="sicon">🔐</div>
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
                 <div className="stxt"><div className="slbl">Change Password</div></div>
                 <div className="sright"><Ico.ChevRight /></div>
               </div>
-              {!userData?.premium && (
-                <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowUpgrade(true)}>
-                  <div className="sicon">⭐</div>
-                  <div className="stxt"><div className="slbl">Upgrade to Premium</div><div className="sdesc">Unlimited chats + Voice</div></div>
-                  <div className="sright"><Ico.ChevRight /></div>
-                </div>
-              )}
-            </div>
-
-            <div className="sec">Data</div>
-            <div className="scard">
-              <div className="srow" style={{ cursor: "pointer" }} onClick={exportChat}>
-                <div className="sicon">💾</div>
-                <div className="stxt"><div className="slbl">Export Current Chat</div></div>
-                <div className="sright"><Ico.ChevRight /></div>
-              </div>
               <div className="srow" style={{ cursor: "pointer" }} onClick={exportAllData}>
-                <div className="sicon">📦</div>
-                <div className="stxt"><div className="slbl">{exporting ? "Exporting..." : "Export All Data"}</div><div className="sdesc">JSON format</div></div>
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+                <div className="stxt"><div className="slbl">{exporting ? "Exporting..." : "Export All Data"}</div><div className="sdesc">Download JSON</div></div>
                 <div className="sright"><Ico.ChevRight /></div>
               </div>
               <div className="srow" style={{ cursor: "pointer" }} onClick={clearAllChatHistory}>
-                <div className="sicon">🗑</div>
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></div>
                 <div className="stxt"><div className="slbl">Clear Chat History</div></div>
                 <div className="sright"><Ico.ChevRight /></div>
               </div>
-              <div className="srow" style={{ cursor: "pointer" }} onClick={clearAllMemories}>
-                <div className="sicon">🧠</div>
-                <div className="stxt"><div className="slbl">Clear All Memories</div></div>
-                <div className="sright"><Ico.ChevRight /></div>
+            </div>
+
+            <div className="sec" style={{ marginTop: 8 }}>About</div>
+            <div className="scard">
+              <div className="srow">
+                <div className="sicon"><SaraswatiLogo size={20} /></div>
+                <div className="stxt"><div className="slbl">Saraswati AI</div><div className="sdesc">Made with ❤️ by Kunal Saraswat</div></div>
               </div>
+              <div className="srow">
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+                <div className="stxt"><div className="slbl">Usage</div><div className="sdesc">{userData?.usageCount || 0} messages · {userData?.premium ? "Premium ✓" : `${chatsLeft} free left`}</div></div>
+              </div>
+            </div>
+
+            {/* Danger zone */}
+            <div className="scard" style={{ marginTop: 16 }}>
               <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowDeleteAcc(true)}>
-                <div className="sicon" style={{ color: "#ef4444" }}>⚠️</div>
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>
                 <div className="stxt"><div className="slbl" style={{ color: "#ef4444" }}>Delete Account</div><div className="sdesc">Permanent, cannot be undone</div></div>
                 <div className="sright"><Ico.ChevRight /></div>
               </div>
             </div>
 
-            <div className="sec">About</div>
-            <div className="scard">
-              <div className="srow">
-                <div className="sicon">🪷</div>
-                <div className="stxt"><div className="slbl">Saraswati AI</div><div className="sdesc">Made with ❤️ by Kunal Saraswat</div></div>
-              </div>
-              <div className="srow">
-                <div className="sicon">📊</div>
-                <div className="stxt"><div className="slbl">Usage</div><div className="sdesc">{userData?.usageCount || 0} messages sent · {userData?.premium ? "Premium" : `${chatsLeft} free left`}</div></div>
-              </div>
+            {/* Logout */}
+            <div style={{ padding: "16px 0 8px" }}>
+              <button onClick={() => signOut(auth)} style={{ width: "100%", background: "none", border: "1.5px solid #ef444440", borderRadius: 14, color: "#ef4444", cursor: "pointer", fontSize: 15, fontWeight: 600, padding: "13px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: "Inter,sans-serif" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                Log out
+              </button>
             </div>
           </div>
         </div>
@@ -2727,6 +2937,7 @@ export default function App() {
               <div key={m.id} className="mwrap">
                 <div className={"mrow" + (m.role === "user" ? " user" : "")}>
                   {m.role === "ai" && <div className="aiav"><SaraswatiLogo size={18} animate={speakId === m.id} state={speakId === m.id ? "speaking" : "idle"} /></div>}
+
                   <div className="bwrap" style={{ position: "relative" }}>
                     {m.image && m.role === "user" && (
                       <img src={m.image} alt="sent" className="mimg" onClick={() => setViewerSrc(m.image)} />
@@ -2735,7 +2946,7 @@ export default function App() {
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 5 }}>
                         {m.files.map((f, fi) => (
                           <div key={fi} style={{ background: "var(--sf2)", border: "1px solid var(--bd)", borderRadius: 8, padding: "4px 9px", fontSize: 11, color: "var(--mt)", display: "flex", alignItems: "center", gap: 4 }}>
-                            <span>{f.error ? "⚠️" : "📎"}</span><span>{f.name}</span>
+                            <span>{f.error ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>}</span><span>{f.name}</span>
                           </div>
                         ))}
                       </div>
@@ -2755,12 +2966,12 @@ export default function App() {
                           <button className={"abtn" + (copied === m.id ? " on" : "")} onClick={() => copyMsg(m.text, m.id)} title="Copy">
                             {copied === m.id ? <Ico.Check s={13} /> : <Ico.Copy s={13} />}
                           </button>
-                          <button className="abtn" onClick={() => regenerateMessage(m.id)} title="Regenerate">🔄</button>
-                          <button className="abtn" onClick={() => deleteMessage(m.id)} title="Delete">🗑</button>
+                          <button className="abtn" onClick={() => regenerateMessage(m.id)} title="Regenerate"><Ico.Regen /></button>
+                          <button className="abtn" onClick={() => deleteMessage(m.id)} title="Delete"><Ico.Delete /></button>
                         </>
                       )}
                       {m.role === "user" && (
-                        <button className="abtn" onClick={() => deleteMessage(m.id)} title="Delete">🗑</button>
+                        <button className="abtn" onClick={() => deleteMessage(m.id)} title="Delete"><Ico.Delete /></button>
                       )}
                     </div>
                     <div className={"mtime" + (m.role === "user" ? " user" : "")}>{fmtTime(m.time || m.createdAt)}</div>
@@ -2781,26 +2992,31 @@ export default function App() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Input bar */}
-          <div className="ibar" style={{ position: "relative" }}>
+          {/* Claude-style Input Bar */}
+          <div className="ibar">
             <input ref={galleryRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleGallery} />
             <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log,.xlsx,.xls,.pptx" multiple style={{ display: "none" }} onChange={handleFiles} />
 
-            {/* + attach menu popup */}
+            {/* Plus menu popup */}
             {showPlusMenu && (
-              <div className="plusmenu">
-                <button className="plusmenu-item" onClick={() => { setShowPlusMenu(false); galleryRef.current?.click(); }}>
-                  🖼️ <span>Image / Photo</span>
-                </button>
-                <button className="plusmenu-item" onClick={() => { setShowPlusMenu(false); fileRef.current?.click(); }}>
-                  📎 <span>File (PDF, DOCX…)</span>
-                </button>
+              <div className="plusmenu" style={{ bottom: 140 }}>
+                <button className="plusmenu-item" onClick={() => { setShowPlusMenu(false); galleryRef.current?.click(); }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21"/></svg> <span>Image / Photo</span></button>
+                <button className="plusmenu-item" onClick={() => { setShowPlusMenu(false); fileRef.current?.click(); }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> <span>File (PDF, DOCX, XLSX…)</span></button>
               </div>
             )}
 
-            <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 5 }}>
+            {/* Upgrade banner - free users only */}
+            {!userData?.premium && (
+              <div className="ibar-upgrade">
+                <span className="ibar-upgrade-txt">Unlimited chats with Premium</span>
+                <button className="ibar-upgrade-btn" onClick={() => setShowUpgrade(true)}>Upgrade →</button>
+              </div>
+            )}
+
+            <div className="ibar-box">
+              {/* Attachment previews */}
               {(imgPrev || attachments.length > 0) && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingLeft: 4 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                   {imgPrev && (
                     <div className="imgprev">
                       <img src={imgPrev} alt="preview" />
@@ -2808,7 +3024,7 @@ export default function App() {
                     </div>
                   )}
                   {attachments.map((a, i) => (
-                    <div key={i} style={{ background: "var(--sf2)", border: "1px solid var(--bd)", borderRadius: 10, padding: "5px 10px", fontSize: 12, display: "flex", alignItems: "center", gap: 5, position: "relative" }}>
+                    <div key={i} style={{ background: "var(--sf2)", border: "1px solid var(--bd)", borderRadius: 10, padding: "5px 10px", fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}>
                       <span>{a.error ? "⚠️" : "📎"}</span>
                       <span style={{ color: "var(--tx)" }}>{a.name.slice(0, 18)}</span>
                       <button onClick={() => removeAttachment(i)} style={{ background: "#ef4444", border: "none", borderRadius: "50%", color: "#fff", cursor: "pointer", fontSize: 10, width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
@@ -2817,37 +3033,46 @@ export default function App() {
                   {attachLoading && <div style={{ fontSize: 12, color: "var(--accent)", alignSelf: "center" }}>Reading file...</div>}
                 </div>
               )}
-              <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
-                {/* Gemini-style + button */}
-                <button
-                  className="ibtn"
-                  onClick={() => setShowPlusMenu(v => !v)}
-                  title="Attach"
-                  style={showPlusMenu ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                </button>
-                <textarea
-                  className="tinp"
-                  placeholder={micActive ? "🎙️ Bol rahe ho..." : "Message..."}
-                  value={micActive && micTranscript ? input + (input ? " " : "") + micTranscript : input}
-                  onChange={e => { if (!micActive) { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 110) + "px"; } }}
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (micActive) { micRef.current?.stop(); setMicActive(false); setMicTranscript(""); } sendMsg(); } }}
-                  rows={1}
-                  readOnly={micActive}
-                  style={micActive ? { borderColor: "#ef4444" } : {}}
-                />
-                <button
-                  className={"ibtn" + (micActive ? " rec" : "")}
-                  onClick={toggleMic}
-                  title={micActive ? "Stop" : "Voice"}
-                  style={micActive ? { borderColor: "#ef4444", color: "#ef4444", background: "#ef444418" } : {}}
-                >
-                  <Ico.Mic on={micActive} />
-                </button>
-                <button className="sbtn" onClick={() => { if (micActive) { micRef.current?.stop(); setMicActive(false); setMicTranscript(""); } sendMsg(); }} disabled={loading || (!input.trim() && !imgB64 && !imgPrev && !attachments.length && !micTranscript)}>
-                  {loading ? <SaraswatiLogo size={18} animate={true} state="thinking" /> : "➤"}
-                </button>
+
+              {/* Textarea */}
+              <textarea
+                className="tinp"
+                placeholder={micActive ? "Listening..." : "Message..."}
+                value={micActive && micTranscript ? input + (input ? " " : "") + micTranscript : input}
+                onChange={e => { if (!micActive) { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 130) + "px"; } }}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (micActive) { micRef.current?.stop(); setMicActive(false); setMicTranscript(""); } sendMsg(); } }}
+                rows={1}
+                readOnly={micActive}
+                style={micActive ? { color: "var(--accent)" } : {}}
+              />
+
+              {/* Bottom row */}
+              <div className="ibar-bottom">
+                <div className="ibar-left">
+                  <button className="ibtn" onClick={() => setShowPlusMenu(v => !v)} title="Attach"
+                    style={showPlusMenu ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </button>
+                  <div className="model-pill">Saraswati AI</div>
+                </div>
+                <div className="ibar-right">
+                  {/* STT mic */}
+                  <button className={"ibtn" + (micActive ? " rec" : "")} onClick={toggleMic}
+                    style={micActive ? { borderColor: "#ef4444", color: "#ef4444", background: "#ef444418" } : {}}>
+                    <Ico.Mic on={micActive} />
+                  </button>
+                  {/* Voice Call — Animated Saffron Lotus */}
+                  <button className="ibtn" onClick={openVoiceCall} title="Voice Call"
+                    style={{ borderColor: "#ff993340", background: "#ff772210" }}>
+                    <SaraswatiLogo size={24} animate={true} state="idle" />
+                  </button>
+                  {/* Send */}
+                  <button className="sbtn"
+                    onClick={() => { if (micActive) { micRef.current?.stop(); setMicActive(false); setMicTranscript(""); } sendMsg(); }}
+                    disabled={loading || (!input.trim() && !imgB64 && !imgPrev && !attachments.length && !micTranscript)}>
+                    {loading ? <SaraswatiLogo size={18} animate={true} state="thinking" /> : "➤"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
