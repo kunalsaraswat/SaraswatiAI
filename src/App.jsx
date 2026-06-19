@@ -194,16 +194,334 @@ function playSendSound() {
   } catch {}
 }
 async function webSearch(q) {
-  try {
-    const r = await fetch("https://api.tavily.com/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: TAVILY, query: q, search_depth: "basic", max_results: 3 }) });
-    const d = await r.json();
-    return d.results?.map(x => x.title + ": " + x.content).join("\n\n") || null;
-  } catch { return null; }
+  const tl = q.toLowerCase();
+  const isWeather = ["weather","mausam","temperature","temp","garmi","sardi","barish","rain","thand","degree"].some(k => tl.includes(k));
+  const isMandi = ["mandi","rate","bhav","price","daam","keemat","fasal",
+    // Grains
+    "sarso","sarson","wheat","gehu","rice","chawal","paddy","dhan","bajra","jowar","maize","makka","barley","jau","ragi",
+    // Pulses
+    "chana","gram","urad","moong","masur","arhar","tur","toor","matar","rajma","moth",
+    // Oilseeds
+    "soybean","soya","groundnut","moongfali","sunflower","til","sesame","alsi","linseed","castor","arandi","cotton","kapas","safflower","niger",
+    // Vegetables
+    "onion","pyaaz","potato","aloo","tomato","tamatar","garlic","lahsun","ginger","adrak","gobhi","cauliflower","cabbage","baingan","brinjal","bhindi","lauki","karela","capsicum","shimla","mirch","dhaniya","coriander","palak","spinach","gajar","carrot","mooli","radish","beetroot","chukandar","arbi","mushroom","parwal","tinda","kakdi","cucumber","kheera","tori","torai",
+    // Fruits
+    "mango","aam","banana","kela","apple","seb","orange","santra","grapes","angoor","pomegranate","anar","watermelon","tarbooz","muskmelon","kharbooja","papaya","papita","guava","amrood","lemon","nimbu","pineapple","ananas","coconut","nariyal","pear","nashpati","litchi","chikoo","sapota","mosambi","kinnow","amla","tamarind","imli","dates","khajoor","strawberry",
+    // Spices
+    "haldi","turmeric","jeera","cumin","ajwain","kali mirch","pepper","cardamom","elaichi","clove","laung","dalchini","cinnamon","saunf","fennel","hing","asafoetida","kalonji",
+    // Dry fruits
+    "cashew","kaju","almond","badam","walnut","akhrot","pista","kishmish","raisin",
+    // Cash crops
+    "ganna","sugarcane","jute","tobacco","tambaku",
+    // Flowers
+    "genda","marigold","rose","gulab","jasmine","chameli",
+    // General
+    "kisan","sabzi","vegetable","fruit","phal"
+  ].some(k => tl.includes(k));
+
+  // Try mandi rate API first for farming queries
+  if (isMandi) {
+    const mandiData = await getMandiRate(q);
+    if (mandiData) return mandiData;
+  }
+
+  // Try free weather API for weather queries
+  if (isWeather) {
+    const weatherData = await getWeather(q);
+    if (weatherData) return weatherData;
+  }
+
+  // Try Tavily for general search
+  if (TAVILY) {
+    try {
+      const r = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: TAVILY, query: q, search_depth: "basic", max_results: 3 })
+      });
+      const d = await r.json();
+      if (d.results?.length) return d.results.map(x => x.title + ": " + x.content).join("\n\n");
+    } catch {}
+  }
+
+  return null;
 }
 function needsImageGen(t) { return ["image banao","photo banao","tasveer banao","picture banao","draw","generate image","sketch","wallpaper","logo banao","poster"].some(k => t.toLowerCase().includes(k)); }
 function extractPrompt(t) { let p = t.toLowerCase(); ["image banao","photo banao","tasveer banao","picture banao","generate image of","generate image","draw a","draw","sketch","wallpaper","logo banao","poster","ki","ka","of"].forEach(k => { p = p.split(k).join(" "); }); return p.trim() || t; }
 function getImgUrl(p) { return `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=768&height=768&seed=${Math.floor(Math.random() * 99999)}&nologo=true`; }
-function needsSearch(t) { return ["news","score","weather","mausam","price","rate","mandi","today","aaj","gold","sona","kisan","fasal","2025","2026","upsc"].some(k => t.toLowerCase().includes(k)); }
+function needsSearch(t) {
+  const tl = t.toLowerCase();
+  return [
+    // Weather
+    "weather","mausam","temperature","temp","kitna degree","barish","rain","forecast","aaj ka mausam","kal ka mausam","humidity","garmi","sardi","thand",
+    // News & current events
+    "news","aaj ki khabar","latest","abhi","current","today","aaj","kal",
+    // Prices
+    "price","rate","mandi","gold","sona","silver","chandi","petrol","diesel","onion","pyaaz",
+    // Sports
+    "score","match","ipl","cricket","result",
+    // Finance
+    "stock","share market","sensex","nifty",
+    // Farming
+    "kisan","fasal","crop","kheti",
+    // Year-specific
+    "2025","2026",
+    // Exams
+    "upsc","result","exam"
+  ].some(k => tl.includes(k));
+}
+
+// Comprehensive Mandi Rate API - data.gov.in (All fruits, vegetables, grains, spices)
+async function getMandiRate(query) {
+  try {
+    const tl = query.toLowerCase();
+
+    // ── COMPREHENSIVE COMMODITY MAP ──────────────────────────────
+    const commodities = {
+      // Grains / Anaaj
+      "sarso":"Mustard","sarson":"Mustard","mustard":"Mustard","rape seed":"Mustard",
+      "wheat":"Wheat","gehu":"Wheat","gehun":"Wheat","gahu":"Wheat",
+      "rice":"Rice","chawal":"Rice","dhan":"Paddy","paddy":"Paddy",
+      "bajra":"Bajra","jowar":"Jowar","ragi":"Ragi","maize":"Maize","makka":"Maize","corn":"Maize",
+      "barley":"Barley","jau":"Barley","oats":"Oats","jwar":"Jowar",
+
+      // Pulses / Dals
+      "chana":"Gram","gram":"Gram","chickpea":"Gram","chole":"Gram",
+      "urad":"Urad","urad dal":"Urad","black gram":"Urad",
+      "moong":"Moong","mung":"Moong","green gram":"Moong",
+      "masur":"Lentil","masoor":"Lentil","lentil":"Lentil","dal":"Lentil",
+      "arhar":"Arhar (Tur/Red Gram)","tur":"Arhar (Tur/Red Gram)","toor":"Arhar (Tur/Red Gram)","pigeon pea":"Arhar (Tur/Red Gram)",
+      "moath":"Moth","moth":"Moth","rajma":"Rajma","kidney bean":"Rajma",
+      "peas":"Peas","matar":"Peas","green peas":"Peas",
+
+      // Oilseeds / Tilhan
+      "soybean":"Soybean","soya":"Soybean","soy":"Soybean",
+      "groundnut":"Groundnut","moongfali":"Groundnut","peanut":"Groundnut","mungfali":"Groundnut",
+      "sunflower":"Sunflower","surajmukhi":"Sunflower",
+      "sesame":"Sesamum (Sesame)","til":"Sesamum (Sesame)","tilli":"Sesamum (Sesame)",
+      "linseed":"Linseed","alsi":"Linseed","flaxseed":"Linseed",
+      "castor":"Castor Seed","arandi":"Castor Seed","castor seed":"Castor Seed",
+      "safflower":"Safflower","kusum":"Safflower",
+      "niger":"Niger Seed","ramtil":"Niger Seed",
+      "cotton":"Cotton","kapas":"Cotton","kapas (raw)":"Cotton",
+
+      // Vegetables / Sabzi
+      "onion":"Onion","pyaaz":"Onion","pyaz":"Onion","kanda":"Onion",
+      "potato":"Potato","aloo":"Potato","alu":"Potato",
+      "tomato":"Tomato","tamatar":"Tomato",
+      "garlic":"Garlic","lahsun":"Garlic","lasan":"Garlic",
+      "ginger":"Ginger","adrak":"Ginger","adarak":"Ginger",
+      "cauliflower":"Cauliflower","phool gobhi":"Cauliflower","gobhi":"Cauliflower",
+      "cabbage":"Cabbage","patta gobhi":"Cabbage","band gobhi":"Cabbage",
+      "brinjal":"Brinjal","baingan":"Brinjal","eggplant":"Brinjal",
+      "bhindi":"Bhindi(Ladies Finger)","ladies finger":"Bhindi(Ladies Finger)","okra":"Bhindi(Ladies Finger)",
+      "bottle gourd":"Bottle Gourd","lauki":"Bottle Gourd","ghia":"Bottle Gourd","kaddu":"Bottle Gourd",
+      "bitter gourd":"Bitter Gourd","karela":"Bitter Gourd","bittergourd":"Bitter Gourd",
+      "ridge gourd":"Ridge Gourd","tori":"Ridge Gourd","torai":"Ridge Gourd",
+      "sponge gourd":"Sponge Gourd","galka":"Sponge Gourd",
+      "pumpkin":"Pumpkin","sitaphal":"Pumpkin","kaddoo":"Pumpkin",
+      "capsicum":"Capsicum","shimla mirch":"Capsicum","bell pepper":"Capsicum",
+      "green chilli":"Green Chilli","hari mirch":"Green Chilli","mirchi":"Green Chilli",
+      "red chilli":"Dry Chilli","lal mirch":"Dry Chilli","sukhi mirch":"Dry Chilli",
+      "coriander":"Coriander","dhaniya":"Coriander","dhania":"Coriander",
+      "fenugreek":"Fenugreek","methi":"Fenugreek",
+      "spinach":"Spinach","palak":"Spinach",
+      "carrot":"Carrot","gajar":"Carrot",
+      "radish":"Radish","mooli":"Radish","muli":"Radish",
+      "turnip":"Turnip","shalgam":"Turnip",
+      "beetroot":"Beetroot","chukandar":"Beetroot",
+      "sweet potato":"Sweet Potato","shakarkand":"Sweet Potato",
+      "yam":"Yam","jimikand":"Yam","suran":"Yam",
+      "drumstick":"Drumstick","sahjan":"Drumstick","moringa":"Drumstick",
+      "beans":"Beans","sem":"Beans","french beans":"Beans",
+      "cucumber":"Cucumber","kheera":"Cucumber","kakdi":"Cucumber",
+      "snake gourd":"Snake Gourd","chichinda":"Snake Gourd",
+      "ash gourd":"Ash Gourd","petha":"Ash Gourd",
+      "tinda":"Tinda","apple gourd":"Tinda",
+      "parwal":"Pointed Gourd","pointed gourd":"Pointed Gourd",
+      "arbi":"Arvi (Taro)","taro":"Arvi (Taro)","colocasia":"Arvi (Taro)",
+      "lotus stem":"Lotus Stem","kamal kakdi":"Lotus Stem",
+      "raw papaya":"Raw Papaya","kaccha papita":"Raw Papaya",
+      "raw banana":"Raw Banana","kaccha kela":"Raw Banana",
+      "jackfruit":"Jack Fruit","kathal":"Jack Fruit",
+      "broccoli":"Broccoli","hari gobhi":"Broccoli",
+      "celery":"Celery","ajwain leaves":"Celery",
+      "leek":"Leek","leeks":"Leek",
+      "mushroom":"Mushroom","khumb":"Mushroom",
+      "elephant yam":"Elephant Yam","zimikand":"Elephant Yam",
+      "curry leaves":"Curry Leaves","kadi patta":"Curry Leaves",
+
+      // Fruits / Phal
+      "mango":"Mango","aam":"Mango","keri":"Mango",
+      "banana":"Banana","kela":"Banana","kele":"Banana",
+      "apple":"Apple","seb":"Apple","saib":"Apple",
+      "orange":"Orange","santra":"Orange","narangi":"Orange","malta":"Orange",
+      "grapes":"Grapes","angoor":"Grapes","draksh":"Grapes",
+      "pomegranate":"Pomegranate","anar":"Pomegranate",
+      "watermelon":"Water Melon","tarbooz":"Water Melon","tarbuj":"Water Melon",
+      "muskmelon":"Musk Melon","kharbooja":"Musk Melon","kharbuja":"Musk Melon",
+      "papaya":"Papaya","papita":"Papaya",
+      "guava":"Guava","amrood":"Guava","amrud":"Guava",
+      "lemon":"Lemon","nimbu":"Lemon","neembu":"Lemon",
+      "lime":"Lime","kagzi nimbu":"Lime",
+      "pineapple":"Pineapple","ananas":"Pineapple",
+      "coconut":"Coconut","nariyal":"Coconut","nariyal (whole)":"Coconut",
+      "pear":"Pear","nashpati":"Pear","babugosa":"Pear",
+      "plum":"Plum","aloo bukhara":"Plum","ber":"Plum",
+      "peach":"Peach","aadoo":"Peach","aroo":"Peach",
+      "cherry":"Cherry","gilash":"Cherry",
+      "apricot":"Apricot","khubani":"Apricot","khumani":"Apricot",
+      "fig":"Fig","anjeer":"Fig",
+      "strawberry":"Strawberry","strawberi":"Strawberry",
+      "litchi":"Litchi","lychee":"Litchi",
+      "chikoo":"Sapota","sapota":"Sapota","sapodilla":"Sapota",
+      "custard apple":"Custard Apple","sharifa":"Custard Apple","sitaphal":"Custard Apple",
+      "wood apple":"Wood Apple","bael":"Wood Apple","bel":"Wood Apple",
+      "mulberry":"Mulberry","shahtoot":"Mulberry","toot":"Mulberry",
+      "jackfruit":"Jack Fruit","kathal":"Jack Fruit",
+      "amla":"Amla (Indian Gooseberry)","awla":"Amla (Indian Gooseberry)","gooseberry":"Amla (Indian Gooseberry)",
+      "tamarind":"Tamarind","imli":"Tamarind","amli":"Tamarind",
+      "dates":"Dates","khajoor":"Dates","chuara":"Dates",
+      "kiwi":"Kiwi","kivi":"Kiwi",
+      "avocado":"Avocado","makhanphal":"Avocado",
+      "dragon fruit":"Dragon Fruit","pitaya":"Dragon Fruit",
+      "passion fruit":"Passion Fruit",
+      "pomelo":"Pomelo","chakotra":"Pomelo",
+      "sweet lime":"Sweet Lime","mosambi":"Sweet Lime","musambi":"Sweet Lime",
+      "mandarin":"Mandarin","kinnow":"Kinnow",
+
+      // Spices / Masale
+      "turmeric":"Turmeric","haldi":"Turmeric","haridra":"Turmeric",
+      "jeera":"Cumin (Jeera)","cumin":"Cumin (Jeera)","zeera":"Cumin (Jeera)",
+      "ajwain":"Ajwan","carom":"Ajwan","thymol seeds":"Ajwan",
+      "black pepper":"Black Pepper","kali mirch":"Black Pepper","gol mirch":"Black Pepper",
+      "cardamom":"Cardamom","elaichi":"Cardamom","illaichi":"Cardamom",
+      "clove":"Clove","laung":"Clove","lavang":"Clove",
+      "cinnamon":"Cinnamon","dalchini":"Cinnamon","daalchini":"Cinnamon",
+      "bay leaf":"Bay Leaf","tej patta":"Bay Leaf","tejpat":"Bay Leaf",
+      "fennel":"Fennel","saunf":"Fennel","sonf":"Fennel",
+      "nutmeg":"Nutmeg","jaiphal":"Nutmeg","jayaphal":"Nutmeg",
+      "mace":"Mace","javitri":"Mace","jawitri":"Mace",
+      "star anise":"Star Anise","chakra phool":"Star Anise",
+      "asafoetida":"Asafoetida","hing":"Asafoetida","heeng":"Asafoetida",
+      "kalonji":"Kalonji","nigella":"Kalonji","onion seeds":"Kalonji",
+
+      // Cash Crops
+      "sugarcane":"Sugarcane","ganna":"Sugarcane","iksha":"Sugarcane",
+      "jute":"Jute","paat":"Jute","san":"Jute",
+      "tobacco":"Tobacco","tambaku":"Tobacco","tambaakoo":"Tobacco",
+      "tea":"Tea","chai":"Tea","chay":"Tea",
+      "coffee":"Coffee","kaafi":"Coffee",
+      "rubber":"Rubber","ratanjot":"Rubber",
+
+      // Flowers / Phool
+      "rose":"Rose","gulab":"Rose",
+      "marigold":"Marigold","genda":"Marigold","genda phool":"Marigold",
+      "jasmine":"Jasmine","chameli":"Jasmine","mogra":"Jasmine",
+      "chrysanthemum":"Chrysanthemum","guldaudi":"Chrysanthemum",
+      "lotus":"Lotus","kamal":"Lotus",
+      "tuberose":"Tuberose","rajnigandha":"Tuberose",
+
+      // Dry Fruits
+      "cashew":"Cashew Nut","kaju":"Cashew Nut",
+      "almond":"Almond","badam":"Almond","badaam":"Almond",
+      "walnut":"Walnut","akhrot":"Walnut",
+      "pistachio":"Pista","pista":"Pista",
+      "raisin":"Raisin","kishmish":"Raisin","munakka":"Raisin",
+    };
+
+    // ── STATE MAP ────────────────────────────────────────────────
+    const states = {
+      "rajasthan":"Rajasthan","rajstan":"Rajasthan",
+      "punjab":"Punjab","haryana":"Haryana",
+      "up":"Uttar Pradesh","uttar pradesh":"Uttar Pradesh","yup":"Uttar Pradesh",
+      "mp":"Madhya Pradesh","madhya pradesh":"Madhya Pradesh","madhyapradesh":"Madhya Pradesh",
+      "gujarat":"Gujarat","gujrat":"Gujarat",
+      "maharashtra":"Maharashtra","maha":"Maharashtra",
+      "bihar":"Bihar","jharkhand":"Jharkhand",
+      "wb":"West Bengal","bengal":"West Bengal","west bengal":"West Bengal","bangal":"West Bengal",
+      "karnataka":"Karnataka","karnatak":"Karnataka",
+      "ap":"Andhra Pradesh","andhra":"Andhra Pradesh","andhra pradesh":"Andhra Pradesh",
+      "telangana":"Telangana","ts":"Telangana",
+      "odisha":"Odisha","orissa":"Odisha",
+      "assam":"Assam","manipur":"Manipur","nagaland":"Nagaland",
+      "himachal":"Himachal Pradesh","hp":"Himachal Pradesh","himachal pradesh":"Himachal Pradesh",
+      "uttarakhand":"Uttarakhand","uttrakhand":"Uttarakhand","uk":"Uttarakhand",
+      "chhattisgarh":"Chhattisgarh","chattisgadh":"Chhattisgarh",
+      "kerala":"Kerala","kerla":"Kerala",
+      "tamil nadu":"Tamil Nadu","tamilnadu":"Tamil Nadu","tn":"Tamil Nadu",
+      "goa":"Goa","j&k":"Jammu & Kashmir","jammu":"Jammu & Kashmir","kashmir":"Jammu & Kashmir",
+      "delhi":"Delhi","new delhi":"Delhi","dilli":"Delhi",
+    };
+
+    // Find commodity
+    let commodity = null;
+    // Sort by length desc so longer phrases match first
+    const sortedKeys = Object.keys(commodities).sort((a,b) => b.length - a.length);
+    for (const key of sortedKeys) {
+      if (tl.includes(key)) { commodity = commodities[key]; break; }
+    }
+    if (!commodity) return null;
+
+    // Find state
+    let state = null;
+    const sortedStates = Object.keys(states).sort((a,b) => b.length - a.length);
+    for (const key of sortedStates) {
+      if (tl.includes(key)) { state = states[key]; break; }
+    }
+
+    // Call data.gov.in Agmarknet API
+    const stateParam = state ? `&filters[State.keyword]=${encodeURIComponent(state)}` : "";
+    const url = `https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070?api-key=579b464db66ec23bdd000001cdd3946e44ce4aab825d4c8eb6d18c18&format=json&limit=10&filters[Commodity.keyword]=${encodeURIComponent(commodity)}${stateParam}`;
+
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    if (!data.records?.length) {
+      return `${commodity} ke rates abhi available nahi hain${state ? ` ${state} mein` : ""}. Kripya Agmarknet.gov.in ya apni local mandi check karein.`;
+    }
+
+    const records = data.records.slice(0, 6);
+    const lines = records.map(r =>
+      `• ${r.Market || r.District}${r.State ? ` (${r.State})` : ""}: Min ₹${r.Min_Price} | Max ₹${r.Max_Price} | Modal ₹${r.Modal_Price}/quintal`
+    ).join("\n");
+
+    const dateNote = records[0]?.Arrival_Date ? ` — ${records[0].Arrival_Date}` : "";
+    return `📊 ${commodity} Mandi Rates${dateNote}:\n\n${lines}\n\n📌 Source: Agmarknet / data.gov.in`;
+  } catch { return null; }
+}
+async function getWeather(query) {
+  try {
+    // Step 1: Geocode city name to lat/lon using Open-Meteo geocoding
+    const cityRaw = query
+      .replace(/weather|mausam|temperature|temp|kitna|degree|bata|hai|kya|ka|ki|ke|mein|mere|gaon|village|sheher|city/gi, " ")
+      .trim().split(/\s+/).filter(w => w.length > 1).join(" ");
+    const city = cityRaw || query.trim();
+    if (!city || city.length < 2) return null;
+
+    const geoRes = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en`
+    );
+    const geoData = await geoRes.json();
+    const loc = geoData.results?.[0];
+    if (!loc) return null;
+
+    // Step 2: Get current weather
+    const wRes = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current_weather=true&hourly=relativehumidity_2m&timezone=auto&forecast_days=1`
+    );
+    const wData = await wRes.json();
+    const cw = wData.current_weather;
+    if (!cw) return null;
+
+    const humidity = wData.hourly?.relativehumidity_2m?.[new Date().getHours()] || "N/A";
+    const wCode = cw.weathercode;
+    const desc = wCode <= 1 ? "Clear/Sunny" : wCode <= 3 ? "Partly Cloudy" : wCode <= 48 ? "Foggy" : wCode <= 67 ? "Rainy" : wCode <= 77 ? "Snowy" : wCode <= 82 ? "Heavy Rain" : "Thunderstorm";
+
+    return `${loc.name} (${loc.country}) ka abhi temperature: ${cw.temperature}°C. Mausam: ${desc}. Humidity: ${humidity}%. Wind: ${cw.windspeed} km/h.`;
+  } catch { return null; }
+}
 function isOwnerQ(t) { return ["kisne banaya","who made","who created","owner","creator","malik","kaun hai tera","who built"].some(k => t.toLowerCase().includes(k)); }
 function detectTone(t) {
   const tl = t.toLowerCase();
@@ -251,7 +569,7 @@ ${tNote}
 Be warm, emotional, helpful — like a best friend.
 For coding: complete working copy-paste ready code always.
 For education: clear explanations with examples (class 1 to UPSC).
-For farming: expert advice on crops, mandi rates, government schemes.
+For farming/mandi: If user asks mandi rate or weather WITHOUT mentioning their location/state/city, FIRST ask them: "Bhai, aap kis state ya mandi se hain? Jaise Rajasthan, Punjab, UP, MP etc. — toh main sahi rate bata sakta hoon." Then use the data provided.
 For images: carefully read ALL visible text, describe objects, colors, and context in detail.${memCtx}${ctx}${extraNote}`;
 
   if (imageB64) {
@@ -874,7 +1192,7 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 @keyframes logoGlow{0%,100%{filter:drop-shadow(0 0 3px #ff993380);}50%{filter:drop-shadow(0 0 12px #ff9933cc);}}
 @keyframes logoRotate{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 @keyframes logoPulse{0%,100%{transform:scale(1);filter:drop-shadow(0 0 4px #ff993380);}50%{transform:scale(1.18);filter:drop-shadow(0 0 16px #ff9933cc);}}
-.plusmenu{position:absolute;bottom:60px;left:12px;background:${v.sf};border:1px solid ${v.bd};border-radius:16px;padding:8px;display:flex;flex-direction:column;gap:4px;z-index:50;box-shadow:0 8px 28px #0008;animation:fadeUp .18s ease;min-width:140px;}
+.plusmenu{position:absolute;bottom:100%;left:0;margin-bottom:8px;background:${v.sf};border:1px solid ${v.bd};border-radius:16px;padding:8px;display:flex;flex-direction:column;gap:4px;z-index:50;box-shadow:0 8px 28px #0008;animation:fadeUp .18s ease;min-width:140px;}
 .plusmenu-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;color:${v.tx};border:none;background:none;width:100%;text-align:left;font-family:'Inter',sans-serif;}
 .plusmenu-item:hover{background:${v.sf2};}
 .chat-ctx{position:fixed;background:${v.sf};border:1px solid ${v.bd};border-radius:18px;padding:8px;z-index:200;box-shadow:0 12px 40px #0009;animation:fadeIn .15s ease;min-width:200px;}
@@ -1242,7 +1560,7 @@ export default function App() {
       setFload(true);
       try {
         await sendPasswordResetEmail(auth, form.email);
-        setFok("✅ Password reset link sent to your email. Please check your inbox.");
+        setFok("✅ Reset link bheja gaya! Inbox aur Spam/Junk folder dono check karein. 2-3 minute wait karein.");
         setForm(f => ({ ...f, email: "", newPass: "", confirmPass: "" }));
       } catch { setFerr("Email not registered!"); }
       setFload(false);
@@ -1600,7 +1918,16 @@ export default function App() {
       setVs("think");
       setVTranscript(""); // clear user transcript while AI is thinking
 
-      const ud = currentUserData;
+      // Fetch fresh userData to avoid stale closure
+      let ud = currentUserData;
+      if (!ud) {
+        try {
+          const freshDoc = await getDoc(doc(db, "users", user.uid));
+          if (freshDoc.exists()) ud = freshDoc.data();
+        } catch {}
+      }
+      ud = ud || {};
+
       if (!ud?.premium && (ud?.usageCount || 0) >= FREE_LIMIT) {
         setShowLimit(true); voiceActiveRef.current = false; setVs("idle"); return;
       }
@@ -2162,26 +2489,6 @@ export default function App() {
               )}
             </div>
             <div className="sb-bottom">
-              {!userData?.premium && (
-                <div className="sb-premium">
-                  <div className="sb-premium-inner">
-                    <div style={{ fontWeight: 800, fontSize: 14 }}>⭐ Upgrade Premium</div>
-                    <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 2 }}>Unlimited access</div>
-                    <div className="sb-prem-plans">
-                      <div className="pplan month" onClick={() => { setUpgradePlan("monthly"); setShowUpgrade(true); setShowSb(false); }}>
-                        <div className="pplan-price">₹99</div>
-                        <div className="pplan-label">/month</div>
-                        <div className="pplan-feats">{"✓ Unlimited Chats\n✓ No Ads\n✓ Faster AI\n✓ Voice Access"}</div>
-                      </div>
-                      <div className="pplan week" onClick={() => { setUpgradePlan("weekly"); setShowUpgrade(true); setShowSb(false); }}>
-                        <div className="pplan-price">₹29</div>
-                        <div className="pplan-label">/week</div>
-                        <div className="pplan-feats">{"✓ Unlimited Msgs\n✓ Ad-Free\n✓ Premium AI"}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
               <div className="sb-logout" onClick={() => signOut(auth)}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                 <span>Logout</span>
@@ -2367,15 +2674,7 @@ export default function App() {
             {chatsLeft !== null && chatsLeft <= 10 && (
               <div style={{ fontSize: 11, color: chatsLeft <= 3 ? "#ef4444" : "var(--mt)", fontWeight: 600 }}>{chatsLeft} left</div>
             )}
-            <button className="dots" onClick={() => setChatSearch(v => v === null ? "" : null)} title="Search">
-              <Ico.Search s={18} />
-            </button>
             <button className="nbtn" onClick={newChat}>+ New</button>
-            {/* 3-dot menu — header right */}
-            <button className="dots" title="Chat options"
-              onClick={e => { e.stopPropagation(); setChatContextMenu(chatContextMenu?.histId === sid ? null : { histId: sid, x: e.clientX, y: e.clientY }); }}>
-              <Ico.More />
-            </button>
           </>
         )}
         <button className="dots" onClick={() => setShowProfile(true)}>
@@ -2434,15 +2733,20 @@ export default function App() {
               setMicMuted(v => {
                 const next = !v;
                 if (next) { voiceRef.current?.stop?.(); }
+                else { if (voiceActiveRef.current && vs === "listen") startListening(msgs, sessionTone || "female", sid, userData); }
                 return next;
               });
-            }} style={micMuted ? { background: "#374151", color: "#fff" } : {}}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="9" y="2" width="6" height="12" rx="3" fill={micMuted ? "#374151" : "none"} stroke="currentColor" strokeWidth="1.8"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="8" y1="21" x2="16" y2="21"/>{micMuted && <line x1="4" y1="4" x2="20" y2="20" stroke="#ef4444" strokeWidth="2"/>}</svg>
+            }} style={micMuted ? { background: "#374151", color: "#ef4444" } : {}}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <rect x="9" y="2" width="6" height="12" rx="3"/>
+                <path d="M5 10a7 7 0 0 0 14 0"/>
+                <line x1="12" y1="17" x2="12" y2="21"/>
+                <line x1="8" y1="21" x2="16" y2="21"/>
+                {micMuted && <line x1="4" y1="4" x2="20" y2="20" stroke="#ef4444" strokeWidth="2.5"/>}
+              </svg>
             </button>
-            <button className="vbtn vbtn-end" onClick={closeVoiceCall}>✕</button>
-            <button className="vbtn" style={{ background: "#1f2937", color: "#9ca3af" }}
-              onClick={() => { window.speechSynthesis?.cancel(); if (vs === "speak") { setVs("listen"); setTimeout(() => startListening(msgs, sessionTone || "female", sid, userData), 300); } }}>
-              
+            <button className="vbtn vbtn-end" onClick={closeVoiceCall}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
         </div>
@@ -2709,21 +3013,17 @@ export default function App() {
 
             {/* Appearance */}
             <div className="scard">
-              <ExpandRow icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>} label="Color mode" desc={themeKey === "dark" ? "Dark" : themeKey === "light" ? "Light" : themeKey}>
+              <ExpandRow icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>} label="Color mode" desc={themeKey === "dark" ? "Dark" : "Light"}>
                 <div className="opt-row">
-                  {Object.keys(THEMES).map(t => <button key={t} className={"opt-pill" + (themeKey === t ? " sel" : "")} onClick={() => savePref("theme", t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>)}
+                  <button className={"opt-pill" + (themeKey === "dark" ? " sel" : "")} onClick={() => savePref("theme", "dark")}>Dark</button>
+                  <button className={"opt-pill" + (themeKey === "light" ? " sel" : "")} onClick={() => savePref("theme", "light")}>Light</button>
                 </div>
               </ExpandRow>
-              <ExpandRow icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>} label="Accent Color">
+              <ExpandRow icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>} label="Font size" desc={fontSize <= 13 ? "Low" : fontSize <= 14 ? "Normal" : "High"}>
                 <div className="opt-row">
-                  {Object.entries(ACCENTS).map(([k, v]) => (
-                    <div key={k} className={"cdot" + (accentKey === k ? " sel" : "")} style={{ background: v.primary }} onClick={() => savePref("accent", k)} title={k} />
-                  ))}
-                </div>
-              </ExpandRow>
-              <ExpandRow icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>} label="Font style" desc={fontSize + "px"}>
-                <div className="opt-row">
-                  {[12, 13, 14, 15, 16].map(s => <button key={s} className={"opt-pill" + (fontSize === s ? " sel" : "")} onClick={() => savePref("fontSize", s)}>{s}px</button>)}
+                  <button className={"opt-pill" + (fontSize <= 13 ? " sel" : "")} onClick={() => savePref("fontSize", 12)}>Low</button>
+                  <button className={"opt-pill" + (fontSize === 14 ? " sel" : "")} onClick={() => savePref("fontSize", 14)}>Normal</button>
+                  <button className={"opt-pill" + (fontSize >= 16 ? " sel" : "")} onClick={() => savePref("fontSize", 16)}>High</button>
                 </div>
               </ExpandRow>
             </div>
@@ -2904,19 +3204,6 @@ export default function App() {
       {/* ── CHAT PAGE ── */}
       {page === "chat" && (
         <>
-          {/* Top search bar */}
-          {chatSearch !== null && (
-            <div className="topbar">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input
-                placeholder="Search messages..."
-                value={chatSearch}
-                onChange={e => setChatSearch(e.target.value)}
-                autoFocus
-              />
-              {chatSearch && <button onClick={() => setChatSearch("")} style={{ background: "none", border: "none", color: "var(--mt)", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>✕</button>}
-            </div>
-          )}
           <div className="chat" onClick={() => setShowPlusMenu(false)}>
             {msgs.length === 0 && (() => {
               const hr = new Date().getHours();
@@ -2993,13 +3280,13 @@ export default function App() {
           </div>
 
           {/* Claude-style Input Bar */}
-          <div className="ibar">
+          <div className="ibar" style={{ position: "relative" }}>
             <input ref={galleryRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleGallery} />
             <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log,.xlsx,.xls,.pptx" multiple style={{ display: "none" }} onChange={handleFiles} />
 
             {/* Plus menu popup */}
             {showPlusMenu && (
-              <div className="plusmenu" style={{ bottom: 140 }}>
+              <div className="plusmenu">
                 <button className="plusmenu-item" onClick={() => { setShowPlusMenu(false); galleryRef.current?.click(); }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21"/></svg> <span>Image / Photo</span></button>
                 <button className="plusmenu-item" onClick={() => { setShowPlusMenu(false); fileRef.current?.click(); }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> <span>File (PDF, DOCX, XLSX…)</span></button>
               </div>
