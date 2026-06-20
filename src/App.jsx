@@ -7,7 +7,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, getDoc, collection, addDoc, query,
-  where, orderBy, getDocs, deleteDoc, serverTimestamp, updateDoc, limit
+  where, orderBy, getDocs, deleteDoc, serverTimestamp, updateDoc, limit, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 // ── CONFIG ───────────────────────────────────────────────────────
@@ -569,7 +569,10 @@ ${tNote}
 Personality: Be warm, friendly, and expressive like a best friend. Naturally use emojis in your responses — not every sentence, but organically (1-3 emojis per response feels natural). Examples: use 😊 when being helpful, 🤔 when thinking through something, ✅ for confirmations, 💡 for ideas, 🔥 for exciting things, 👍 for agreements, 😄 for light moments. Never overdo it — keep it natural and human.
 For coding: always provide complete, working, copy-paste ready code.
 For education: clear explanations with examples, from beginner to advanced level.
-For farming/mandi: If user asks mandi rates or weather WITHOUT mentioning their location/state/city, first ask: "Could you please tell me your state or district? For example: Rajasthan, Punjab, UP, MP — so I can fetch the correct rates for you." Then use the provided location.
+For farming/mandi rates specifically (crops, vegetables, fruits, grains — e.g. "wheat ka rate", "pyaaz ka bhav"): if the user hasn't mentioned their state/district, first ask: "Could you please tell me your state or district? For example: Rajasthan, Punjab, UP, MP — so I can fetch the correct rates for you." Then use the provided location.
+This location-ask rule applies ONLY to actual farm-produce mandi prices — never to gold, silver, petrol, diesel, stocks, currency, or other non-agricultural prices, and never to weather/temperature questions.
+For weather/temperature: if "Latest Info" below already has the answer, use it directly. If the user asked about weather/temperature with no city named at all, just ask "Kis shehar ka mausam/temperature batau?" — keep it short, don't mention state/district/mandi.
+If "Latest Info" / search results are provided below, treat that as the current, correct answer and use it directly instead of asking clarifying questions.
 For images: carefully read ALL visible text, describe objects, colors, and context in detail.${memCtx}${ctx}${extraNote}`;
 
   if (imageB64) {
@@ -1148,6 +1151,7 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .btn{border:none;border-radius:12px;cursor:pointer;font-family:'Inter',sans-serif;font-size:15px;font-weight:600;padding:13px;transition:all .2s;width:100%;}
 .btn-p{background:var(--grad);color:#fff;}.btn-p:hover{opacity:.9;}.btn-p:disabled{opacity:.55;cursor:not-allowed;}
 .btn-s{background:${v.sf2};color:${v.tx};border:1px solid ${v.bd};}
+.btn-danger{background:#ef4444;color:#fff;}.btn-danger:hover{opacity:.9;}.btn-danger:disabled{opacity:.55;cursor:not-allowed;}
 .lnk{font-size:13px;color:${v.mt};text-align:center;}.lnk span{color:var(--accent);cursor:pointer;font-weight:600;}
 .err{color:#ef4444;font-size:13px;text-align:center;background:#ef444412;padding:9px;border-radius:10px;}
 .ok{color:#22c55e;font-size:13px;text-align:center;background:#22c55e12;padding:9px;border-radius:10px;}
@@ -1401,6 +1405,13 @@ export default function App() {
   const [loadingStep, setLoadingStep] = useState(""); // "Searching...", "Thinking...", etc.
   const [chatSearch, setChatSearch] = useState(null); // null=hidden, ""=open empty
   const [showLimit, setShowLimit] = useState(false);
+  // Reusable custom confirm modal — replaces native window.confirm() popups,
+  // which show up as ugly unstyled browser dialogs with whatever language
+  // was hardcoded (was showing Hinglish "Is chat ko delete karein?").
+  const [confirmState, setConfirmState] = useState(null); // { title, message, danger, onConfirm }
+  function askConfirm({ title = "Are you sure?", message, danger = true, onConfirm }) {
+    setConfirmState({ title, message, danger, onConfirm });
+  }
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [payDone, setPayDone] = useState(false);
   const [copied, setCopied] = useState(null);
@@ -1482,26 +1493,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let unsubUserDoc = null;
     const unsub = onAuthStateChanged(auth, async u => {
+      if (unsubUserDoc) { unsubUserDoc(); unsubUserDoc = null; }
       if (u) {
         setUser(u);
-        const d = await getDoc(doc(db, "users", u.uid));
-        if (d.exists()) {
-          const data = d.data();
-          setUserData(data);
-          setPName(data.name || u.displayName || "");
-          setPPhotoUrl(data.photoURL || null);
-          if (data.theme) setThemeKey(data.theme);
-          if (data.accent) setAccentKey(data.accent);
-          if (data.fontSize) setFontSize(data.fontSize);
-          if (data.language) setLanguage(data.language);
-          if (data.memoryEnabled === false) setMemoryEnabled(false);
-        }
+        // Real-time listener instead of a one-time getDoc — this is what
+        // makes admin-granted premium (or any other account change) show
+        // up immediately in the user's already-open app, instead of only
+        // after they log out and log back in.
+        unsubUserDoc = onSnapshot(doc(db, "users", u.uid), d => {
+          if (d.exists()) {
+            const data = d.data();
+            setUserData(data);
+            setPName(data.name || u.displayName || "");
+            setPPhotoUrl(data.photoURL || null);
+            if (data.theme) setThemeKey(data.theme);
+            if (data.accent) setAccentKey(data.accent);
+            if (data.fontSize) setFontSize(data.fontSize);
+            if (data.language) setLanguage(data.language);
+            if (data.memoryEnabled === false) setMemoryEnabled(false);
+          }
+        }, () => {}); // ignore transient listener errors (e.g. brief offline)
         loadMemories(u.uid);
       } else { setUser(null); setUserData(null); setMemories([]); }
       setAuthReady(true);
     });
-    return unsub;
+    return () => { unsub(); if (unsubUserDoc) unsubUserDoc(); };
   }, []);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, loading]);
@@ -1567,9 +1585,14 @@ export default function App() {
   }
 
   async function deleteMemory(id) {
-    if (!window.confirm("Delete this memory?")) return;
-    await deleteDoc(doc(db, "memories", id));
-    setMemories(p => p.filter(m => m.id !== id));
+    askConfirm({
+      title: "Delete Memory?",
+      message: "This memory will be permanently removed.",
+      onConfirm: async () => {
+        await deleteDoc(doc(db, "memories", id));
+        setMemories(p => p.filter(m => m.id !== id));
+      }
+    });
   }
 
   async function maybeSaveMemory(userText) {
@@ -1913,7 +1936,14 @@ export default function App() {
     // English words into Devanagari rather than switching scripts).
     form.append("language", "hi");
     form.append("prompt", "नमस्ते, यह हिंदी और इंग्लिश मिक्स बातचीत है।");
-    form.append("temperature", "0");
+    // NOTE: deliberately NOT setting temperature=0 here. Forcing fully
+    // deterministic decoding on whisper-large-v3 is a known trigger for a
+    // failure mode on longer (multi-sentence) audio: the model can get
+    // stuck in a repetitive loop emitting non-speech tokens for a whole
+    // chunk, which then get silently stripped — the result is large gaps
+    // (usually the beginning) missing from the transcript, leaving only
+    // the last sentence or two. Omitting temperature lets Whisper use its
+    // built-in temperature-fallback retry behavior, which fixes this.
     form.append("response_format", "json");
     const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
       method: "POST",
@@ -2005,31 +2035,39 @@ export default function App() {
   }
 
   async function clearAllMemories() {
-    if (!window.confirm("Delete all memories? This cannot be undone.")) return;
-    try {
-      const snap = await getDocs(query(collection(db, "memories"), where("userId", "==", user.uid)));
-      for (const d of snap.docs) { await deleteDoc(doc(db, "memories", d.id)); }
-      setMemories([]);
-      alert("All memories deleted successfully.");
-    } catch (e) { alert("Error: " + e.message); }
+    askConfirm({
+      title: "Delete All Memories?",
+      message: "This cannot be undone. All saved memories will be permanently removed.",
+      onConfirm: async () => {
+        try {
+          const snap = await getDocs(query(collection(db, "memories"), where("userId", "==", user.uid)));
+          for (const d of snap.docs) { await deleteDoc(doc(db, "memories", d.id)); }
+          setMemories([]);
+        } catch (e) { alert("Error: " + e.message); }
+      }
+    });
   }
 
   async function clearAllChatHistory() {
-    if (!window.confirm("Delete all chat history? This cannot be undone.")) return;
-    try {
-      const chatsSnap = await getDocs(query(collection(db, "chats"), where("userId", "==", user.uid)));
-      for (const cd of chatsSnap.docs) {
+    askConfirm({
+      title: "Delete All Chat History?",
+      message: "This cannot be undone. All your chats will be permanently removed.",
+      onConfirm: async () => {
         try {
-          const msgSnap = await getDocs(query(collection(db, "messages"), where("sessionId", "==", cd.id)));
-          for (const md of msgSnap.docs) { await deleteDoc(doc(db, "messages", md.id)); }
-        } catch {}
-        await deleteDoc(doc(db, "chats", cd.id));
+          const chatsSnap = await getDocs(query(collection(db, "chats"), where("userId", "==", user.uid)));
+          for (const cd of chatsSnap.docs) {
+            try {
+              const msgSnap = await getDocs(query(collection(db, "messages"), where("sessionId", "==", cd.id)));
+              for (const md of msgSnap.docs) { await deleteDoc(doc(db, "messages", md.id)); }
+            } catch {}
+            await deleteDoc(doc(db, "chats", cd.id));
+          }
+          setHists([]);
+          setMsgs([]);
+          setSid(Date.now().toString());
+        } catch (e) { alert("Error: " + e.message); }
       }
-      setHists([]);
-      setMsgs([]);
-      setSid(Date.now().toString());
-      alert("All chat history deleted successfully.");
-    } catch (e) { alert("Error: " + e.message); }
+    });
   }
 
   async function deleteAccount() {
@@ -2339,8 +2377,8 @@ export default function App() {
     const tone = sessionTone || "female";
     const isFirstEver = (msgs?.length || 0) === 0;
     const greeting = isFirstEver
-      ? "Namaste! Main Saraswati AI hoon. Aap mujhse kuch bhi pooch sakte hain, batayein kaise madad karu?"
-      : "Namaste! Main sun rahi hoon, boliye.";
+      ? "Hey, I am Saraswati AI. Aap mujhse kuch bhi pooch sakte hain, batayein kaise madad karu?"
+      : "Hey, main sun rahi hoon, boliye.";
 
     setVs("speak");
     setVLast(greeting);
@@ -2461,9 +2499,14 @@ export default function App() {
   }
 
   async function deleteMessage(id) {
-    if (!window.confirm("Delete this message?")) return;
-    try { await deleteDoc(doc(db, "messages", id)); } catch {}
-    setMsgs(p => p.filter(m => m.id !== id));
+    askConfirm({
+      title: "Delete Message?",
+      message: "This message will be permanently removed.",
+      onConfirm: async () => {
+        try { await deleteDoc(doc(db, "messages", id)); } catch {}
+        setMsgs(p => p.filter(m => m.id !== id));
+      }
+    });
   }
 
   async function regenerateMessage(id) {
@@ -2489,9 +2532,14 @@ export default function App() {
 
   async function delSession(id, e) {
     e.stopPropagation();
-    if (!window.confirm("Delete this chat?")) return;
-    await deleteDoc(doc(db, "chats", id));
-    setHists(p => p.filter(h => h.id !== id));
+    askConfirm({
+      title: "Delete Chat?",
+      message: "This chat and its messages will be permanently removed.",
+      onConfirm: async () => {
+        await deleteDoc(doc(db, "chats", id));
+        setHists(p => p.filter(h => h.id !== id));
+      }
+    });
   }
 
   async function renameSession(id, newTitle) {
@@ -2555,9 +2603,14 @@ export default function App() {
   }
 
   async function deleteProject(id) {
-    if (!window.confirm("Delete this project?")) return;
-    await deleteDoc(doc(db, "projects", id));
-    setProjects(p => p.filter(pr => pr.id !== id));
+    askConfirm({
+      title: "Delete Project?",
+      message: "This project will be permanently removed.",
+      onConfirm: async () => {
+        await deleteDoc(doc(db, "projects", id));
+        setProjects(p => p.filter(pr => pr.id !== id));
+      }
+    });
   }
 
   async function adminToggle(uid, cur) {
@@ -2565,9 +2618,14 @@ export default function App() {
     setAdminUsers(p => p.map(u => u.id === uid ? { ...u, premium: !cur } : u));
   }
   async function adminDelUser(uid) {
-    if (!window.confirm("Permanently delete this user?")) return;
-    await deleteDoc(doc(db, "users", uid));
-    setAdminUsers(p => p.filter(u => u.id !== uid));
+    askConfirm({
+      title: "Delete User?",
+      message: "This will permanently delete this user's account. This cannot be undone.",
+      onConfirm: async () => {
+        await deleteDoc(doc(db, "users", uid));
+        setAdminUsers(p => p.filter(u => u.id !== uid));
+      }
+    });
   }
   async function adminDelChat(msgId) {
     await deleteDoc(doc(db, "messages", msgId));
@@ -2718,12 +2776,16 @@ export default function App() {
 
             {/* Delete */}
             <button className="chat-ctx-item red" onClick={() => {
-              if (window.confirm("Is chat ko delete karein?")) {
-                deleteDoc(doc(db, "chats", h.id)).catch(() => {});
-                setHists(p => p.filter(x => x.id !== h.id));
-                if (h.id === sid) newChat();
-              }
               setChatContextMenu(null);
+              askConfirm({
+                title: "Delete Chat?",
+                message: "This chat and its messages will be permanently removed.",
+                onConfirm: () => {
+                  deleteDoc(doc(db, "chats", h.id)).catch(() => {});
+                  setHists(p => p.filter(x => x.id !== h.id));
+                  if (h.id === sid) newChat();
+                }
+              });
             }}>
               <span>Delete</span>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
@@ -2833,6 +2895,24 @@ export default function App() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ── CUSTOM CONFIRM MODAL (replaces native window.confirm) ── */}
+      {confirmState && (
+        <div className="mbg" onClick={() => setConfirmState(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="mi">{confirmState.danger === false ? "❓" : "⚠️"}</div>
+            <h3>{confirmState.title}</h3>
+            <p>{confirmState.message}</p>
+            <button
+              className={"btn " + (confirmState.danger === false ? "btn-p" : "btn-danger")}
+              onClick={() => { const fn = confirmState.onConfirm; setConfirmState(null); fn?.(); }}
+            >
+              {confirmState.danger === false ? "Confirm" : "Delete"}
+            </button>
+            <button className="btn btn-s" onClick={() => setConfirmState(null)}>Cancel</button>
+          </div>
+        </div>
       )}
 
       {/* ── FREE LIMIT MODAL ── */}
@@ -3690,18 +3770,16 @@ export default function App() {
                       boxShadow: "0 8px 28px #0009", minWidth: 160,
                       animation: "fadeUp .15s ease"
                     }}>
-                      <label htmlFor="gallery-input"
-                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)" }}
-                        onClick={() => setShowPlusMenu(false)}>
+                      <button type="button" onClick={() => { setShowPlusMenu(false); galleryRef.current?.click(); }}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)", background: "none", border: "none", width: "100%", textAlign: "left", fontFamily: "'Inter',sans-serif" }}>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21"/></svg>
                         Photo / Camera
-                      </label>
-                      <label htmlFor="file-input"
-                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)" }}
-                        onClick={() => setShowPlusMenu(false)}>
+                      </button>
+                      <button type="button" onClick={() => { setShowPlusMenu(false); fileRef.current?.click(); }}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)", background: "none", border: "none", width: "100%", textAlign: "left", fontFamily: "'Inter',sans-serif" }}>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                         File (PDF, DOCX, XLSX…)
-                      </label>
+                      </button>
                     </div>
                   )}
                   <button className="ibtn" onClick={() => setShowPlusMenu(v => !v)} title="Attach"
