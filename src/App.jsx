@@ -566,10 +566,10 @@ async function callAI(messages, imageB64, tone, memories, language, extraNote = 
 Never mention Groq, Meta, Llama, OpenAI or any model name.
 ${langInstruction}
 ${tNote}
-Be warm, emotional, helpful — like a best friend.
-For coding: complete working copy-paste ready code always.
-For education: clear explanations with examples (class 1 to UPSC).
-For farming/mandi: If user asks mandi rate or weather WITHOUT mentioning their location/state/city, FIRST ask them: "Bhai, aap kis state ya mandi se hain? Jaise Rajasthan, Punjab, UP, MP etc. — toh main sahi rate bata sakta hoon." Then use the data provided.
+Personality: Be warm, friendly, and expressive like a best friend. Naturally use emojis in your responses — not every sentence, but organically (1-3 emojis per response feels natural). Examples: use 😊 when being helpful, 🤔 when thinking through something, ✅ for confirmations, 💡 for ideas, 🔥 for exciting things, 👍 for agreements, 😄 for light moments. Never overdo it — keep it natural and human.
+For coding: always provide complete, working, copy-paste ready code.
+For education: clear explanations with examples, from beginner to advanced level.
+For farming/mandi: If user asks mandi rates or weather WITHOUT mentioning their location/state/city, first ask: "Could you please tell me your state or district? For example: Rajasthan, Punjab, UP, MP — so I can fetch the correct rates for you." Then use the provided location.
 For images: carefully read ALL visible text, describe objects, colors, and context in detail.${memCtx}${ctx}${extraNote}`;
 
   if (imageB64) {
@@ -577,7 +577,7 @@ For images: carefully read ALL visible text, describe objects, colors, and conte
       { role: "system", content: sys },
       { role: "user", content: [
         { type: "image_url", image_url: { url: "data:image/jpeg;base64," + imageB64 } },
-        { type: "text", text: last.text || "Is image mein kya hai? Saari details batao — text, objects, colors, context." }
+        { type: "text", text: last.text || "What is in this image? Describe all details — text, objects, colors, and context." }
       ]}
     ];
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ }, body: JSON.stringify({ model: VISION_MODEL, messages: visionMsgs, max_tokens: 2048 }) });
@@ -1560,7 +1560,7 @@ export default function App() {
       setFload(true);
       try {
         await sendPasswordResetEmail(auth, form.email);
-        setFok("✅ Reset link bheja gaya! Inbox aur Spam/Junk folder dono check karein. 2-3 minute wait karein.");
+        setFok("✅ ✅ Reset link sent! Check your Inbox and Spam/Junk folder. Please wait 2-3 minutes.");
         setForm(f => ({ ...f, email: "", newPass: "", confirmPass: "" }));
       } catch { setFerr("Email not registered!"); }
       setFload(false);
@@ -1673,54 +1673,104 @@ export default function App() {
     r.readAsDataURL(file);
   }
 
-  // ── SPEECH TO TEXT (input bar mic) ─────────────────────────────
-  const [micTranscript, setMicTranscript] = useState(""); // live interim transcript
+  // ── SPEECH TO TEXT — Heavy Production Grade ─────────────────────
+  const [micTranscript, setMicTranscript] = useState("");
+  const micRestartRef = useRef(null);
+  const micFinalRef = useRef("");
+  const micActiveRef = useRef(false);
 
   function toggleMic() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert("Voice input Chrome/Edge mein kaam karta hai. Please Chrome use karein."); return; }
+    if (!SR) {
+      alert("Chrome browser use karein voice input ke liye.");
+      return;
+    }
 
     if (micActive) {
-      micRef.current?.stop();
-      micRef.current?.abort();
+      try { micRef.current?.stop(); } catch {}
+      if (micRestartRef.current) clearTimeout(micRestartRef.current);
+      micActiveRef.current = false;
+      if (micFinalRef.current.trim()) {
+        setInput(p => (p.trim() + " " + micFinalRef.current.trim()).trim());
+      }
+      micFinalRef.current = "";
       setMicActive(false);
       setMicTranscript("");
       return;
     }
 
-    const r = new SR();
-    r.lang = language === "english" ? "en-IN" : "hi-IN";
-    r.continuous = true;       // keep listening until user stops
-    r.interimResults = true;   // show live transcript
-    r.maxAlternatives = 1;
+    micFinalRef.current = "";
+    micActiveRef.current = true;
+    setMicActive(true);
+    setMicTranscript("");
 
-    r.onstart = () => { setMicActive(true); setMicTranscript(""); };
-
-    r.onresult = e => {
-      let final = "";
-      let interim = "";
-      for (let i = 0; i < e.results.length; i++) {
-        if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
-        else interim += e.results[i][0].transcript;
+    function startSession() {
+      if (!micActive && micFinalRef.current === "" && !micRestartRef.current) {
+        // first start
       }
-      // Final words go into input permanently, interim shown as live preview
-      if (final.trim()) setInput(p => (p + " " + final).trim());
-      setMicTranscript(interim);
-    };
+      const recognition = new SR();
+      recognition.lang = language === "english" ? "en-IN" : "hi-IN";
+      recognition.continuous = true;      // Keep listening
+      recognition.interimResults = true;  // Live transcript
+      recognition.maxAlternatives = 1;
 
-    r.onerror = ev => {
-      if (ev.error === "no-speech") return; // ignore silence
-      setMicActive(false);
-      setMicTranscript("");
-    };
+      recognition.onresult = (e) => {
+        let finalChunk = "";
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) {
+            finalChunk += e.results[i][0].transcript;
+          } else {
+            interim += e.results[i][0].transcript;
+          }
+        }
+        if (finalChunk) {
+          micFinalRef.current += " " + finalChunk;
+          micFinalRef.current = micFinalRef.current.trim();
+        }
+        // Show: confirmed text + live interim
+        setMicTranscript(interim);
+        // Update input live with final text
+        if (micFinalRef.current) {
+          setInput(micFinalRef.current + (interim ? " " + interim : ""));
+        }
+      };
 
-    r.onend = () => {
-      setMicActive(false);
-      setMicTranscript("");
-    };
+      recognition.onerror = (e) => {
+        if (e.error === "no-speech") {
+          if (micActiveRef.current) {
+            micRestartRef.current = setTimeout(() => {
+              if (micActiveRef.current) startSession();
+            }, 300);
+          }
+          return;
+        }
+        if (e.error === "not-allowed") {
+          alert("Please allow microphone access in your browser settings.");
+          micActiveRef.current = false;
+          setMicActive(false);
+          setMicTranscript("");
+          micFinalRef.current = "";
+          return;
+        }
+        micRestartRef.current = setTimeout(() => {
+          if (micActiveRef.current) startSession();
+        }, 500);
+      };
 
-    micRef.current = r;
-    try { r.start(); } catch { setMicActive(false); }
+      recognition.onend = () => {
+        if (micActiveRef.current) {
+          micRestartRef.current = setTimeout(() => {
+            if (micActiveRef.current) startSession();
+          }, 200);
+        }
+      };
+
+      micRef.current = recognition;
+      try { recognition.start(); } catch {}
+    }
+
+    startSession();
   }
 
   function toggleSpeak(id, text) {
@@ -1757,7 +1807,7 @@ export default function App() {
     }
     try {
       await navigator.clipboard.writeText(exportText);
-      alert("✅ Chat copied to clipboard! Paste anywhere to share.");
+      alert("Chat copied to clipboard! Paste anywhere to share.");
     } catch {
       window.open("https://wa.me/?text=" + encodeURIComponent(exportText.slice(0, 1000)), "_blank");
     }
@@ -1803,17 +1853,17 @@ export default function App() {
   }
 
   async function clearAllMemories() {
-    if (!window.confirm("Saari saved memories delete kar dein? Ye undo nahi ho sakta.")) return;
+    if (!window.confirm("Delete all memories? This cannot be undone.")) return;
     try {
       const snap = await getDocs(query(collection(db, "memories"), where("userId", "==", user.uid)));
       for (const d of snap.docs) { await deleteDoc(doc(db, "memories", d.id)); }
       setMemories([]);
-      alert("✅ Saari memories delete ho gayi.");
+      alert("All memories deleted successfully.");
     } catch (e) { alert("Error: " + e.message); }
   }
 
   async function clearAllChatHistory() {
-    if (!window.confirm("Saari chat history delete kar dein? Ye undo nahi ho sakta.")) return;
+    if (!window.confirm("Delete all chat history? This cannot be undone.")) return;
     try {
       const chatsSnap = await getDocs(query(collection(db, "chats"), where("userId", "==", user.uid)));
       for (const cd of chatsSnap.docs) {
@@ -1826,7 +1876,7 @@ export default function App() {
       setHists([]);
       setMsgs([]);
       setSid(Date.now().toString());
-      alert("✅ Saari chat history delete ho gayi.");
+      alert("All chat history deleted successfully.");
     } catch (e) { alert("Error: " + e.message); }
   }
 
@@ -1856,7 +1906,7 @@ export default function App() {
       try { await deleteDoc(doc(db, "users", uid)); } catch {}
       await deleteUser(auth.currentUser);
     } catch (e) {
-      alert("Account delete karne mein error aaya: " + e.message);
+      alert("Error deleting account: " + e.message);
     }
     setDelLoading(false);
   }
@@ -1874,28 +1924,47 @@ export default function App() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR || !voiceActiveRef.current) return;
 
-    const r = new SR();
-    r.lang = language === "english" ? "en-IN" : "hi-IN";
-    r.continuous = false;
-    r.interimResults = true; // show live transcript
-    r.maxAlternatives = 1;
+    const recognition = new SR();
+    recognition.lang = "hi-IN";       // Hindi + English
+    recognition.continuous = false;   // Most reliable on mobile
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
 
-    let finished = false;
+    let processed = false;
 
-    r.onresult = e => {
-      if (finished) return;
-      let finalTranscript = "";
-      let interimTranscript = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript;
-        else interimTranscript += e.results[i][0].transcript;
+    recognition.onresult = (event) => {
+      if (processed || !voiceActiveRef.current) return;
+      const transcript = event.results[0][0].transcript?.trim();
+      if (!transcript) return;
+      processed = true;
+      setVTranscript(transcript);
+      processUtterance(transcript);
+    };
+
+    recognition.onerror = (event) => {
+      if (processed) return;
+      // no-speech = silence, just restart
+      if (event.error === "no-speech" || event.error === "aborted") {
+        if (voiceActiveRef.current && vsRef.current === "listen") {
+          setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300);
+        }
+        return;
       }
-      // Show live interim transcript on screen
-      if (interimTranscript) setVTranscript(interimTranscript);
-      if (finalTranscript.trim()) {
-        finished = true;
-        setVTranscript(finalTranscript);
-        processUtterance(finalTranscript);
+      // Other error - restart after delay
+      if (voiceActiveRef.current) {
+        setTimeout(() => {
+          setVs("listen");
+          startListening(currentMsgs, currentTone, currentSid, currentUserData);
+        }, 1000);
+      } else {
+        setVs("idle");
+      }
+    };
+
+    recognition.onend = () => {
+      // If not processed and still active - restart
+      if (!processed && voiceActiveRef.current && vsRef.current === "listen") {
+        setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300);
       }
     };
 
@@ -1955,7 +2024,7 @@ export default function App() {
         // Voice mode: shorter responses, no markdown
         const voiceMsgs = [...newMsgs];
         const lastMsg = voiceMsgs[voiceMsgs.length - 1];
-        const voiceSystemNote = "\n\nIMPORTANT: This is a VOICE conversation. Reply in maximum 2-3 short sentences. No bullet points, no markdown, no code blocks. Speak naturally like a friend.";
+        const voiceSystemNote = "\n\nIMPORTANT: This is a VOICE conversation. Reply in maximum 2-3 short sentences. No bullet points, no markdown, no code blocks. Speak naturally and conversationally.";
         const aiText = await callAI(voiceMsgs, null, tone, memoryEnabled ? memories : null, language, voiceSystemNote);
         const tid = "v_" + Date.now();
         const updatedMsgs = [...newMsgs, { id: tid, role: "ai", text: aiText, time: new Date() }];
@@ -1985,25 +2054,8 @@ export default function App() {
       }
     }
 
-    r.onerror = () => {
-      if (finished) return;
-      if (voiceActiveRef.current) {
-        setTimeout(() => { setVs("listen"); startListening(currentMsgs, currentTone, currentSid, currentUserData); }, 800);
-      } else {
-        setVs("idle");
-      }
-    };
-
-    r.onend = () => {
-      // Auto-restart if call still active and not mid-processing
-      if (voiceActiveRef.current && !finished && vsRef.current !== "think" && vsRef.current !== "speak") {
-        setVs("listen");
-        setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 400);
-      }
-    };
-
-    voiceRef.current = r;
-    try { r.start(); } catch { setVs("idle"); }
+    voiceRef.current = recognition;
+    try { recognition.start(); } catch { setVs("idle"); }
   }
 
   async function handleOrb() {
@@ -2305,11 +2357,11 @@ export default function App() {
       <div className="auth">
         <div className="auth-logo" style={{display:"flex",justifyContent:"center"}}><SaraswatiLogo size={56} animate={true} state="idle" /></div>
         <div className="auth-title">Saraswati AI</div>
-        <div className="auth-sub">India's AI assistant</div>
+        <div className="auth-sub">India's AI Assistant</div>
         <div className="card">
           {forgot ? (
             <>
-              <div className="card-head">🔑 Reset Password</div>
+              <div className="card-head">Reset Password</div>
               <div className="iw"><div className="ilbl">Email</div><input className="inp" type="email" placeholder="your@email.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
               <div className="iw"><div className="ilbl">New Password</div><input className="inp" type="password" placeholder="Min 8 characters" value={form.newPass} onChange={e => setForm(f => ({ ...f, newPass: e.target.value }))} /></div>
               <div className="iw"><div className="ilbl">Confirm Password</div><input className="inp" type="password" placeholder="Re-enter password" value={form.confirmPass} onChange={e => setForm(f => ({ ...f, confirmPass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} /></div>
@@ -2502,10 +2554,10 @@ export default function App() {
       {showLimit && (
         <div className="mbg" onClick={() => setShowLimit(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="mi">🔒</div>
+            <div className="mi"></div>
             <h3>Free Limit Reached</h3>
             <p>You've used all {FREE_LIMIT} free messages. Upgrade to Premium for unlimited access!</p>
-            <button className="btn btn-p" onClick={() => { setShowLimit(false); setShowUpgrade(true); }}>⭐ Upgrade Now</button>
+            <button className="btn btn-p" onClick={() => { setShowLimit(false); setShowUpgrade(true); }}>Upgrade Now</button>
             <button className="btn btn-s" onClick={() => setShowLimit(false)}>Maybe Later</button>
           </div>
         </div>
@@ -2530,9 +2582,9 @@ export default function App() {
                 <p>Unlimited chats · Voice Call · Faster AI · Ad-free</p>
                 <div className="pbox">
                   <div className="pnum">{upgradePlan === "monthly" ? "₹99 / month" : "₹29 / week"}</div>
-                  <div className="pstep"><span>1️⃣</span><span>UPI pe pay karo: <strong>{UPI}@upi</strong></span></div>
-                  <div className="pstep"><span>2️⃣</span><span>Screenshot lo</span></div>
-                  <div className="pstep"><span>3️⃣</span><span>WhatsApp karo confirmation ke liye</span></div>
+                  <div className="pstep"><span style={{fontWeight:700,color:"var(--accent)"}}>1.</span><span>Pay via UPI: <strong>{UPI}@upi</strong></span></div>
+                  <div className="pstep"><span style={{fontWeight:700,color:"var(--accent)"}}>2.</span><span>Screenshot lo</span></div>
+                  <div className="pstep"><span style={{fontWeight:700,color:"var(--accent)"}}>3.</span><span>Send screenshot on WhatsApp for confirmation</span></div>
                 </div>
                 <button className="btn btn-p" onClick={() => { window.open("upi://pay?pa=" + UPI + "@upi&pn=SaraswatiAI&am=" + (upgradePlan === "monthly" ? "99" : "29") + "&cu=INR", "_blank"); setPayDone(true); }}>💳 Pay Now</button>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -2557,7 +2609,7 @@ export default function App() {
                   ? <img className="pavimg" src={pPhoto || pPhotoUrl} alt="" />
                   : <div className="pavph">{(pName || displayName)[0]?.toUpperCase()}</div>
                 }
-                <div className="paved" onClick={() => pPhotoRef.current?.click()}>📷</div>
+                <div className="paved" onClick={() => pPhotoRef.current?.click()}></div>
                 <input ref={pPhotoRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handlePPhoto} />
               </div>
             </div>
@@ -2589,7 +2641,7 @@ export default function App() {
       {showDeleteAcc && (
         <div className="mbg" onClick={() => setShowDeleteAcc(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="mi">⚠️</div>
+            <div className="mi"></div>
             <h3>Delete Account</h3>
             <p>Ye action permanent hai. Saara data delete ho jayega. Type <strong>DELETE</strong> to confirm.</p>
             <input className="inp" placeholder='Type "DELETE" to confirm' value={delConfirmText} onChange={e => setDelConfirmText(e.target.value)} />
@@ -2898,9 +2950,9 @@ export default function App() {
                 <div style={{ opacity: 0.3, marginBottom: 12 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24A2.5 2.5 0 0 0 14.5 2z"/></svg></div>
                 <div style={{ fontSize: 14, marginBottom: 8 }}>Koi memory nahi hai abhi</div>
                 <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-                  Chat karo main seekhungi, ya<br />
+                  Start chatting, or type<br />
                   <span style={{ color: "var(--accent)" }}>"Remember that I am a developer"</span><br />
-                  type karo
+                  
                 </div>
               </div>
             ) : (
@@ -3042,27 +3094,39 @@ export default function App() {
                 <div className="stxt"><div className="slbl">Voice</div><div className="sdesc">Hindi + English</div></div>
                 <div className="sright"><span style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600 }}>Enabled</span></div>
               </div>
+            </div>
+
+            {/* ── MEMORY — All in one ── */}
+            <div className="sec" style={{ marginTop: 8 }}>Memory</div>
+            <div className="scard" style={{ marginBottom: 8 }}>
+              {/* ON/OFF toggle */}
               <div className="srow">
-                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="12" rx="10" ry="4"/><path d="M2 12c0 4.418 4.477 8 10 8s10-3.582 10-8"/><path d="M2 12c0-4.418 4.477-8 10-8s10 3.582 10 8"/><line x1="12" y1="4" x2="12" y2="20"/></svg></div>
-                <div className="stxt"><div className="slbl">Memory</div><div className="sdesc">Remember info across chats</div></div>
-                <div className="sright"><div className={"tgl" + (memoryEnabled ? " on" : "")} onClick={() => savePref("memoryEnabled", !memoryEnabled)}><div className="tk" /></div></div>
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24A2.5 2.5 0 0 0 14.5 2z"/></svg></div>
+                <div className="stxt">
+                  <div className="slbl">Memory</div>
+                  <div className="sdesc">Save and recall information across conversations</div>
+                </div>
+                <div className="sright">
+                  <div className={"tgl" + (memoryEnabled ? " on" : "")} onClick={() => savePref("memoryEnabled", !memoryEnabled)}><div className="tk" /></div>
+                </div>
+              </div>
+
+              {/* Add Memory */}
+              <div className="srow" style={{ cursor: "pointer", borderTop: "1px solid var(--bd)" }} onClick={() => setShowAddMem(true)}>
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
+                <div className="stxt"><div className="slbl">Add Memory</div><div className="sdesc">Manually save a fact about yourself</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+
+              {/* Clear All */}
+              <div className="srow" style={{ cursor: "pointer", borderTop: "1px solid var(--bd)" }} onClick={clearAllMemories}>
+                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
+                <div className="stxt"><div className="slbl">Clear All Memories</div><div className="sdesc">{memories.length} {memories.length === 1 ? "memory" : "memories"} saved</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
               </div>
             </div>
 
-            {/* Memory section */}
-            <div className="sec" style={{ marginTop: 8 }}>Memory</div>
-            <div className="scard" style={{ marginBottom: 8 }}>
-              <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowAddMem(true)}>
-                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
-                <div className="stxt"><div className="slbl">Add Memory</div><div className="sdesc">Manually save a fact</div></div>
-                <div className="sright"><Ico.ChevRight /></div>
-              </div>
-              <div className="srow" style={{ cursor: "pointer" }} onClick={clearAllMemories}>
-                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
-                <div className="stxt"><div className="slbl">Clear All Memories</div><div className="sdesc">{memories.length} saved</div></div>
-                <div className="sright"><Ico.ChevRight /></div>
-              </div>
-            </div>
+            {/* Saved memories list */}
             {memories.length > 0 && (
               <div style={{ marginBottom: 8 }}>
                 {memories.slice(0, 20).map(m => {
@@ -3080,18 +3144,18 @@ export default function App() {
                           </div>
                         ) : (
                           <>
-                            <div style={{ fontSize: 13, color: "var(--tx)" }}>{content}</div>
-                            <div style={{ fontSize: 10, color: "var(--mt)", marginTop: 2 }}>{m.category} · ★{m.importance_score || 5}</div>
+                            <div style={{ fontSize: 13, color: "var(--tx)", lineHeight: 1.5 }}>{content}</div>
+                            <div style={{ fontSize: 10, color: "var(--mt)", marginTop: 3 }}>{m.category} · Importance: {m.importance_score || 5}/10</div>
                           </>
                         )}
                       </div>
                       {editingMemId !== m.id && (
                         <div style={{ display: "flex", gap: 4 }}>
                           <button className="hact" onClick={() => { setEditingMemId(m.id); setEditMemVal(content); }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                           </button>
                           <button className="hact del" onClick={() => deleteMemory(m.id)}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
                           </button>
                         </div>
                       )}
@@ -3215,7 +3279,7 @@ export default function App() {
                   <h2 style={{ fontSize: 26, fontWeight: 700, marginTop: 8 }}>
                     {greeting}{firstName ? `, ${firstName}` : ""}
                   </h2>
-                  <div className="wsub">Kuch bhi puchho — main hoon na!</div>
+                  <div className="wsub">What can I help you with today?</div>
                 </div>
               );
             })()}
@@ -3281,21 +3345,27 @@ export default function App() {
 
           {/* Claude-style Input Bar */}
           <div className="ibar" style={{ position: "relative" }}>
-            <input ref={galleryRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleGallery} />
-            <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log,.xlsx,.xls,.pptx" multiple style={{ display: "none" }} onChange={handleFiles} />
+            <input ref={galleryRef} id="gallery-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={handleGallery} />
+            <input ref={fileRef} id="file-input" type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log,.xlsx,.xls,.pptx" multiple style={{ display: "none" }} onChange={handleFiles} />
 
             {/* Plus menu popup */}
             {showPlusMenu && (
               <div className="plusmenu">
-                <button className="plusmenu-item" onClick={() => { setShowPlusMenu(false); galleryRef.current?.click(); }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21"/></svg> <span>Image / Photo</span></button>
-                <button className="plusmenu-item" onClick={() => { setShowPlusMenu(false); fileRef.current?.click(); }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> <span>File (PDF, DOCX, XLSX…)</span></button>
+                <label htmlFor="gallery-input" className="plusmenu-item" onClick={() => setShowPlusMenu(false)} style={{ cursor: "pointer" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21"/></svg>
+                  <span>Photo / Camera</span>
+                </label>
+                <label htmlFor="file-input" className="plusmenu-item" onClick={() => setShowPlusMenu(false)} style={{ cursor: "pointer" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                  <span>File (PDF, DOCX, XLSX…)</span>
+                </label>
               </div>
             )}
 
             {/* Upgrade banner - free users only */}
             {!userData?.premium && (
               <div className="ibar-upgrade">
-                <span className="ibar-upgrade-txt">Unlimited chats with Premium</span>
+                <span className="ibar-upgrade-txt">Upgrade to Premium for unlimited chats</span>
                 <button className="ibar-upgrade-btn" onClick={() => setShowUpgrade(true)}>Upgrade →</button>
               </div>
             )}
@@ -3312,7 +3382,7 @@ export default function App() {
                   )}
                   {attachments.map((a, i) => (
                     <div key={i} style={{ background: "var(--sf2)", border: "1px solid var(--bd)", borderRadius: 10, padding: "5px 10px", fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}>
-                      <span>{a.error ? "⚠️" : "📎"}</span>
+                      <span>{a.error ? "" : "📎"}</span>
                       <span style={{ color: "var(--tx)" }}>{a.name.slice(0, 18)}</span>
                       <button onClick={() => removeAttachment(i)} style={{ background: "#ef4444", border: "none", borderRadius: "50%", color: "#fff", cursor: "pointer", fontSize: 10, width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                     </div>
