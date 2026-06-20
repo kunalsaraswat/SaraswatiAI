@@ -1736,27 +1736,21 @@ export default function App() {
         }
       };
 
-      recognition.onerror = (e) => {
-        if (e.error === "no-speech") {
-          if (micActiveRef.current) {
-            micRestartRef.current = setTimeout(() => {
-              if (micActiveRef.current) startSession();
-            }, 300);
-          }
-          return;
-        }
-        if (e.error === "not-allowed") {
-          alert("Please allow microphone access in your browser settings.");
-          micActiveRef.current = false;
-          setMicActive(false);
-          setMicTranscript("");
-          micFinalRef.current = "";
-          return;
-        }
-        micRestartRef.current = setTimeout(() => {
-          if (micActiveRef.current) startSession();
-        }, 500);
-      };
+    recognition.onerror = (event) => {
+      if (event.error === "not-allowed") {
+        micActiveRef.current = false;
+        setMicActive(false);
+        setMicTranscript("");
+        micFinalRef.current = "";
+        alert("Microphone permission required.\n\nSteps:\n1. Chrome address bar mein lock icon tap karo\n2. Microphone → Allow karo\n3. Page reload karo\n4. Phir mic try karo");
+        return;
+      }
+      if (event.error === "no-speech") return; // silence - ignore
+      // Other errors - restart if still active
+      if (micActiveRef.current) {
+        setTimeout(() => { if (micActiveRef.current) startSession(); }, 500);
+      }
+    };
 
       recognition.onend = () => {
         if (micActiveRef.current) {
@@ -1943,14 +1937,20 @@ export default function App() {
 
     recognition.onerror = (event) => {
       if (processed) return;
-      // no-speech = silence, just restart
+      if (event.error === "not-allowed") {
+        // Mic permission denied - close voice call and show message
+        voiceActiveRef.current = false;
+        setVs("idle");
+        setShowVoiceCall(false);
+        alert("Microphone permission required.\n\nSteps:\n1. Chrome address bar mein lock icon tap karo\n2. Microphone → Allow karo\n3. Page reload karo\n4. Phir voice call karo");
+        return;
+      }
       if (event.error === "no-speech" || event.error === "aborted") {
         if (voiceActiveRef.current && vsRef.current === "listen") {
           setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300);
         }
         return;
       }
-      // Other error - restart after delay
       if (voiceActiveRef.current) {
         setTimeout(() => {
           setVs("listen");
@@ -2085,11 +2085,17 @@ export default function App() {
     startListening(msgs, sessionTone || "female", sid, userData);
   }
 
-  function openVoiceCall() {
+  async function openVoiceCall() {
+    // Request mic permission first
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      alert("Microphone permission required.\n\nSteps:\n1. Chrome address bar mein lock icon tap karo\n2. Microphone → Allow karo\n3. Page reload karo\n4. Phir voice call karo");
+      return;
+    }
     setShowVoiceCall(true);
     setVTranscript("");
     setVLast("");
-    // Auto-start listening after short delay for UI to render
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setVs("idle"); return; }
     setTimeout(() => {
@@ -3345,22 +3351,8 @@ export default function App() {
 
           {/* Claude-style Input Bar */}
           <div className="ibar" style={{ position: "relative" }}>
-            <input ref={galleryRef} id="gallery-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={handleGallery} />
+            <input ref={galleryRef} id="gallery-input" type="file" accept="image/*" style={{ display: "none" }} onChange={handleGallery} />
             <input ref={fileRef} id="file-input" type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log,.xlsx,.xls,.pptx" multiple style={{ display: "none" }} onChange={handleFiles} />
-
-            {/* Plus menu popup */}
-            {showPlusMenu && (
-              <div className="plusmenu">
-                <label htmlFor="gallery-input" className="plusmenu-item" onClick={() => setShowPlusMenu(false)} style={{ cursor: "pointer" }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21"/></svg>
-                  <span>Photo / Camera</span>
-                </label>
-                <label htmlFor="file-input" className="plusmenu-item" onClick={() => setShowPlusMenu(false)} style={{ cursor: "pointer" }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                  <span>File (PDF, DOCX, XLSX…)</span>
-                </label>
-              </div>
-            )}
 
             {/* Upgrade banner - free users only */}
             {!userData?.premium && (
@@ -3404,8 +3396,32 @@ export default function App() {
               />
 
               {/* Bottom row */}
-              <div className="ibar-bottom">
-                <div className="ibar-left">
+              <div className="ibar-bottom" style={{ position: "relative" }}>
+                <div className="ibar-left" style={{ position: "relative" }}>
+                  {/* Plus menu popup — positioned above + button */}
+                  {showPlusMenu && (
+                    <div style={{
+                      position: "absolute", bottom: "110%", left: 0,
+                      background: "var(--sf)", border: "1px solid var(--bd)",
+                      borderRadius: 16, padding: 8, display: "flex",
+                      flexDirection: "column", gap: 4, zIndex: 100,
+                      boxShadow: "0 8px 28px #0009", minWidth: 160,
+                      animation: "fadeUp .15s ease"
+                    }}>
+                      <label htmlFor="gallery-input"
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)" }}
+                        onClick={() => setShowPlusMenu(false)}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21"/></svg>
+                        Photo / Camera
+                      </label>
+                      <label htmlFor="file-input"
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)" }}
+                        onClick={() => setShowPlusMenu(false)}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                        File (PDF, DOCX, XLSX…)
+                      </label>
+                    </div>
+                  )}
                   <button className="ibtn" onClick={() => setShowPlusMenu(v => !v)} title="Attach"
                     style={showPlusMenu ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
