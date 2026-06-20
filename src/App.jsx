@@ -759,10 +759,20 @@ function pickSaraswatiVoice(vs) {
   return vs[0] || null;
 }
 
+// Was flipping between Orpheus (English voice) and the browser's Hindi
+// voice from one reply to the next whenever the ratio of Devanagari vs
+// Latin characters tipped slightly — that's what caused the voice to
+// noticeably "change/baari-baari" mid-conversation. Since this app is
+// Hindi-first (Hinglish replies), we now only switch to the English
+// Orpheus voice when the text is OVERWHELMINGLY English (almost no
+// Devanagari at all) — any real Hindi content keeps the consistent
+// Hindi voice instead of toggling engines every other message.
 function isMostlyDevanagari(text) {
   const dev = (text.match(/[\u0900-\u097F]/g) || []).length;
   const latin = (text.match(/[A-Za-z]/g) || []).length;
-  return dev > latin;
+  if (dev === 0 && latin === 0) return true; // no letters (emojis/numbers) — stay on Hindi voice
+  if (dev > 0) return true;                  // any Devanagari at all → Hindi voice (sticky)
+  return latin === 0;                        // pure non-Latin, non-Devanagari edge case
 }
 
 // Splits text into chunks no longer than `max` chars, breaking on sentence
@@ -3371,34 +3381,37 @@ export default function App() {
               </div>
             </div>
 
-            {/* ── MEMORY — All in one ── */}
+            {/* ── MEMORY — All in one, collapsed under a single row ── */}
             <div className="sec" style={{ marginTop: 8 }}>Memory</div>
             <div className="scard" style={{ marginBottom: 8 }}>
-              {/* ON/OFF toggle */}
-              <div className="srow">
-                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24A2.5 2.5 0 0 0 14.5 2z"/></svg></div>
-                <div className="stxt">
-                  <div className="slbl">Memory</div>
-                  <div className="sdesc">Save and recall information across conversations</div>
+              <ExpandRow
+                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24A2.5 2.5 0 0 0 14.5 2z"/></svg>}
+                label="Memory"
+                desc={memoryEnabled ? `On · ${memories.length} ${memories.length === 1 ? "memory" : "memories"} saved` : "Off"}
+              >
+                {/* ON/OFF toggle */}
+                <div className="srow" style={{ borderBottom: "1px solid var(--bd)" }}>
+                  <div className="stxt">
+                    <div className="slbl">Save & recall memories</div>
+                    <div className="sdesc">Remember information across conversations</div>
+                  </div>
+                  <div className="sright">
+                    <div className={"tgl" + (memoryEnabled ? " on" : "")} onClick={() => savePref("memoryEnabled", !memoryEnabled)}><div className="tk" /></div>
+                  </div>
                 </div>
-                <div className="sright">
-                  <div className={"tgl" + (memoryEnabled ? " on" : "")} onClick={() => savePref("memoryEnabled", !memoryEnabled)}><div className="tk" /></div>
+
+                {/* Add Memory */}
+                <div className="srow" style={{ cursor: "pointer", borderBottom: "1px solid var(--bd)" }} onClick={() => setShowAddMem(true)}>
+                  <div className="stxt"><div className="slbl">Add Memory</div><div className="sdesc">Manually save a fact about yourself</div></div>
+                  <div className="sright"><Ico.ChevRight /></div>
                 </div>
-              </div>
 
-              {/* Add Memory */}
-              <div className="srow" style={{ cursor: "pointer", borderTop: "1px solid var(--bd)" }} onClick={() => setShowAddMem(true)}>
-                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
-                <div className="stxt"><div className="slbl">Add Memory</div><div className="sdesc">Manually save a fact about yourself</div></div>
-                <div className="sright"><Ico.ChevRight /></div>
-              </div>
-
-              {/* Clear All */}
-              <div className="srow" style={{ cursor: "pointer", borderTop: "1px solid var(--bd)" }} onClick={clearAllMemories}>
-                <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
-                <div className="stxt"><div className="slbl">Clear All Memories</div><div className="sdesc">{memories.length} {memories.length === 1 ? "memory" : "memories"} saved</div></div>
-                <div className="sright"><Ico.ChevRight /></div>
-              </div>
+                {/* Clear All */}
+                <div className="srow" style={{ cursor: "pointer" }} onClick={clearAllMemories}>
+                  <div className="stxt"><div className="slbl">Clear All Memories</div><div className="sdesc">{memories.length} {memories.length === 1 ? "memory" : "memories"} saved</div></div>
+                  <div className="sright"><Ico.ChevRight /></div>
+                </div>
+              </ExpandRow>
             </div>
 
             {/* Saved memories list */}
