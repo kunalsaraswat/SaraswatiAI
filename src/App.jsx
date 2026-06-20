@@ -1895,11 +1895,14 @@ export default function App() {
     // (~8.4% WER) than whisper-large-v3-turbo (~12% WER) — turbo is faster
     // but mishears more words, which was the complaint. Accuracy > speed here.
     form.append("model", "whisper-large-v3");
-    // No "language" param on purpose — Whisper auto-detects the spoken
-    // language from the audio itself and returns text in that language's script.
-    // A light prompt nudges Whisper toward natural Hindi/Hinglish phrasing
-    // and proper punctuation instead of guessing odd words for unclear audio.
-    form.append("prompt", "Hindi aur English mix mein baatcheet, sahi shabd aur punctuation ke saath.");
+    // Forcing language="hi" — without it, Whisper auto-detect would
+    // sometimes mistake Hindi speech for Urdu (very acoustically similar)
+    // and transcribe it in Urdu/Arabic script instead of Devanagari, which
+    // was the bug. Hindi speakers naturally mix in English words too —
+    // Whisper handles that fine under the "hi" setting (transliterates
+    // English words into Devanagari rather than switching scripts).
+    form.append("language", "hi");
+    form.append("prompt", "नमस्ते, यह हिंदी और इंग्लिश मिक्स बातचीत है।");
     form.append("temperature", "0");
     form.append("response_format", "json");
     const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
@@ -2060,76 +2063,132 @@ export default function App() {
   }
 
   function startListening(currentMsgs, currentTone, currentSid, currentUserData) {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR || !voiceActiveRef.current) return;
+    if (!voiceActiveRef.current) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert("Is browser mein microphone support nahi hai.");
+      setVs("idle");
+      return;
+    }
 
-    const recognition = new SR();
-    recognition.lang = "hi-IN";       // Hindi + English
-    recognition.continuous = false;   // Most reliable on mobile
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    let stopped = false;
+    let silenceTimer = null;
+    let recorder = null;
+    let stream = null;
+    let audioCtx = null;
+    const chunks = [];
 
-    let processed = false;
-    let gotAnyEvent = false;
-
-    // Watchdog: some Android/Chrome builds let recognition hang with
-    // zero events firing (no onresult/onerror/onend at all), leaving the
-    // UI stuck on "Listening..." indefinitely. If nothing happens within
-    // 8s, force a restart.
+    // Watchdog: if mic setup itself silently hangs, recover instead of
+    // staying stuck on "Listening..." forever.
     const watchdog = setTimeout(() => {
-      if (!gotAnyEvent && !processed && voiceActiveRef.current && vsRef.current === "listen") {
-        try { recognition.abort(); } catch {}
-        startListening(currentMsgs, currentTone, currentSid, currentUserData);
+      if (!stopped && voiceActiveRef.current && vsRef.current === "listen") {
+        finish(true);
       }
-    }, 8000);
+    }, 12000);
 
-    recognition.onresult = (event) => {
-      gotAnyEvent = true;
+    function cleanupAudioGraph() {
+      try { audioCtx?.close(); } catch {}
+      try { stream?.getTracks().forEach(t => t.stop()); } catch {}
+      if (silenceTimer) clearTimeout(silenceTimer);
+    }
+
+    async function finish(forceEmpty) {
+      if (stopped) return;
+      stopped = true;
       clearTimeout(watchdog);
-      if (processed || !voiceActiveRef.current) return;
-      const transcript = event.results[0][0].transcript?.trim();
-      if (!transcript) return;
-      processed = true;
-      setVTranscript(transcript);
-      processUtterance(transcript);
+      try { if (recorder && recorder.state !== "inactive") recorder.stop(); } catch {}
+      // recorder.onstop (below) handles the rest; if forceEmpty, just bail.
+      if (forceEmpty) {
+        cleanupAudioGraph();
+        if (voiceActiveRef.current && vsRef.current === "listen") {
+          startListening(currentMsgs, currentTone, currentSid, currentUserData);
+        }
+      }
+    }
+
+    // Lets endVoice()/handleOrb() interrupt an in-progress recording —
+    // mirrors the .stop()/.abort() shape the old SpeechRecognition object had.
+    voiceRef.current = {
+      stop: () => { stopped = true; clearTimeout(watchdog); cleanupAudioGraph(); try { if (recorder && recorder.state !== "inactive") recorder.stop(); } catch {} },
+      abort: () => { stopped = true; clearTimeout(watchdog); cleanupAudioGraph(); try { if (recorder && recorder.state !== "inactive") recorder.stop(); } catch {} }
     };
 
-    recognition.onerror = (event) => {
-      gotAnyEvent = true;
+    navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
+    }).then(s => {
+      if (!voiceActiveRef.current) { s.getTracks().forEach(t => t.stop()); return; }
+      stream = s;
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+        : (MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "");
+      recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+      recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+
+      recorder.onstop = async () => {
+        clearTimeout(watchdog);
+        cleanupAudioGraph();
+        const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
+        if (blob.size < 1200 || !voiceActiveRef.current) {
+          // Too short / silence — just listen again.
+          if (voiceActiveRef.current && vsRef.current === "listen") {
+            startListening(currentMsgs, currentTone, currentSid, currentUserData);
+          }
+          return;
+        }
+        try {
+          const transcript = await transcribeWithWhisper(blob, mimeType);
+          if (voiceActiveRef.current) processUtterance(transcript || "");
+        } catch (err) {
+          if (voiceActiveRef.current) {
+            setTimeout(() => { setVs("listen"); startListening(currentMsgs, currentTone, currentSid, currentUserData); }, 1000);
+          }
+        }
+      };
+
+      // Silence detection via Web Audio API: auto-stop recording ~1.1s
+      // after the user stops talking, so the call feels conversational
+      // instead of needing a manual stop button each turn.
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      let speechStarted = false;
+      let lastLoudAt = Date.now();
+
+      function checkSilence() {
+        if (stopped) return;
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
+        const rms = Math.sqrt(sum / data.length);
+        const now = Date.now();
+        if (rms > 0.02) { lastLoudAt = now; speechStarted = true; }
+        if (speechStarted && now - lastLoudAt > 1100) {
+          finish(false);
+          return;
+        }
+        if (!speechStarted && now - lastLoudAt > 9000) {
+          // Nobody spoke at all — give up this round and restart cleanly.
+          finish(true);
+          return;
+        }
+        requestAnimationFrame(checkSilence);
+      }
+
+      recorder.start();
+      requestAnimationFrame(checkSilence);
+    }).catch(err => {
       clearTimeout(watchdog);
-      if (processed) return;
-      if (event.error === "not-allowed") {
-        // Mic permission denied - close voice call and show message
+      if (err?.name === "NotAllowedError") {
         voiceActiveRef.current = false;
         setVs("idle");
         setShowVoiceCall(false);
         alert("Microphone permission required.\n\nSteps:\n1. Chrome address bar mein lock icon tap karo\n2. Microphone → Allow karo\n3. Page reload karo\n4. Phir voice call karo");
-        return;
+      } else if (voiceActiveRef.current) {
+        setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 1000);
       }
-      if (event.error === "no-speech" || event.error === "aborted") {
-        if (voiceActiveRef.current && vsRef.current === "listen") {
-          setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300);
-        }
-        return;
-      }
-      if (voiceActiveRef.current) {
-        setTimeout(() => {
-          setVs("listen");
-          startListening(currentMsgs, currentTone, currentSid, currentUserData);
-        }, 1000);
-      } else {
-        setVs("idle");
-      }
-    };
-
-    recognition.onend = () => {
-      gotAnyEvent = true;
-      clearTimeout(watchdog);
-      // If not processed and still active - restart
-      if (!processed && voiceActiveRef.current && vsRef.current === "listen") {
-        setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300);
-      }
-    };
+    });
 
     async function processUtterance(rawTranscript) {
       let transcript = rawTranscript.trim();
@@ -2147,8 +2206,9 @@ export default function App() {
       if (det) { setSessionTone(det); currentTone = det; }
       const tone = currentTone || "female";
 
+      setVTranscript(transcript); // briefly show what was heard before "thinking"
       setVs("think");
-      setVTranscript(""); // clear user transcript while AI is thinking
+      setTimeout(() => setVTranscript(""), 50); // clear shortly after, like before
 
       // Fetch fresh userData to avoid stale closure
       let ud = currentUserData;
@@ -2216,9 +2276,6 @@ export default function App() {
         }
       }
     }
-
-    voiceRef.current = recognition;
-    try { recognition.start(); } catch { setVs("idle"); }
   }
 
   async function handleOrb() {
@@ -2238,8 +2295,10 @@ export default function App() {
     }
     if (vs === "think") return;
 
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert("Voice Call ke liye Chrome ya Edge use karein."); return; }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert("Voice Call ke liye is browser mein microphone support nahi hai.");
+      return;
+    }
 
     voiceActiveRef.current = true;
     setVs("listen");
@@ -2249,11 +2308,12 @@ export default function App() {
   }
 
   async function openVoiceCall() {
-    // Request mic permission first, then IMMEDIATELY release the stream.
-    // SpeechRecognition opens its own internal mic stream — holding this
-    // getUserMedia stream open at the same time was causing recognition
-    // to silently hang on some Android/Chrome builds (no onresult, no
-    // onerror, no onend — just stuck on "Listening..." forever).
+    // Request mic permission upfront so the user sees the prompt immediately
+    // when opening the call, instead of mid-conversation.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert("Voice Call ke liye is browser mein microphone support nahi hai.");
+      return;
+    }
     try {
       const probeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       probeStream.getTracks().forEach(t => t.stop());
@@ -2264,8 +2324,6 @@ export default function App() {
     setShowVoiceCall(true);
     setVTranscript("");
     setVLast("");
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { setVs("idle"); return; }
 
     voiceActiveRef.current = true;
     const tone = sessionTone || "female";
