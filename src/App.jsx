@@ -759,7 +759,72 @@ function pickSaraswatiVoice(vs) {
   return vs[0] || null;
 }
 
-function speakText(text, tone, speed, onDone) {
+function isMostlyDevanagari(text) {
+  const dev = (text.match(/[\u0900-\u097F]/g) || []).length;
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  return dev > latin;
+}
+
+// Splits text into chunks no longer than `max` chars, breaking on sentence
+// boundaries where possible (Orpheus TTS has a 200-char input limit).
+function chunkForTTS(text, max = 190) {
+  const sentences = text.split(/(?<=[.!?।])\s+/);
+  const chunks = [];
+  let cur = "";
+  for (const s of sentences) {
+    if ((cur + " " + s).trim().length > max) {
+      if (cur.trim()) chunks.push(cur.trim());
+      cur = s.length > max ? s.slice(0, max) : s; // hard-truncate runaway sentence
+    } else {
+      cur = (cur + " " + s).trim();
+    }
+  }
+  if (cur.trim()) chunks.push(cur.trim());
+  return chunks.length ? chunks : [text.slice(0, max)];
+}
+
+let ttsAudioRef = null; // tracks the currently-playing Orpheus <audio> element
+
+function stopOrpheusAudio() {
+  if (ttsAudioRef) {
+    try { ttsAudioRef.pause(); ttsAudioRef.src = ""; } catch {}
+    ttsAudioRef = null;
+  }
+}
+
+function stopAllSpeech() {
+  stopOrpheusAudio();
+  try { window.speechSynthesis?.cancel(); } catch {}
+}
+
+async function speakWithOrpheus(text, voice, onDone) {
+  const chunks = chunkForTTS(text);
+  for (let i = 0; i < chunks.length; i++) {
+    const res = await fetch("https://api.groq.com/openai/v1/audio/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ },
+      body: JSON.stringify({
+        model: "canopylabs/orpheus-v1-english",
+        voice,
+        input: chunks[i],
+        response_format: "mp3"
+      })
+    });
+    if (!res.ok) throw new Error("TTS request failed: " + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    await new Promise((resolve, reject) => {
+      const audio = new Audio(url);
+      ttsAudioRef = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+      audio.onerror = () => { URL.revokeObjectURL(url); reject(new Error("playback failed")); };
+      audio.play().catch(reject);
+    });
+  }
+  if (onDone) onDone();
+}
+
+function speakWithBrowserTTS(text, speed, onDone) {
   window.speechSynthesis.cancel();
   const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^\x00-\x7F\u0900-\u097F .,!?]/g, "").slice(0, 600);
   const go = () => {
@@ -775,6 +840,29 @@ function speakText(text, tone, speed, onDone) {
     window.speechSynthesis.speak(u);
   };
   if (!window.speechSynthesis.getVoices().length) { window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; go(); }; } else go();
+}
+
+// tone: "female" | "male" — mapped to a natural Orpheus voice.
+// Orpheus (Groq) gives a genuinely human-like voice but only supports
+// English/Arabic right now — so Hindi/Devanagari replies still use the
+// browser's built-in voice as a fallback (and if the Orpheus call fails
+// for any reason, e.g. offline or rate-limited).
+function speakText(text, tone, speed, onDone) {
+  stopOrpheusAudio();
+  window.speechSynthesis.cancel();
+  const clean = text.replace(/```[\s\S]*?```/g, " code block ").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").trim();
+  if (!clean) { if (onDone) onDone(); return; }
+
+  if (isMostlyDevanagari(clean)) {
+    speakWithBrowserTTS(clean, speed, onDone);
+    return;
+  }
+
+  const voice = tone === "male" ? "austin" : "hannah";
+  speakWithOrpheus(clean.slice(0, 1800), voice, onDone).catch(() => {
+    // Fallback to browser TTS if Orpheus fails (network issue, rate limit, etc.)
+    speakWithBrowserTTS(clean, speed, onDone);
+  });
 }
 
 // ── SARASWATI LOGO — Premium Saffron Lotus ─────────────────────
@@ -1414,7 +1502,7 @@ export default function App() {
     if (user && page === "projects") loadProjects();
     if (user && page === "memory") loadMemories(user.uid);
     if (page !== "voice") endVoice();
-    window.speechSynthesis?.cancel();
+    stopAllSpeech();
     setSpeakId(null); setShowRx(null);
   }, [page]);
 
@@ -1743,7 +1831,15 @@ export default function App() {
 
     // START — begin recording
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Better mic constraints = cleaner audio = fewer Whisper mis-hears.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1
+        }
+      });
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
 
@@ -1795,9 +1891,16 @@ export default function App() {
     const ext = mimeType?.includes("mp4") ? "m4a" : "webm";
     const form = new FormData();
     form.append("file", blob, `recording.${ext}`);
-    form.append("model", "whisper-large-v3-turbo");
+    // whisper-large-v3 (non-turbo) has a meaningfully lower error rate
+    // (~8.4% WER) than whisper-large-v3-turbo (~12% WER) — turbo is faster
+    // but mishears more words, which was the complaint. Accuracy > speed here.
+    form.append("model", "whisper-large-v3");
     // No "language" param on purpose — Whisper auto-detects the spoken
     // language from the audio itself and returns text in that language's script.
+    // A light prompt nudges Whisper toward natural Hindi/Hinglish phrasing
+    // and proper punctuation instead of guessing odd words for unclear audio.
+    form.append("prompt", "Hindi aur English mix mein baatcheet, sahi shabd aur punctuation ke saath.");
+    form.append("temperature", "0");
     form.append("response_format", "json");
     const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
       method: "POST",
@@ -1810,7 +1913,7 @@ export default function App() {
   }
 
   function toggleSpeak(id, text) {
-    if (speakId === id) { window.speechSynthesis?.cancel(); setSpeakId(null); return; }
+    if (speakId === id) { stopAllSpeech(); setSpeakId(null); return; }
     setSpeakId(id);
     speakText(text, sessionTone || "female", 0.95, () => setSpeakId(null));
   }
@@ -1951,7 +2054,7 @@ export default function App() {
     voiceActiveRef.current = false;
     voiceRef.current?.stop?.();
     voiceRef.current?.abort?.();
-    window.speechSynthesis?.cancel();
+    stopAllSpeech();
     setVs("idle");
     setVTranscript("");
   }
@@ -2128,7 +2231,7 @@ export default function App() {
     }
     if (vs === "speak") {
       voiceActiveRef.current = false;
-      window.speechSynthesis?.cancel();
+      stopAllSpeech();
       setVs("idle");
       setVTranscript("");
       return;
@@ -2405,6 +2508,33 @@ export default function App() {
 
   function newChat() { setSid(Date.now().toString()); setMsgs([]); setPage("chat"); setShowSb(false); setImgB64(null); setImgPrev(null); endVoice(); setReactions({}); setSessionTone(null); }
 
+  // Long-press (mobile) / right-click-free long-press (desktop) on a sidebar
+  // chat item opens the same Rename / Pin / Delete context menu used on the
+  // History page, like Claude's app does for its recent chats list.
+  const longPressTimer = useRef(null);
+  const longPressFired = useRef(false);
+  function bindLongPress(histId) {
+    const start = (e) => {
+      longPressFired.current = false;
+      const x = e.touches ? e.touches[0].clientX : e.clientX;
+      const y = e.touches ? e.touches[0].clientY : e.clientY;
+      longPressTimer.current = setTimeout(() => {
+        longPressFired.current = true;
+        if (navigator.vibrate) navigator.vibrate(15);
+        setChatContextMenu({ histId, x, y });
+      }, 500);
+    };
+    const cancel = () => { if (longPressTimer.current) clearTimeout(longPressTimer.current); };
+    return {
+      onTouchStart: start,
+      onTouchEnd: cancel,
+      onTouchMove: cancel,
+      onMouseDown: start,
+      onMouseUp: cancel,
+      onMouseLeave: cancel,
+    };
+  }
+
   const isAdmin = user?.email === ADMIN;
   const chatsLeft = userData?.premium ? null : Math.max(0, FREE_LIMIT - (userData?.usageCount || 0));
   const displayName = userData?.name || user?.displayName || "User";
@@ -2603,7 +2733,7 @@ export default function App() {
                   <div className="sb-section">📌 Pinned</div>
                   <div className="sb-recent">
                     {pinnedHists.map(h => (
-                      <div key={h.id} className="sb-ritem" onClick={() => loadSession(h)}>
+                      <div key={h.id} className="sb-ritem" onClick={() => { if (!longPressFired.current) loadSession(h); }} {...bindLongPress(h.id)}>
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                         <span className="sb-rtxt">{h.title || "Chat"}</span>
                         <span className="sb-rdate">{fmtDate(h.updatedAt)}</span>
@@ -2617,7 +2747,7 @@ export default function App() {
                   <div className="sb-section">Recent</div>
                   <div className="sb-recent">
                     {hists.filter(h => !h.archived).slice(0, 10).map(h => (
-                      <div key={h.id} className="sb-ritem" onClick={() => loadSession(h)}>
+                      <div key={h.id} className="sb-ritem" onClick={() => { if (!longPressFired.current) loadSession(h); }} {...bindLongPress(h.id)}>
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         <span className="sb-rtxt">{h.title || "Chat"}</span>
                         <span className="sb-rdate">{fmtDate(h.updatedAt)}</span>
