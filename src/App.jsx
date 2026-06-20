@@ -3089,7 +3089,18 @@ export default function App() {
         {page === "chat" && (
           <>
             {chatsLeft !== null && chatsLeft <= 10 && (
-              <div style={{ fontSize: 11, color: chatsLeft <= 3 ? "#ef4444" : "var(--mt)", fontWeight: 600 }}>{chatsLeft} left</div>
+              <div style={{
+                fontSize: 11,
+                color: "#fff",
+                fontWeight: 700,
+                background: chatsLeft <= 3 ? "#ef4444" : "var(--accent)",
+                borderRadius: 20,
+                padding: "2px 9px",
+                minWidth: 28,
+                textAlign: "center",
+                letterSpacing: 0.2,
+                boxShadow: chatsLeft <= 3 ? "0 0 8px #ef444460" : "0 0 8px var(--glow)",
+              }}>{chatsLeft}</div>
             )}
             <button className="nbtn" onClick={newChat}>+ New</button>
           </>
@@ -3769,20 +3780,20 @@ export default function App() {
                       flexDirection: "column", gap: 4, zIndex: 100,
                       boxShadow: "0 8px 28px #0009", minWidth: 160,
                       animation: "fadeUp .15s ease"
-                    }}>
-                      <button type="button" onClick={() => { setShowPlusMenu(false); galleryRef.current?.click(); }}
+                    }} onClick={e => e.stopPropagation()}>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => galleryRef.current?.click(), 50); }}
                         style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)", background: "none", border: "none", width: "100%", textAlign: "left", fontFamily: "'Inter',sans-serif" }}>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21"/></svg>
                         Photo / Camera
                       </button>
-                      <button type="button" onClick={() => { setShowPlusMenu(false); fileRef.current?.click(); }}
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => fileRef.current?.click(), 50); }}
                         style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)", background: "none", border: "none", width: "100%", textAlign: "left", fontFamily: "'Inter',sans-serif" }}>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                         File (PDF, DOCX, XLSX…)
                       </button>
                     </div>
                   )}
-                  <button className="ibtn" onClick={() => setShowPlusMenu(v => !v)} title="Attach"
+                  <button className="ibtn" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(v => !v); }} title="Attach"
                     style={showPlusMenu ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   </button>
