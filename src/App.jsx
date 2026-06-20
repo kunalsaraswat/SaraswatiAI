@@ -580,18 +580,60 @@ For images: carefully read ALL visible text, describe objects, colors, and conte
         { type: "text", text: last.text || "What is in this image? Describe all details — text, objects, colors, and context." }
       ]}
     ];
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ }, body: JSON.stringify({ model: VISION_MODEL, messages: visionMsgs, max_tokens: 2048 }) });
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ },
+      body: JSON.stringify({
+        model: VISION_MODEL,
+        messages: visionMsgs,
+        max_tokens: 2048,
+        temperature: 0.6,
+        top_p: 0.9,
+        frequency_penalty: 0.6,
+        presence_penalty: 0.4
+      })
+    });
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
-    return data.choices?.[0]?.message?.content || "No response.";
+    return dedupeRepeatedSentences(data.choices?.[0]?.message?.content || "No response.");
   }
 
   const lastContent = last.fileContext ? last.text + last.fileContext : last.text;
   const apiMsgs = [...messages.slice(0, -1).map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.fileContext ? m.text + m.fileContext : m.text })), { role: "user", content: lastContent }];
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ }, body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "system", content: sys }, ...apiMsgs], max_tokens: 2048 }) });
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ },
+    body: JSON.stringify({
+      model: CHAT_MODEL,
+      messages: [{ role: "system", content: sys }, ...apiMsgs],
+      max_tokens: 2048,
+      temperature: 0.6,
+      top_p: 0.9,
+      frequency_penalty: 0.6,
+      presence_penalty: 0.4
+    })
+  });
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
-  return data.choices?.[0]?.message?.content || "No response.";
+  let answer = data.choices?.[0]?.message?.content || "No response.";
+  answer = dedupeRepeatedSentences(answer);
+  return answer;
+}
+
+// Guards against the model looping the same clause/sentence over and over
+// (seen e.g. on "duniya ka sabse amir aadmi kaun hai" style prompts on llama-3.3).
+function dedupeRepeatedSentences(text) {
+  if (!text) return text;
+  const parts = text.split(/(?<=[.!?।])\s+/);
+  const seen = new Set();
+  const out = [];
+  for (const p of parts) {
+    const key = p.trim().toLowerCase().replace(/\s+/g, " ");
+    if (key.length > 8 && seen.has(key)) continue; // skip exact repeat sentence
+    if (key.length > 8) seen.add(key);
+    out.push(p);
+  }
+  return out.join(" ").trim();
 }
 
 // ── LONG-TERM MEMORY SYSTEM (ChatGPT-style) ─────────────────────
@@ -1673,98 +1715,98 @@ export default function App() {
     r.readAsDataURL(file);
   }
 
-  // ── SPEECH TO TEXT — Heavy Production Grade ─────────────────────
+  // ── SPEECH TO TEXT — Any-language auto-detect (Groq Whisper) ────
+  // Browser's built-in SpeechRecognition only supports ONE fixed language
+  // per session and can't truly auto-detect — so we record raw audio and
+  // send it to Whisper, which detects the spoken language itself and
+  // transcribes in that language/script automatically.
   const [micTranscript, setMicTranscript] = useState("");
-  const micRestartRef = useRef(null);
-  const micFinalRef = useRef("");
   const micActiveRef = useRef(false);
+  const mediaRecorderRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const [micBusy, setMicBusy] = useState(false); // transcribing spinner state
 
-  function toggleMic() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      alert("Chrome browser use karein voice input ke liye.");
+  async function toggleMic() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert("Is browser mein microphone support nahi hai.");
       return;
     }
 
+    // STOP — finish recording, send to Whisper
     if (micActive) {
-      try { micRef.current?.stop(); } catch {}
-      if (micRestartRef.current) clearTimeout(micRestartRef.current);
       micActiveRef.current = false;
-      if (micFinalRef.current.trim()) {
-        setInput(p => (p.trim() + " " + micFinalRef.current.trim()).trim());
-      }
-      micFinalRef.current = "";
       setMicActive(false);
-      setMicTranscript("");
+      try { mediaRecorderRef.current?.stop(); } catch {}
       return;
     }
 
-    micFinalRef.current = "";
-    micActiveRef.current = true;
-    setMicActive(true);
-    setMicTranscript("");
+    // START — begin recording
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
 
-    function startSession() {
-      if (!micActive && micFinalRef.current === "" && !micRestartRef.current) {
-        // first start
-      }
-      const recognition = new SR();
-      recognition.lang = language === "english" ? "en-IN" : "hi-IN";
-      recognition.continuous = true;      // Keep listening
-      recognition.interimResults = true;  // Live transcript
-      recognition.maxAlternatives = 1;
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : (MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "");
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
 
-      recognition.onresult = (e) => {
-        let finalChunk = "";
-        let interim = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i].isFinal) {
-            finalChunk += e.results[i][0].transcript;
-          } else {
-            interim += e.results[i][0].transcript;
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()); } catch {}
+        const blob = new Blob(audioChunksRef.current, { type: mimeType || "audio/webm" });
+        audioChunksRef.current = [];
+        if (blob.size < 1000) { setMicTranscript(""); setMicBusy(false); return; } // too short / silence
+        setMicBusy(true);
+        try {
+          const text = await transcribeWithWhisper(blob, mimeType);
+          if (text && text.trim()) {
+            setInput(p => (p.trim() + " " + text.trim()).trim());
           }
-        }
-        if (finalChunk) {
-          micFinalRef.current += " " + finalChunk;
-          micFinalRef.current = micFinalRef.current.trim();
-        }
-        // Show: confirmed text + live interim
-        setMicTranscript(interim);
-        // Update input live with final text
-        if (micFinalRef.current) {
-          setInput(micFinalRef.current + (interim ? " " + interim : ""));
+        } catch (err) {
+          alert("Voice transcribe nahi ho paya: " + (err?.message || "try again"));
+        } finally {
+          setMicBusy(false);
+          setMicTranscript("");
         }
       };
 
-    recognition.onerror = (event) => {
-      if (event.error === "not-allowed") {
-        micActiveRef.current = false;
-        setMicActive(false);
-        setMicTranscript("");
-        micFinalRef.current = "";
+      mediaRecorderRef.current = recorder;
+      micActiveRef.current = true;
+      setMicActive(true);
+      setMicTranscript("");
+      recorder.start();
+    } catch (err) {
+      if (err?.name === "NotAllowedError") {
         alert("Microphone permission required.\n\nSteps:\n1. Chrome address bar mein lock icon tap karo\n2. Microphone → Allow karo\n3. Page reload karo\n4. Phir mic try karo");
-        return;
+      } else {
+        alert("Mic start nahi ho saka: " + (err?.message || "unknown error"));
       }
-      if (event.error === "no-speech") return; // silence - ignore
-      // Other errors - restart if still active
-      if (micActiveRef.current) {
-        setTimeout(() => { if (micActiveRef.current) startSession(); }, 500);
-      }
-    };
-
-      recognition.onend = () => {
-        if (micActiveRef.current) {
-          micRestartRef.current = setTimeout(() => {
-            if (micActiveRef.current) startSession();
-          }, 200);
-        }
-      };
-
-      micRef.current = recognition;
-      try { recognition.start(); } catch {}
+      micActiveRef.current = false;
+      setMicActive(false);
     }
+  }
 
-    startSession();
+  async function transcribeWithWhisper(blob, mimeType) {
+    const ext = mimeType?.includes("mp4") ? "m4a" : "webm";
+    const form = new FormData();
+    form.append("file", blob, `recording.${ext}`);
+    form.append("model", "whisper-large-v3-turbo");
+    // No "language" param on purpose — Whisper auto-detects the spoken
+    // language from the audio itself and returns text in that language's script.
+    form.append("response_format", "json");
+    const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + GROQ },
+      body: form
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    return data.text || "";
   }
 
   function toggleSpeak(id, text) {
@@ -1925,8 +1967,22 @@ export default function App() {
     recognition.maxAlternatives = 1;
 
     let processed = false;
+    let gotAnyEvent = false;
+
+    // Watchdog: some Android/Chrome builds let recognition hang with
+    // zero events firing (no onresult/onerror/onend at all), leaving the
+    // UI stuck on "Listening..." indefinitely. If nothing happens within
+    // 8s, force a restart.
+    const watchdog = setTimeout(() => {
+      if (!gotAnyEvent && !processed && voiceActiveRef.current && vsRef.current === "listen") {
+        try { recognition.abort(); } catch {}
+        startListening(currentMsgs, currentTone, currentSid, currentUserData);
+      }
+    }, 8000);
 
     recognition.onresult = (event) => {
+      gotAnyEvent = true;
+      clearTimeout(watchdog);
       if (processed || !voiceActiveRef.current) return;
       const transcript = event.results[0][0].transcript?.trim();
       if (!transcript) return;
@@ -1936,6 +1992,8 @@ export default function App() {
     };
 
     recognition.onerror = (event) => {
+      gotAnyEvent = true;
+      clearTimeout(watchdog);
       if (processed) return;
       if (event.error === "not-allowed") {
         // Mic permission denied - close voice call and show message
@@ -1962,6 +2020,8 @@ export default function App() {
     };
 
     recognition.onend = () => {
+      gotAnyEvent = true;
+      clearTimeout(watchdog);
       // If not processed and still active - restart
       if (!processed && voiceActiveRef.current && vsRef.current === "listen") {
         setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 300);
@@ -2086,9 +2146,14 @@ export default function App() {
   }
 
   async function openVoiceCall() {
-    // Request mic permission first
+    // Request mic permission first, then IMMEDIATELY release the stream.
+    // SpeechRecognition opens its own internal mic stream — holding this
+    // getUserMedia stream open at the same time was causing recognition
+    // to silently hang on some Android/Chrome builds (no onresult, no
+    // onerror, no onend — just stuck on "Listening..." forever).
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      const probeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probeStream.getTracks().forEach(t => t.stop());
     } catch (e) {
       alert("Microphone permission required.\n\nSteps:\n1. Chrome address bar mein lock icon tap karo\n2. Microphone → Allow karo\n3. Page reload karo\n4. Phir voice call karo");
       return;
@@ -2098,12 +2163,28 @@ export default function App() {
     setVLast("");
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setVs("idle"); return; }
+
+    voiceActiveRef.current = true;
+    const tone = sessionTone || "female";
+    const isFirstEver = (msgs?.length || 0) === 0;
+    const greeting = isFirstEver
+      ? "Namaste! Main Saraswati AI hoon. Aap mujhse kuch bhi pooch sakte hain, batayein kaise madad karu?"
+      : "Namaste! Main sun rahi hoon, boliye.";
+
+    setVs("speak");
+    setVLast(greeting);
     setTimeout(() => {
-      voiceActiveRef.current = true;
-      setVs("listen");
-      startListening(msgs, sessionTone || "female", sid, userData);
-    }, 600);
+      speakText(greeting, tone, 0.95, () => {
+        if (voiceActiveRef.current) {
+          setVs("listen");
+          startListening(msgs, tone, sid, userData);
+        } else {
+          setVs("idle");
+        }
+      });
+    }, 300);
   }
+
 
   function closeVoiceCall() {
     endVoice();
@@ -3386,13 +3467,13 @@ export default function App() {
               {/* Textarea */}
               <textarea
                 className="tinp"
-                placeholder={micActive ? "Listening..." : "Message..."}
-                value={micActive && micTranscript ? input + (input ? " " : "") + micTranscript : input}
-                onChange={e => { if (!micActive) { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 130) + "px"; } }}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (micActive) { micRef.current?.stop(); setMicActive(false); setMicTranscript(""); } sendMsg(); } }}
+                placeholder={micActive ? "Listening... (tap mic to stop)" : micBusy ? "Transcribing..." : "Message..."}
+                value={input}
+                onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 130) + "px"; }}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!micActive && !micBusy) sendMsg(); } }}
                 rows={1}
-                readOnly={micActive}
-                style={micActive ? { color: "var(--accent)" } : {}}
+                readOnly={micActive || micBusy}
+                style={(micActive || micBusy) ? { color: "var(--accent)" } : {}}
               />
 
               {/* Bottom row */}
@@ -3430,9 +3511,9 @@ export default function App() {
                 </div>
                 <div className="ibar-right">
                   {/* STT mic */}
-                  <button className={"ibtn" + (micActive ? " rec" : "")} onClick={toggleMic}
-                    style={micActive ? { borderColor: "#ef4444", color: "#ef4444", background: "#ef444418" } : {}}>
-                    <Ico.Mic on={micActive} />
+                  <button className={"ibtn" + (micActive ? " rec" : "")} onClick={toggleMic} disabled={micBusy} title={micBusy ? "Transcribing..." : "Voice input"}
+                    style={micActive ? { borderColor: "#ef4444", color: "#ef4444", background: "#ef444418" } : micBusy ? { opacity: 0.6 } : {}}>
+                    {micBusy ? <SaraswatiLogo size={18} animate={true} state="thinking" /> : <Ico.Mic on={micActive} />}
                   </button>
                   {/* Voice Call — Animated Saffron Lotus */}
                   <button className="ibtn" onClick={openVoiceCall} title="Voice Call"
@@ -3441,8 +3522,8 @@ export default function App() {
                   </button>
                   {/* Send */}
                   <button className="sbtn"
-                    onClick={() => { if (micActive) { micRef.current?.stop(); setMicActive(false); setMicTranscript(""); } sendMsg(); }}
-                    disabled={loading || (!input.trim() && !imgB64 && !imgPrev && !attachments.length && !micTranscript)}>
+                    onClick={() => sendMsg()}
+                    disabled={loading || micActive || micBusy || (!input.trim() && !imgB64 && !imgPrev && !attachments.length)}>
                     {loading ? <SaraswatiLogo size={18} animate={true} state="thinking" /> : "➤"}
                   </button>
                 </div>
