@@ -661,7 +661,8 @@ For farming/mandi rates specifically (crops, vegetables, fruits, grains — e.g.
 This location-ask rule applies ONLY to actual farm-produce mandi prices — never to gold, silver, petrol, diesel, stocks, currency, or other non-agricultural prices, and never to weather/temperature questions.
 For weather/temperature: if "Latest Info" below already has the answer, use it directly. If the user asked about weather/temperature with no city named at all, just ask "Kis shehar ka mausam/temperature batau?" — keep it short, don't mention state/district/mandi.
 If "Latest Info" / search results are provided below, treat that as the current, correct answer and use it directly instead of asking clarifying questions.
-For images: carefully read ALL visible text, describe objects, colors, and context in detail.${memCtx}${ctx}${extraNote}`;
+For images: carefully read ALL visible text, describe objects, colors, and context in detail.
+For media/video/cartoon/movie/song requests: You ARE allowed to give direct YouTube search links and other platform links. Always provide clickable links like: https://www.youtube.com/results?search_query=motu+patlu — never say you cannot provide links. You can and should give links.${memCtx}${ctx}${extraNote}`;
 
   if (imageB64) {
     const visionMsgs = [
@@ -917,9 +918,9 @@ async function speakWithSarvam(text, tone, onDone) {
         inputs: [chunk],
         target_language_code: "hi-IN",
         speaker,
-        pitch: 0,
-        pace: 1.0,
-        loudness: 1.5,
+        pitch: -1.5,
+        pace: 0.9,
+        loudness: 2.0,
         speech_sample_rate: 22050,
         enable_preprocessing: true,
         model: "bulbul:v2"
@@ -985,7 +986,7 @@ function speakWithBrowserTTS(text, speed, onDone) {
     if (v) u.voice = v;
     u.lang = "hi-IN";
     u.rate = speed || 0.95;
-    u.pitch = 1.05;
+    u.pitch = 0.85;
     u.volume = 1;
     u.onend = onDone || null; u.onerror = onDone || null;
     window.speechSynthesis.speak(u);
@@ -3427,8 +3428,9 @@ export default function App() {
                 {vLast.slice(0, 200)}{vLast.length > 200 ? "..." : ""}
               </div>
             ) : (
-              <div className="vsub">
-                {vs === "idle" ? "Tap orb to start talking" : vs === "listen" ? "Listening..." : vs === "think" ? "Thinking..." : "Speaking..."}
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 52, marginBottom: 12 }}>🙏</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "#fff", letterSpacing: 0.3 }}>I am Saraswati</div>
               </div>
             )}
           </div>
