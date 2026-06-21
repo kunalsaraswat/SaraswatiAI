@@ -25,6 +25,7 @@ const db = getFirestore(fapp);
 
 const GROQ = import.meta.env.VITE_GROQ_API_KEY || "";
 const TAVILY = import.meta.env.VITE_TAVILY_API_KEY || "";
+const SARVAM = import.meta.env.VITE_SARVAM_API_KEY || "";
 const ADMIN = "kunalsaraswat691@gmail.com";
 const UPI = "8126630980";
 const FREE_LIMIT = 49;
@@ -249,6 +250,93 @@ async function webSearch(q) {
 function needsImageGen(t) { return ["image banao","photo banao","tasveer banao","picture banao","draw","generate image","sketch","wallpaper","logo banao","poster"].some(k => t.toLowerCase().includes(k)); }
 function extractPrompt(t) { let p = t.toLowerCase(); ["image banao","photo banao","tasveer banao","picture banao","generate image of","generate image","draw a","draw","sketch","wallpaper","logo banao","poster","ki","ka","of"].forEach(k => { p = p.split(k).join(" "); }); return p.trim() || t; }
 function getImgUrl(p) { return `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=768&height=768&seed=${Math.floor(Math.random() * 99999)}&nologo=true`; }
+// ── MEDIA LINK FEATURE ──────────────────────────────────────────
+function needsMediaLink(t) {
+  const tl = t.toLowerCase();
+  // Action words - user must ask for link/show/search
+  const actionWords = [
+    "link do","link dedo","link bhejo","link chahiye","link send","link dena",
+    "dikhao","dikha do","dikha","dekhna hai","dekhna","watch karna","play karo",
+    "download","youtube pe","yt pe","youtube par","youtube link","video link",
+    "search karo","dhundo","kahan dekhe","kahan dekhun","kahan milega","kaise dekhe",
+    "app link","app download","play store","app store","install"
+  ];
+  const hasAction = actionWords.some(k => tl.includes(k));
+  if (!hasAction) return false;
+
+  // Content keywords - what they want
+  const contentWords = [
+    "cartoon","motu patlu","doremon","doraemon","shinchan","shin chan","chhota bheem","chota bheem",
+    "oggy","tom and jerry","tom jerry","pokemon","dragon ball","naruto","spider man","spiderman",
+    "batman","superman","avengers","ninja hattori","hatim","krishna","bal ganesh","hanuman","little singham",
+    "movie","film","natak","serial","show","web series","webseries","episode",
+    "song","gana","gaana","music","video",
+    "netflix","hotstar","amazon prime","zee5","sonyliv","voot","jiocinema","mx player","youtube"
+  ];
+  return contentWords.some(k => tl.includes(k));
+}
+
+function getMediaLinks(query) {
+  const tl = query.toLowerCase();
+  const ytQuery = encodeURIComponent(query.replace(/link do|link dedo|dikhao|dikha do|chahiye|please|plz|send karo/gi, "").trim());
+  
+  // Detect type
+  const isApp = tl.includes("app") || tl.includes("download") || tl.includes("install") || tl.includes("play store");
+  const isMovie = tl.includes("movie") || tl.includes("film") || tl.includes("cinema");
+  const isSong = tl.includes("song") || tl.includes("gana") || tl.includes("gaana") || tl.includes("music");
+  const isNetflix = tl.includes("netflix");
+  const isHotstar = tl.includes("hotstar");
+  const isPrime = tl.includes("prime") || tl.includes("amazon");
+  
+  const links = [];
+  
+  // Always add YouTube search
+  links.push({
+    platform: "YouTube",
+    icon: "▶",
+    color: "#ff0000",
+    url: `https://www.youtube.com/results?search_query=${ytQuery}`,
+    label: "YouTube pe search karo"
+  });
+  
+  // Platform specific
+  if (isNetflix) {
+    links.push({ platform: "Netflix", icon: "N", color: "#e50914", url: "https://www.netflix.com/search?q=" + ytQuery, label: "Netflix pe dekho" });
+  }
+  if (isHotstar) {
+    links.push({ platform: "Hotstar", icon: "★", color: "#1f80e0", url: "https://www.hotstar.com/in/search?q=" + encodeURIComponent(query), label: "Hotstar pe dekho" });
+  }
+  if (isPrime) {
+    links.push({ platform: "Prime Video", icon: "P", color: "#00a8e0", url: "https://www.primevideo.com/search?phrase=" + ytQuery, label: "Prime Video pe dekho" });
+  }
+  
+  // For cartoons/kids content - add specific platforms
+  const isKids = ["motu","doremon","doraemon","shinchan","bheem","oggy","tom jerry","pokemon","ninja","krishna","hanuman","bal ganesh","little singham"].some(k => tl.includes(k));
+  if (isKids) {
+    links.push({ platform: "Nickelodeon", icon: "🎨", color: "#f90", url: "https://www.youtube.com/@NickelodeonIndia/search?query=" + ytQuery, label: "Nickelodeon India" });
+    links.push({ platform: "Hotstar Kids", icon: "⭐", color: "#1f80e0", url: "https://www.hotstar.com/in/search?q=" + encodeURIComponent(query), label: "Hotstar pe dekho" });
+  }
+  
+  // For movies add OTT
+  if (isMovie && !isNetflix && !isHotstar && !isPrime) {
+    links.push({ platform: "JioCinema", icon: "J", color: "#8b5cf6", url: "https://www.jiocinema.com/search/" + ytQuery, label: "JioCinema pe dekho" });
+    links.push({ platform: "Hotstar", icon: "★", color: "#1f80e0", url: "https://www.hotstar.com/in/search?q=" + encodeURIComponent(query), label: "Hotstar pe dekho" });
+  }
+  
+  // For songs
+  if (isSong) {
+    links.push({ platform: "Spotify", icon: "♪", color: "#1db954", url: "https://open.spotify.com/search/" + ytQuery, label: "Spotify pe suno" });
+    links.push({ platform: "Gaana", icon: "🎵", color: "#e72c30", url: "https://gaana.com/search/" + encodeURIComponent(query), label: "Gaana pe suno" });
+  }
+  
+  // For apps - Play Store
+  if (isApp) {
+    links.push({ platform: "Play Store", icon: "▲", color: "#01875f", url: "https://play.google.com/store/search?q=" + ytQuery + "&c=apps", label: "Android ke liye" });
+    links.push({ platform: "App Store", icon: "⬡", color: "#007aff", url: "https://apps.apple.com/in/search?term=" + ytQuery, label: "iPhone ke liye" });
+  }
+  
+  return links;
+}
 function needsSearch(t) {
   const tl = t.toLowerCase();
   return [
@@ -810,6 +898,54 @@ function stopAllSpeech() {
   try { window.speechSynthesis?.cancel(); } catch {}
 }
 
+// ── SARVAM AI — Natural Hindi TTS (Indian Startup) ──────────────
+// Sarvam AI is an Indian AI startup with best-in-class Hindi/Hinglish TTS.
+// Model: bulbul:v2 — supports hi-IN, natural prosody, male & female voices.
+// Voices: anushka (female), arjun (male)
+async function speakWithSarvam(text, tone, onDone) {
+  if (!SARVAM) throw new Error("No Sarvam API key");
+  const chunks = chunkForTTS(text, 500); // Sarvam supports up to 500 chars per chunk
+  const speaker = tone === "male" ? "arjun" : "anushka";
+  for (const chunk of chunks) {
+    const res = await fetch("https://api.sarvam.ai/text-to-speech", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-subscription-key": SARVAM
+      },
+      body: JSON.stringify({
+        inputs: [chunk],
+        target_language_code: "hi-IN",
+        speaker,
+        pitch: 0,
+        pace: 1.0,
+        loudness: 1.5,
+        speech_sample_rate: 22050,
+        enable_preprocessing: true,
+        model: "bulbul:v2"
+      })
+    });
+    if (!res.ok) throw new Error("Sarvam TTS failed: " + res.status);
+    const data = await res.json();
+    // Sarvam returns base64 audio
+    const b64 = data.audios?.[0];
+    if (!b64) throw new Error("No audio from Sarvam");
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "audio/wav" });
+    const url = URL.createObjectURL(blob);
+    await new Promise((resolve, reject) => {
+      const audio = new Audio(url);
+      ttsAudioRef = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+      audio.onerror = () => { URL.revokeObjectURL(url); reject(new Error("playback failed")); };
+      audio.play().catch(reject);
+    });
+  }
+  if (onDone) onDone();
+}
+
 async function speakWithOrpheus(text, voice, onDone) {
   const chunks = chunkForTTS(text);
   for (let i = 0; i < chunks.length; i++) {
@@ -838,8 +974,10 @@ async function speakWithOrpheus(text, voice, onDone) {
 }
 
 function speakWithBrowserTTS(text, speed, onDone) {
+  // Check browser speech synthesis support (Samsung Internet, UC Browser may not support)
+  if (!window.speechSynthesis) { if (onDone) onDone(); return; }
   window.speechSynthesis.cancel();
-  const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^\x00-\x7F\u0900-\u097F .,!?]/g, "").slice(0, 600);
+  const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^ -ऀ-ॿ .,!?]/g, "").slice(0, 600);
   const go = () => {
     const vs = window.speechSynthesis.getVoices();
     const v = pickSaraswatiVoice(vs);
@@ -855,11 +993,9 @@ function speakWithBrowserTTS(text, speed, onDone) {
   if (!window.speechSynthesis.getVoices().length) { window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; go(); }; } else go();
 }
 
-// tone: "female" | "male" — mapped to a natural Orpheus voice.
-// Orpheus (Groq) gives a genuinely human-like voice but only supports
-// English/Arabic right now — so Hindi/Devanagari replies still use the
-// browser's built-in voice as a fallback (and if the Orpheus call fails
-// for any reason, e.g. offline or rate-limited).
+// ── MAIN TTS ROUTER ─────────────────────────────────────────────
+// Priority: Hindi → Sarvam AI (natural) → Browser TTS (fallback)
+//           English → Orpheus (Groq) → Browser TTS (fallback)
 function speakText(text, tone, speed, onDone) {
   stopOrpheusAudio();
   window.speechSynthesis.cancel();
@@ -867,13 +1003,17 @@ function speakText(text, tone, speed, onDone) {
   if (!clean) { if (onDone) onDone(); return; }
 
   if (isMostlyDevanagari(clean)) {
-    speakWithBrowserTTS(clean, speed, onDone);
+    // Hindi/Devanagari — use Sarvam AI for natural Indian voice
+    speakWithSarvam(clean.slice(0, 2000), tone, onDone).catch(() => {
+      // Fallback to browser TTS if Sarvam fails or key missing
+      speakWithBrowserTTS(clean, speed, onDone);
+    });
     return;
   }
 
+  // English/Hinglish — use Orpheus (Groq) for natural English voice
   const voice = tone === "male" ? "austin" : "hannah";
   speakWithOrpheus(clean.slice(0, 1800), voice, onDone).catch(() => {
-    // Fallback to browser TTS if Orpheus fails (network issue, rate limit, etc.)
     speakWithBrowserTTS(clean, speed, onDone);
   });
 }
@@ -1094,12 +1234,12 @@ function buildStyles(themeKey, accentKey, fontSize) {
   const dark = themeKey !== "light";
   const fs = fontSize || 14;
   return `
-:root{--accent:${a.primary};--grad:${a.grad};--glow:${a.glow};--bd:${v.bd};--mt:${v.mt};--sf2:${v.sf2};--tx:${v.tx};}
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-html,body{height:100%;overflow:hidden;}
-body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:${fs}px;}
-.app{display:flex;flex-direction:column;height:100dvh;max-width:480px;margin:0 auto;background:${v.bg};position:relative;overflow:hidden;}
+:root{--accent:${a.primary};--grad:${a.grad};--glow:${a.glow};--bd:${v.bd};--mt:${v.mt};--sf2:${v.sf2};--tx:${v.tx};}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;overflow:hidden;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:${v.bg};color:${v.tx};font-size:${fs}px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
+.app{display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:480px;margin:0 auto;background:${v.bg};position:relative;overflow:hidden;}
 
 .pwa{position:fixed;bottom:70px;left:10px;right:10px;background:${dark?"#1a1a1a":"#fff"};border:1.5px solid var(--accent);border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:10px;z-index:150;box-shadow:0 8px 28px #0009;animation:fadeUp .3s ease;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
@@ -1119,14 +1259,14 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .sb-uname{font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .sb-email{font-size:11px;color:${v.mt};margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .sb-nav{flex:1;overflow-y:auto;padding:8px 8px 0;}
-.sb-nav::-webkit-scrollbar{width:0;}
+.sb-nav::-webkit-scrollbar{width:0;}.sb-nav{scrollbar-width:none;-ms-overflow-style:none;}
 .sb-section{font-size:10px;font-weight:700;color:${v.mt};letter-spacing:.12em;text-transform:uppercase;padding:12px 10px 5px;}
 .sb-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:12px;cursor:pointer;font-size:14px;font-weight:500;color:${v.tx};transition:background .15s;margin-bottom:1px;width:100%;}
 .sb-item:hover{background:${v.sf2};}
 .sb-item.active{background:${v.sf2};color:var(--accent);font-weight:600;}
 .sb-item.active svg{stroke:var(--accent);}
 .sb-recent{max-height:200px;overflow-y:auto;padding:0 2px;}
-.sb-recent::-webkit-scrollbar{width:0;}
+.sb-recent::-webkit-scrollbar{width:0;}.sb-recent{scrollbar-width:none;-ms-overflow-style:none;}
 .sb-ritem{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:10px;cursor:pointer;font-size:13px;color:${v.mt};transition:background .15s;}
 .sb-ritem:hover{background:${v.sf2};color:${v.tx};}
 .sb-rtxt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;}
@@ -1146,7 +1286,7 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .card-head{font-size:17px;font-weight:700;text-align:center;}
 .iw{display:flex;flex-direction:column;gap:4px;}
 .ilbl{font-size:10px;color:${v.mt};font-weight:700;letter-spacing:.07em;text-transform:uppercase;}
-.inp{background:${dark?"#111":v.sf2};border:1.5px solid ${v.bd};border-radius:12px;color:${v.tx};font-family:'Inter',sans-serif;font-size:15px;padding:12px 14px;outline:none;width:100%;transition:border-color .2s;}
+.inp{background:${dark?"#111":v.sf2};border:1.5px solid ${v.bd};border-radius:12px;color:${v.tx};font-family:'Inter',sans-serif;font-size:16px;padding:12px 14px;outline:none;width:100%;transition:border-color .2s;-webkit-appearance:none;appearance:none;}
 .inp:focus{border-color:var(--accent);}
 .btn{border:none;border-radius:12px;cursor:pointer;font-family:'Inter',sans-serif;font-size:15px;font-weight:600;padding:13px;transition:all .2s;width:100%;}
 .btn-p{background:var(--grad);color:#fff;}.btn-p:hover{opacity:.9;}.btn-p:disabled{opacity:.55;cursor:not-allowed;}
@@ -1162,7 +1302,7 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .nbtn{background:${v.sf2};border:1px solid ${v.bd};border-radius:10px;color:${v.tx};cursor:pointer;font-size:13px;font-weight:600;padding:6px 12px;}
 
 .chat{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth;}
-.chat::-webkit-scrollbar{width:0;}
+.chat::-webkit-scrollbar{width:0;}.chat{scrollbar-width:none;-ms-overflow-style:none;}
 .welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:40px 20px;}
 .wlotus{font-size:96px;cursor:pointer;line-height:1;display:block;animation:wFloat 4s ease-in-out infinite;}
 @keyframes wFloat{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}
@@ -1194,7 +1334,7 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 
 .imgviewer{position:fixed;inset:0;background:#000e;z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .2s ease;}
 .imgviewer img{max-width:100%;max-height:90dvh;border-radius:12px;object-fit:contain;}
-.imgviewer-x{position:absolute;top:18px;right:18px;background:#fff2;border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:20px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
+.imgviewer-x{position:absolute;top:18px;right:18px;background:#fff2;border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:20px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);}
 
 .sb-premium{margin:0 0 8px;border-radius:16px;padding:2px;background:var(--grad);position:relative;overflow:hidden;}
 .sb-premium::after{content:'';position:absolute;inset:0;background:var(--grad);animation:premGlow 3s ease-in-out infinite;opacity:.5;pointer-events:none;}
@@ -1238,7 +1378,7 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .imgprev-x{position:absolute;top:-5px;right:-5px;background:#ef4444;border:none;border-radius:50%;color:#fff;cursor:pointer;font-size:11px;width:18px;height:18px;display:flex;align-items:center;justify-content:center;}
 
 .page{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
-.page::-webkit-scrollbar{width:0;}
+.page::-webkit-scrollbar{width:0;}.page{scrollbar-width:none;-ms-overflow-style:none;}
 .page-inner{padding:14px 14px 30px;flex:1;}
 .ptitle{font-size:20px;font-weight:800;margin-bottom:16px;letter-spacing:-.4px;}
 
@@ -1339,6 +1479,58 @@ body{font-family:'Inter',sans-serif;background:${v.bg};color:${v.tx};font-size:$
 .plusmenu{position:absolute;bottom:100%;left:0;margin-bottom:8px;background:${v.sf};border:1px solid ${v.bd};border-radius:16px;padding:8px;display:flex;flex-direction:column;gap:4px;z-index:50;box-shadow:0 8px 28px #0008;animation:fadeUp .18s ease;min-width:140px;}
 .plusmenu-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;color:${v.tx};border:none;background:none;width:100%;text-align:left;font-family:'Inter',sans-serif;}
 .plusmenu-item:hover{background:${v.sf2};}
+
+/* ── CROSS-BROWSER & CROSS-DEVICE FIXES ── */
+
+/* iOS Safari: prevent viewport jump when keyboard opens */
+@supports (-webkit-touch-callout: none) {
+  .app { height: -webkit-fill-available; }
+  .ibar { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+}
+
+/* Safe area insets - notch phones (iPhone X+, punch-hole Android) */
+.hdr { padding-top: max(11px, env(safe-area-inset-top)); }
+.ibar { padding-bottom: max(10px, env(safe-area-inset-bottom)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+
+/* Desktop - center app with sidebar-like layout */
+@media (min-width: 500px) {
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .app { border-left: 1px solid var(--bd); border-right: 1px solid var(--bd); box-shadow: 0 0 60px #0008; }
+  .sidebar { max-width: 300px; }
+  .mbg { align-items: center; }
+  .modal { border-radius: 20px; }
+}
+
+/* Touch feedback - all clickable elements */
+button, .sb-item, .sb-ritem, .hcard, a { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
+/* Prevent text selection on UI elements */
+button, .sb-item, .hdr, .ibar, .acts, .sbtn, .ibtn { -webkit-user-select: none; user-select: none; }
+
+/* Firefox scrollbar hiding */
+* { scrollbar-width: none; -ms-overflow-style: none; }
+
+/* Smooth scrolling on iOS */
+.chat, .page, .sb-nav, .sb-recent, .modal, .auth { -webkit-overflow-scrolling: touch; overflow-y: auto; }
+
+/* Textarea/input cross-browser */
+.iarea { -webkit-appearance: none; appearance: none; resize: none; }
+
+/* Fix button appearance on iOS */
+button { -webkit-appearance: none; appearance: none; cursor: pointer; }
+
+/* Prevent double-tap zoom on buttons */
+button, a { touch-action: manipulation; }
+
+/* Image rendering quality */
+img { image-rendering: -webkit-optimize-contrast; -webkit-user-drag: none; }
+
+/* Transition smoothness on all browsers */
+.bub, .btn, .sbtn, .ibtn, .sb-item { will-change: auto; }
+
+/* Fix font rendering on Windows Chrome */
+body { text-rendering: optimizeLegibility; }
+
 .chat-ctx{position:fixed;background:${v.sf};border:1px solid ${v.bd};border-radius:18px;padding:8px;z-index:200;box-shadow:0 12px 40px #0009;animation:fadeIn .15s ease;min-width:200px;}
 .chat-ctx-title{font-size:11px;font-weight:700;color:${v.mt};padding:6px 12px 4px;letter-spacing:.05em;text-transform:uppercase;}
 .chat-ctx-item{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;cursor:pointer;font-size:15px;font-weight:500;color:${v.tx};border:none;background:none;width:100%;text-align:left;font-family:'Inter',sans-serif;gap:12px;}
@@ -1405,6 +1597,7 @@ export default function App() {
   const [loadingStep, setLoadingStep] = useState(""); // "Searching...", "Thinking...", etc.
   const [chatSearch, setChatSearch] = useState(null); // null=hidden, ""=open empty
   const [showLimit, setShowLimit] = useState(false);
+  const [legalModal, setLegalModal] = useState(null); // null | "terms" | "privacy" | "usage"
   // Reusable custom confirm modal — replaces native window.confirm() popups,
   // which show up as ugly unstyled browser dialogs with whatever language
   // was hardcoded (was showing Hinglish "Is chat ko delete karein?").
@@ -1807,7 +2000,18 @@ export default function App() {
     const file = e.target.files[0]; if (!file) return;
     e.target.value = "";
     const r = new FileReader();
-    r.onload = ev => { const d = ev.target.result; setImgB64(d.split(",")[1]); setImgPrev(d); };
+    r.onload = async ev => {
+      try {
+        const raw = ev.target.result;
+        const compressed = await compressImage(raw, 800, 0.85);
+        setImgPrev(compressed);
+        setImgB64(compressed.split(",")[1]);
+      } catch {
+        const d = ev.target.result;
+        setImgPrev(d);
+        setImgB64(d.split(",")[1]);
+      }
+    };
     r.onerror = () => alert("Could not load image.");
     r.readAsDataURL(file);
   }
@@ -1876,9 +2080,8 @@ export default function App() {
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
 
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm")
-        ? "audio/webm"
-        : (MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "");
+      // Cross-browser mimeType: Chrome→webm, iOS Safari→mp4, Firefox→ogg, fallback→default
+      const mimeType = ["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg;codecs=opus","audio/ogg",""].find(t => !t || MediaRecorder.isTypeSupported(t));
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
 
       recorder.ondataavailable = (e) => {
@@ -1962,7 +2165,20 @@ export default function App() {
   }
 
   function copyMsg(text, id) {
-    navigator.clipboard?.writeText(text).catch(() => { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); });
+    // Cross-browser clipboard: modern API with fallback for older browsers and HTTP
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => {
+        const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        try { document.execCommand("copy"); } catch {}
+        document.body.removeChild(ta);
+      });
+    } else {
+      const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      try { document.execCommand("copy"); } catch {}
+      document.body.removeChild(ta);
+    }
     setCopied(id); setTimeout(() => setCopied(null), 2000);
   }
 
@@ -1983,16 +2199,21 @@ export default function App() {
         exportText += loaded.map(m => `${m.role === "user" ? "You" : "Saraswati AI"}:\n${m.text || ""}`).join("\n\n---\n\n");
       } catch { exportText += "(Could not load messages)"; }
     }
-    // Try native share → fallback to clipboard → fallback to WA
-    if (navigator.share) {
+    // Try native share (mobile) → clipboard (desktop/modern) → execCommand (old) → WhatsApp
+    if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
       try { await navigator.share({ title: "Saraswati AI Chat", text: exportText.slice(0, 2000) }); return; } catch {}
     }
-    try {
-      await navigator.clipboard.writeText(exportText);
-      alert("Chat copied to clipboard! Paste anywhere to share.");
-    } catch {
-      window.open("https://wa.me/?text=" + encodeURIComponent(exportText.slice(0, 1000)), "_blank");
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(exportText); alert("Chat copied to clipboard!"); return; } catch {}
     }
+    // execCommand fallback (IE11, old Android browsers)
+    try {
+      const ta = document.createElement("textarea"); ta.value = exportText; ta.style.cssText = "position:fixed;opacity:0;top:0;left:0;";
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      if (document.execCommand("copy")) { document.body.removeChild(ta); alert("Chat copied!"); return; }
+      document.body.removeChild(ta);
+    } catch {}
+    window.open("https://wa.me/?text=" + encodeURIComponent(exportText.slice(0, 1000)), "_blank");
   }
 
   function exportChat() {
@@ -2165,8 +2386,7 @@ export default function App() {
     }).then(s => {
       if (!voiceActiveRef.current) { s.getTracks().forEach(t => t.stop()); return; }
       stream = s;
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
-        : (MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "");
+      const mimeType = ["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg;codecs=opus","audio/ogg",""].find(t => !t || MediaRecorder.isTypeSupported(t));
       recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
 
       recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
@@ -2402,6 +2622,20 @@ export default function App() {
   }
 
   async function runAIAndAppend(newMsgs, b64, tone) {
+    // ── MEDIA LINK CARD ──────────────────────────────────────────
+    if (!b64 && needsMediaLink(newMsgs[newMsgs.length - 1]?.text || "")) {
+      const msgText = newMsgs[newMsgs.length - 1].text;
+      setLoading(true);
+      await new Promise(r => setTimeout(r, 400));
+      const links = getMediaLinks(msgText);
+      const cleanQuery = msgText.replace(/link do|link dedo|dikhao|dikha do|chahiye|please|plz|send karo/gi, "").trim();
+      const tid = "media_" + Date.now();
+      const aiText = `🔗 "${cleanQuery}" ke liye yahan se dekho:`;
+      setLoading(false);
+      setMsgs(p => [...p, { id: tid, role: "ai", text: aiText, mediaLinks: links, mediaQuery: cleanQuery, time: new Date() }]);
+      try { await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "ai", text: aiText + " [media links]", createdAt: serverTimestamp() }); } catch {}
+      return;
+    }
     if (!b64 && needsImageGen(newMsgs[newMsgs.length - 1]?.text || "")) {
       const msgText = newMsgs[newMsgs.length - 1].text;
       setLoading(true);
@@ -2461,7 +2695,16 @@ export default function App() {
     const det = detectTone(msgText);
     if (det) setSessionTone(det);
     const tone = det || sessionTone || "female";
-    const uRef = await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "user", text: msgText, image: prev || null, files: files.length ? files : null, fileContext: fileContext || null, createdAt: serverTimestamp() });
+    // NOTE: Full base64 image is NOT stored in Firestore (exceeds 1MB doc limit).
+    // We only store hasImage:true as a flag. The image is kept in local state (prev)
+    // for display in the current session, and passed to AI as b64.
+    let uRef;
+    try {
+      uRef = await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "user", text: msgText, hasImage: prev ? true : null, files: files.length ? files : null, fileContext: fileContext || null, createdAt: serverTimestamp() });
+    } catch (err) {
+      console.error("Firestore addDoc failed:", err);
+      uRef = { id: "local_" + Date.now() };
+    }
     const newMsgs = [...msgs, { id: uRef.id, role: "user", text: msgText, image: prev, files: files.length ? files : null, fileContext: fileContext || null, time: new Date() }];
     setMsgs(newMsgs);
     const isFirst = msgs.length === 0;
@@ -2726,6 +2969,18 @@ export default function App() {
           )}
         </div>
         {!forgot && <div className="lnk">{authMode === "login" ? <><span style={{ color: "var(--mt)" }}>No account? </span><span onClick={() => { setAuthMode("signup"); setFerr(""); }}>Sign up</span></> : <><span style={{ color: "var(--mt)" }}>Have account? </span><span onClick={() => { setAuthMode("login"); setFerr(""); }}>Login</span></>}</div>}
+        {/* Terms / Privacy / Usage Policy */}
+        <div style={{ textAlign: "center", fontSize: 11, color: "var(--mt)", marginTop: 16, lineHeight: 1.8, padding: "0 8px" }}>
+          By continuing, you agree to Saraswati AI{"'"}s{" "}
+          <span onClick={() => setLegalModal("terms")}
+            style={{ color: "var(--accent)", textDecoration: "underline", fontWeight: 500, cursor: "pointer" }}>Consumer Terms</span>
+          {" "}and{" "}
+          <span onClick={() => setLegalModal("usage")}
+            style={{ color: "var(--accent)", textDecoration: "underline", fontWeight: 500, cursor: "pointer" }}>Usage Policy</span>
+          , and acknowledge our{" "}
+          <span onClick={() => setLegalModal("privacy")}
+            style={{ color: "var(--accent)", textDecoration: "underline", fontWeight: 500, cursor: "pointer" }}>Privacy Policy</span>.
+        </div>
       </div>
     </div>
   );
@@ -2924,6 +3179,50 @@ export default function App() {
             <p>You've used all {FREE_LIMIT} free messages. Upgrade to Premium for unlimited access!</p>
             <button className="btn btn-p" onClick={() => { setShowLimit(false); setShowUpgrade(true); }}>Upgrade Now</button>
             <button className="btn btn-s" onClick={() => setShowLimit(false)}>Maybe Later</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── LEGAL MODAL (Terms / Privacy / Usage) ── */}
+      {legalModal && (
+        <div className="mbg" onClick={() => setLegalModal(null)} style={{ zIndex: 999 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto", textAlign: "left", maxWidth: 480 }}>
+            {legalModal === "terms" && (<>
+              <div className="mi">📋</div>
+              <h3 style={{ textAlign: "center" }}>Consumer Terms</h3>
+              <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--mt)", marginTop: 12 }}>
+                <p><strong style={{ color: "var(--tx)" }}>1. Service Use</strong><br/>Saraswati AI is provided for personal, educational, and informational use only. You must be 13+ years old to use this service.</p>
+                <p><strong style={{ color: "var(--tx)" }}>2. Account</strong><br/>You are responsible for maintaining the confidentiality of your account credentials. One account per person.</p>
+                <p><strong style={{ color: "var(--tx)" }}>3. Free & Premium</strong><br/>Free users get {FREE_LIMIT} messages. Premium users get unlimited access. Payments are non-refundable once activated.</p>
+                <p><strong style={{ color: "var(--tx)" }}>4. Content</strong><br/>Do not use Saraswati AI for illegal, harmful, or abusive purposes. We reserve the right to suspend accounts that violate these terms.</p>
+                <p><strong style={{ color: "var(--tx)" }}>5. AI Accuracy</strong><br/>Saraswati AI responses are AI-generated and may not always be accurate. Do not rely solely on AI for medical, legal, or financial decisions.</p>
+                <p><strong style={{ color: "var(--tx)" }}>6. Contact</strong><br/>For queries, contact: kunalsaraswat691@gmail.com</p>
+              </div>
+            </>)}
+            {legalModal === "privacy" && (<>
+              <div className="mi">🔒</div>
+              <h3 style={{ textAlign: "center" }}>Privacy Policy</h3>
+              <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--mt)", marginTop: 12 }}>
+                <p><strong style={{ color: "var(--tx)" }}>1. Data We Collect</strong><br/>We collect your name, email address, and chat messages to provide the service. No sensitive personal data is collected without consent.</p>
+                <p><strong style={{ color: "var(--tx)" }}>2. How We Use It</strong><br/>Your data is used to provide AI responses, save chat history, and improve the service. We do not sell your data to third parties.</p>
+                <p><strong style={{ color: "var(--tx)" }}>3. Storage</strong><br/>Your data is stored securely on Firebase (Google Cloud). Chat history can be deleted by you at any time from the app.</p>
+                <p><strong style={{ color: "var(--tx)" }}>4. AI Processing</strong><br/>Messages are sent to Groq AI for processing. Groq may retain data per their own privacy policy. We do not store images in our database.</p>
+                <p><strong style={{ color: "var(--tx)" }}>5. Cookies</strong><br/>We use Firebase Authentication which uses session cookies for login. No advertising cookies are used.</p>
+                <p><strong style={{ color: "var(--tx)" }}>6. Your Rights</strong><br/>You can request deletion of your account and all data by contacting kunalsaraswat691@gmail.com</p>
+              </div>
+            </>)}
+            {legalModal === "usage" && (<>
+              <div className="mi">⚠️</div>
+              <h3 style={{ textAlign: "center" }}>Usage Policy</h3>
+              <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--mt)", marginTop: 12 }}>
+                <p><strong style={{ color: "var(--tx)" }}>✅ Allowed Uses</strong><br/>Education, farming advice, general knowledge, coding help, creative writing, language translation, weather, mandi rates, and general Q&A.</p>
+                <p><strong style={{ color: "var(--tx)" }}>❌ Prohibited Uses</strong><br/>Do not use Saraswati AI to generate harmful, illegal, or abusive content. Do not attempt to hack, scrape, or misuse the platform.</p>
+                <p><strong style={{ color: "var(--tx)" }}>🌾 Farming Info</strong><br/>Agricultural advice is informational only. Always consult local agriculture department for official guidance on subsidies and schemes.</p>
+                <p><strong style={{ color: "var(--tx)" }}>🤖 AI Limitations</strong><br/>Saraswati AI can make mistakes. For important decisions, verify information from official sources.</p>
+                <p><strong style={{ color: "var(--tx)" }}>📵 Misuse</strong><br/>Accounts found misusing the platform will be permanently suspended without refund.</p>
+              </div>
+            </>)}
+            <button className="btn btn-p" onClick={() => setLegalModal(null)} style={{ marginTop: 16 }}>Samajh Gaya ✓</button>
           </div>
         </div>
       )}
@@ -3686,6 +3985,33 @@ export default function App() {
                       {m.image && m.role === "ai" && (
                         <img src={m.image} alt="gen" className="mimg gen" onClick={() => setViewerSrc(m.image)} onError={e => { e.target.src = ""; e.target.style.display = "none"; }} />
                       )}
+                      {m.mediaLinks && m.mediaLinks.length > 0 && (
+                        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                          {m.mediaLinks.map((lnk, li) => (
+                            <a key={li} href={lnk.url} target="_blank" rel="noopener noreferrer"
+                              style={{
+                                display: "flex", alignItems: "center", gap: 12,
+                                background: "var(--sf2)", border: "1px solid var(--bd)",
+                                borderRadius: 14, padding: "10px 14px",
+                                textDecoration: "none", color: "var(--tx)",
+                                transition: "all .18s", cursor: "pointer"
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.borderColor = lnk.color; e.currentTarget.style.background = lnk.color + "15"; }}
+                              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--bd)"; e.currentTarget.style.background = "var(--sf2)"; }}>
+                              <div style={{
+                                width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                                background: lnk.color, display: "flex", alignItems: "center",
+                                justifyContent: "center", fontSize: 16, fontWeight: 700, color: "#fff"
+                              }}>{lnk.icon}</div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: 13 }}>{lnk.platform}</div>
+                                <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 1 }}>{lnk.label}</div>
+                              </div>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="acts">
                       {m.role === "ai" && (
@@ -3773,25 +4099,46 @@ export default function App() {
                 <div className="ibar-left" style={{ position: "relative" }}>
                   {/* Plus menu popup — positioned above + button */}
                   {showPlusMenu && (
-                    <div style={{
-                      position: "absolute", bottom: "110%", left: 0,
-                      background: "var(--sf)", border: "1px solid var(--bd)",
-                      borderRadius: 16, padding: 8, display: "flex",
-                      flexDirection: "column", gap: 4, zIndex: 100,
-                      boxShadow: "0 8px 28px #0009", minWidth: 160,
-                      animation: "fadeUp .15s ease"
-                    }} onClick={e => e.stopPropagation()}>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => galleryRef.current?.click(), 50); }}
-                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)", background: "none", border: "none", width: "100%", textAlign: "left", fontFamily: "'Inter',sans-serif" }}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21"/></svg>
-                        Photo / Camera
-                      </button>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => fileRef.current?.click(), 50); }}
-                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)", background: "none", border: "none", width: "100%", textAlign: "left", fontFamily: "'Inter',sans-serif" }}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                        File (PDF, DOCX, XLSX…)
-                      </button>
-                    </div>
+                    <>
+                      <div onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); }}
+                        style={{ position: "fixed", inset: 0, zIndex: 98 }} />
+                      <div style={{
+                        position: "absolute", bottom: "calc(100% + 10px)", left: 0,
+                        background: "var(--sf)", border: "1px solid var(--bd)",
+                        borderRadius: 20, padding: "6px", display: "flex",
+                        flexDirection: "column", gap: 2, zIndex: 99,
+                        boxShadow: "0 12px 40px #000c, 0 2px 8px #0006",
+                        minWidth: 210,
+                        animation: "fadeUp .18s cubic-bezier(.34,1.56,.64,1)"
+                      }} onClick={e => e.stopPropagation()}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--mt)", letterSpacing: 1.2, padding: "6px 14px 4px", textTransform: "uppercase" }}>Attach</div>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => galleryRef.current?.click(), 50); }}
+                          style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 14, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)", background: "none", border: "none", width: "100%", textAlign: "left", fontFamily: "'Inter',sans-serif" }}
+                          onMouseEnter={e => e.currentTarget.style.background = "var(--sf2)"}
+                          onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                          <div style={{ width: 38, height: 38, borderRadius: 12, background: "linear-gradient(135deg,#f97316,#ea580c)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="#fff" stroke="none"/><path d="m21 15-5-5L5 21"/></svg>
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 14 }}>Photo / Camera</div>
+                            <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 1 }}>Image bhejo ya camera se lo</div>
+                          </div>
+                        </button>
+                        <div style={{ height: 1, background: "var(--bd)", margin: "2px 14px" }} />
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => fileRef.current?.click(), 50); }}
+                          style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 14, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)", background: "none", border: "none", width: "100%", textAlign: "left", fontFamily: "'Inter',sans-serif" }}
+                          onMouseEnter={e => e.currentTarget.style.background = "var(--sf2)"}
+                          onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                          <div style={{ width: 38, height: 38, borderRadius: 12, background: "linear-gradient(135deg,#6366f1,#4f46e5)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 14 }}>Document</div>
+                            <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 1 }}>PDF, DOCX, XLSX, TXT…</div>
+                          </div>
+                        </button>
+                      </div>
+                    </>
                   )}
                   <button className="ibtn" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(v => !v); }} title="Attach"
                     style={showPlusMenu ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}>
