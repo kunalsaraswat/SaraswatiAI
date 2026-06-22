@@ -903,10 +903,13 @@ function stopAllSpeech() {
 // Sarvam AI is an Indian AI startup with best-in-class Hindi/Hinglish TTS.
 // Model: bulbul:v2 — supports hi-IN, natural prosody, male & female voices.
 // Voices: anushka (female), arjun (male)
-async function speakWithSarvam(text, tone, onDone) {
+async function speakWithSarvam(text, tone, onDone, opts = {}) {
   if (!SARVAM) throw new Error("No Sarvam API key");
-  const chunks = chunkForTTS(text, 500); // Sarvam supports up to 500 chars per chunk
+  const chunks = chunkForTTS(text, 500);
   const speaker = tone === "male" ? "arjun" : "anushka";
+  const pitch = opts.pitch ?? 0;
+  const pace = opts.pace ?? 1.15;
+  const loudness = opts.loudness ?? 1.5;
   for (const chunk of chunks) {
     const res = await fetch("https://api.sarvam.ai/text-to-speech", {
       method: "POST",
@@ -918,9 +921,9 @@ async function speakWithSarvam(text, tone, onDone) {
         inputs: [chunk],
         target_language_code: "hi-IN",
         speaker,
-        pitch: 0,
-        pace: 1.0,
-        loudness: 1.5,
+        pitch,
+        pace,
+        loudness,
         speech_sample_rate: 22050,
         enable_preprocessing: true,
         model: "bulbul:v2"
@@ -985,7 +988,7 @@ function speakWithBrowserTTS(text, speed, onDone) {
     const u = new SpeechSynthesisUtterance(clean);
     if (v) u.voice = v;
     u.lang = "hi-IN";
-    u.rate = speed || 0.95;
+    u.rate = speed || 1.1;
     u.pitch = 1.05;
     u.volume = 1;
     u.onend = onDone || null; u.onerror = onDone || null;
@@ -1004,19 +1007,20 @@ function speakText(text, tone, speed, onDone) {
   if (!clean) { if (onDone) onDone(); return; }
 
   if (isMostlyDevanagari(clean)) {
-    // Hindi/Devanagari — use Sarvam AI for natural Indian voice
     speakWithSarvam(clean.slice(0, 2000), tone, onDone).catch(() => {
-      // Fallback to browser TTS if Sarvam fails or key missing
       speakWithBrowserTTS(clean, speed, onDone);
     });
     return;
   }
+  // English greeting - detect "Hey! I am Saraswati" for expressive delivery
+  const isGreeting = clean.includes("I am Saraswati");
 
   // English/Hinglish — use Orpheus (Groq) for natural English voice
   const voice = tone === "male" ? "austin" : "hannah";
   speakWithOrpheus(clean.slice(0, 1800), voice, onDone).catch(() => {
     speakWithBrowserTTS(clean, speed, onDone);
   });
+  void isGreeting; // used above for future opts
 }
 
 // ── SARASWATI LOGO — Premium Saffron Lotus ─────────────────────
@@ -2433,7 +2437,7 @@ export default function App() {
         const rms = Math.sqrt(sum / data.length);
         const now = Date.now();
         if (rms > 0.02) { lastLoudAt = now; speechStarted = true; }
-        if (speechStarted && now - lastLoudAt > 1100) {
+        if (speechStarted && now - lastLoudAt > 650) {
           finish(false);
           return;
         }
@@ -2597,14 +2601,12 @@ export default function App() {
     voiceActiveRef.current = true;
     const tone = sessionTone || "female";
     const isFirstEver = (msgs?.length || 0) === 0;
-    const greeting = isFirstEver
-      ? ""
-      : "";
+    const greeting = "Hey! I am Saraswati.";
 
     setVs("speak");
     setVLast(greeting);
     setTimeout(() => {
-      speakText(greeting, tone, 0.95, () => {
+      speakText(greeting, tone, 1.0, () => {
         if (voiceActiveRef.current) {
           setVs("listen");
           startListening(msgs, tone, sid, userData);
@@ -2612,7 +2614,7 @@ export default function App() {
           setVs("idle");
         }
       });
-    }, 300);
+    }, 200);
   }
 
 
@@ -4102,42 +4104,40 @@ export default function App() {
                   {/* Plus menu popup — positioned above + button */}
                   {showPlusMenu && (
                     <>
+                      {/* Backdrop */}
                       <div onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); }}
                         style={{ position: "fixed", inset: 0, zIndex: 98 }} />
+                      {/* iOS-style 2-grid card menu */}
                       <div style={{
-                        position: "absolute", bottom: "calc(100% + 10px)", left: 0,
-                        background: "var(--sf)", border: "1px solid var(--bd)",
-                        borderRadius: 20, padding: "6px", display: "flex",
-                        flexDirection: "column", gap: 2, zIndex: 99,
-                        boxShadow: "0 12px 40px #000c, 0 2px 8px #0006",
-                        minWidth: 210,
-                        animation: "fadeUp .18s cubic-bezier(.34,1.56,.64,1)"
+                        position: "absolute", bottom: "calc(100% + 12px)", left: 0,
+                        display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10,
+                        zIndex: 99, animation: "fadeUp .18s cubic-bezier(.34,1.56,.64,1)"
                       }} onClick={e => e.stopPropagation()}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--mt)", letterSpacing: 1.2, padding: "6px 14px 4px", textTransform: "uppercase" }}>Attach</div>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => galleryRef.current?.click(), 50); }}
-                          style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 14, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)", background: "none", border: "none", width: "100%", textAlign: "left", fontFamily: "'Inter',sans-serif" }}
-                          onMouseEnter={e => e.currentTarget.style.background = "var(--sf2)"}
-                          onMouseLeave={e => e.currentTarget.style.background = "none"}>
-                          <div style={{ width: 38, height: 38, borderRadius: 12, background: "linear-gradient(135deg,#f97316,#ea580c)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="#fff" stroke="none"/><path d="m21 15-5-5L5 21"/></svg>
+                        {/* Photos Card */}
+                        <button type="button"
+                          onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => galleryRef.current?.click(), 50); }}
+                          style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            gap: 10, width: 130, height: 120, borderRadius: 22,
+                            background: "#1c1c1e", border: "none", cursor: "pointer",
+                            boxShadow: "0 8px 32px #0009", padding: 0 }}>
+                          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "#2c2c2e",
+                            display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="#fff" stroke="none"/><path d="m21 15-5-5L5 21"/></svg>
                           </div>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: 14 }}>Photo / Camera</div>
-                            <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 1 }}>Image bhejo ya camera se lo</div>
-                          </div>
+                          <span style={{ fontSize: 15, fontWeight: 600, color: "#fff", fontFamily: "'Inter',sans-serif" }}>Photos</span>
                         </button>
-                        <div style={{ height: 1, background: "var(--bd)", margin: "2px 14px" }} />
-                        <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => fileRef.current?.click(), 50); }}
-                          style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 14, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--tx)", background: "none", border: "none", width: "100%", textAlign: "left", fontFamily: "'Inter',sans-serif" }}
-                          onMouseEnter={e => e.currentTarget.style.background = "var(--sf2)"}
-                          onMouseLeave={e => e.currentTarget.style.background = "none"}>
-                          <div style={{ width: 38, height: 38, borderRadius: 12, background: "linear-gradient(135deg,#6366f1,#4f46e5)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        {/* Files Card */}
+                        <button type="button"
+                          onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => fileRef.current?.click(), 50); }}
+                          style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            gap: 10, width: 130, height: 120, borderRadius: 22,
+                            background: "#1c1c1e", border: "none", cursor: "pointer",
+                            boxShadow: "0 8px 32px #0009", padding: 0 }}>
+                          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "#2c2c2e",
+                            display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="13" x2="12" y2="17"/><line x1="10" y1="15" x2="14" y2="15"/></svg>
                           </div>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: 14 }}>Document</div>
-                            <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 1 }}>PDF, DOCX, XLSX, TXT…</div>
-                          </div>
+                          <span style={{ fontSize: 15, fontWeight: 600, color: "#fff", fontFamily: "'Inter',sans-serif" }}>Files</span>
                         </button>
                       </div>
                     </>
