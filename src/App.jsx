@@ -1094,6 +1094,47 @@ function CodeBlock({ code, lang }) {
     </div>
   );
 }
+function getLinkMeta(url) {
+  if (url.includes("youtube.com") || url.includes("youtu.be"))
+    return { label: "YouTube pe dekho", icon: "▶", color: "#ff0000", bg: "#ff00001a" };
+  if (url.includes("spotify.com"))
+    return { label: "Spotify pe suno", icon: "♪", color: "#1db954", bg: "#1db9541a" };
+  if (url.includes("hotstar.com"))
+    return { label: "Hotstar pe dekho", icon: "★", color: "#1f80e0", bg: "#1f80e01a" };
+  if (url.includes("netflix.com"))
+    return { label: "Netflix pe dekho", icon: "N", color: "#e50914", bg: "#e509141a" };
+  if (url.includes("primevideo.com") || url.includes("amazon.com"))
+    return { label: "Prime Video", icon: "P", color: "#00a8e0", bg: "#00a8e01a" };
+  if (url.includes("jiocinema.com"))
+    return { label: "JioCinema pe dekho", icon: "J", color: "#8b5cf6", bg: "#8b5cf61a" };
+  if (url.includes("play.google.com"))
+    return { label: "Play Store", icon: "▲", color: "#01875f", bg: "#01875f1a" };
+  if (url.includes("gaana.com"))
+    return { label: "Gaana pe suno", icon: "🎵", color: "#e72c30", bg: "#e72c301a" };
+  return { label: url.replace(/^https?:\/\//, "").slice(0, 30), icon: "🔗", color: "var(--accent)", bg: "var(--sf2)" };
+}
+
+function LinkCard({ url }) {
+  const meta = getLinkMeta(url);
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+      style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6,
+        background: meta.bg, border: "1px solid " + meta.color + "44",
+        borderRadius: 14, padding: "10px 14px", textDecoration: "none",
+        color: "var(--tx)", cursor: "pointer" }}>
+      <div style={{ width: 36, height: 36, borderRadius: 10, background: meta.color,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 16, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{meta.icon}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--tx)" }}>{meta.label}</div>
+        <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 2,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{url.replace(/^https?:\/\//, "")}</div>
+      </div>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+    </a>
+  );
+}
+
 function AIText({ text }) {
   if (!text) return null;
   const parts = []; const re = /```(\w*)\n?([\s\S]*?)```/g;
@@ -1110,6 +1151,19 @@ function AIText({ text }) {
         if (p.type === "code") return <CodeBlock key={i} code={p.content} lang={p.lang} />;
         return p.content.split("\n").map((line, j) => {
           if (!line.trim()) return <span key={i + "-" + j} style={{ height: 5 }} />;
+          // URL detection — render as clickable LinkCard
+          const urlRe = /(https?:\/\/[^\s\)\]>"]+)/g;
+          if (urlRe.test(line)) {
+            urlRe.lastIndex = 0;
+            const lineSegs = []; let lLast = 0, um;
+            while ((um = urlRe.exec(line)) !== null) {
+              if (um.index > lLast) lineSegs.push(<span key={lLast}>{line.slice(lLast, um.index)}</span>);
+              lineSegs.push(<LinkCard key={um.index} url={um[1]} />);
+              lLast = um.index + um[0].length;
+            }
+            if (lLast < line.length) lineSegs.push(<span key={lLast}>{line.slice(lLast)}</span>);
+            return <span key={i + "-" + j} style={{ display: "flex", flexDirection: "column" }}>{lineSegs}</span>;
+          }
           const segs = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((s, k) => {
             if (s.startsWith("**") && s.endsWith("**")) return <strong key={k}>{s.slice(2, -2)}</strong>;
             if (s.startsWith("`") && s.endsWith("`")) return <code key={k} style={{ background: "#ffffff18", borderRadius: 4, padding: "1px 5px", fontFamily: "monospace", fontSize: 12 }}>{s.slice(1, -1)}</code>;
