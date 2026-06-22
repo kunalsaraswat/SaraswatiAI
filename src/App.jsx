@@ -918,9 +918,9 @@ async function speakWithSarvam(text, tone, onDone) {
         inputs: [chunk],
         target_language_code: "hi-IN",
         speaker,
-        pitch: -1.5,
-        pace: 0.9,
-        loudness: 2.0,
+        pitch: 0,
+        pace: 1.0,
+        loudness: 1.5,
         speech_sample_rate: 22050,
         enable_preprocessing: true,
         model: "bulbul:v2"
@@ -986,7 +986,7 @@ function speakWithBrowserTTS(text, speed, onDone) {
     if (v) u.voice = v;
     u.lang = "hi-IN";
     u.rate = speed || 0.95;
-    u.pitch = 0.85;
+    u.pitch = 1.05;
     u.volume = 1;
     u.onend = onDone || null; u.onerror = onDone || null;
     window.speechSynthesis.speak(u);
@@ -2598,8 +2598,8 @@ export default function App() {
     const tone = sessionTone || "female";
     const isFirstEver = (msgs?.length || 0) === 0;
     const greeting = isFirstEver
-      ? "Hey, I am Saraswati AI. Aap mujhse kuch bhi pooch sakte hain, batayein kaise madad karu?"
-      : "Hey, main sun rahi hoon, boliye.";
+      ? ""
+      : "";
 
     setVs("speak");
     setVLast(greeting);
@@ -3429,8 +3429,8 @@ export default function App() {
               </div>
             ) : (
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 52, marginBottom: 12 }}>🙏</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: "#fff", letterSpacing: 0.3 }}>I am Saraswati</div>
+                <div style={{ fontSize: 52, marginBottom: 12 }}>👋</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "#fff", letterSpacing: 0.3 }}>Hey, I am Saraswati</div>
               </div>
             )}
           </div>
