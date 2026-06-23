@@ -663,11 +663,17 @@ async function callAI(messages, imageB64, tone, memories, language, agentOrNote 
   const agent = (agentOrNote && typeof agentOrNote === "object") ? agentOrNote : null;
   const extraNote = (agentOrNote && typeof agentOrNote === "string") ? agentOrNote : "";
   const toneMap = { friendly: "Be warm and friendly like a best friend.", professional: "Be professional, formal and expert.", funny: "Be funny and entertaining, add jokes.", student: "Be curious, eager to learn, ask good questions.", teacher: "Explain clearly with examples, be educational.", farmer: "Be practical, grounded, give real-world advice.", strict: "Be strict and disciplined, stay on topic." };
-  const agentSys = agent ? `You are ${agent.emoji} ${agent.name}.
-${agent.instructions || "Be helpful."}
-Tone: ${toneMap[agent.tone] || "Friendly raho."}
+  const agentSys = agent ? `You are ${agent.name} — a specialized AI assistant.
+${agent.instructions || "Be helpful and focused on your topic."}
+Tone & Personality: ${toneMap[agent.tone] || "Be friendly and helpful."}
 ${langInstruction}
-Never break character. Stay focused on your role.${memCtx}${ctx}` : null;
+
+STRICT RULES:
+1. ONLY discuss topics related to your role and instructions above.
+2. If asked something outside your expertise, politely redirect: "Main sirf [your topic] ke baare mein help kar sakta hoon."
+3. Never break character. Never say you are Saraswati AI or an AI chatbot.
+4. Give detailed, expert answers about your specific domain.
+5. Be proactive — suggest related tips the user might find useful.${memCtx}${ctx}` : null;
 
   const sys = agentSys || `You are Saraswati AI — India's best AI assistant, created by Kunal Saraswat.
 Never mention Groq, Meta, Llama, OpenAI or any model name.
@@ -1722,6 +1728,8 @@ export default function App() {
   const [page, setPage] = useState("chat");
   const [marketplaceAgents, setMarketplaceAgents] = useState([]);
   const [marketLoading, setMarketLoading] = useState(false);
+  const [marketSearch, setMarketSearch] = useState("");
+  const [marketCat, setMarketCat] = useState("All");
   const [agents, setAgents] = useState([]);
   const [activeAgent, setActiveAgent] = useState(null); // {id, name, emoji, instructions, tone, lang}
   const [showAgentBuilder, setShowAgentBuilder] = useState(false);
@@ -1737,6 +1745,7 @@ export default function App() {
   const [reactions, setReactions] = useState({});
   const [showRx, setShowRx] = useState(null);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const cameraRef = useRef(null);
   const [chatContextMenu, setChatContextMenu] = useState(null); // { histId, x, y }
   const [loadingStep, setLoadingStep] = useState(""); // "Searching...", "Thinking...", etc.
   const [chatSearch, setChatSearch] = useState(null); // null=hidden, ""=open empty
@@ -1772,6 +1781,7 @@ export default function App() {
   const [projLoad, setProjLoad] = useState(false);
   const [showNewProj, setShowNewProj] = useState(false);
   const [newProjName, setNewProjName] = useState("");
+  const [newProjDesc, setNewProjDesc] = useState("");
   const [renamingProjId, setRenamingProjId] = useState(null);
   const [renameProjVal, setRenameProjVal] = useState("");
   const [upgradePlan, setUpgradePlan] = useState("monthly");
@@ -2144,6 +2154,11 @@ export default function App() {
   function handleGallery(e) {
     const file = e.target.files[0]; if (!file) return;
     e.target.value = "";
+    // 2MB size limit
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Image too large! Max size is 2MB. Please choose a smaller image.");
+      return;
+    }
     const r = new FileReader();
     r.onload = async ev => {
       try {
@@ -2165,6 +2180,13 @@ export default function App() {
     const files = Array.from(e.target.files || []);
     e.target.value = "";
     if (!files.length) return;
+    // 2MB size limit
+    const MAX_SIZE = 2 * 1024 * 1024;
+    const oversized = files.filter(f => f.size > MAX_SIZE);
+    if (oversized.length) {
+      alert(`File too large! Max size is 2MB. Please compress or use a smaller file.`);
+      return;
+    }
     setAttachLoading(true);
     for (const file of files) {
       const result = await extractFileText(file);
@@ -2998,8 +3020,17 @@ export default function App() {
     try {
       const q = query(collection(db, "agents"), where("userId", "==", uid), orderBy("createdAt", "desc"));
       const snap = await getDocs(q);
-      setAgents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch { setAgents([]); }
+      const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAgents(loaded);
+      // Persist to localStorage for offline access
+      try { localStorage.setItem("saraswati_agents_" + uid, JSON.stringify(loaded)); } catch {}
+    } catch {
+      // Fallback: load from localStorage
+      try {
+        const cached = localStorage.getItem("saraswati_agents_" + uid);
+        if (cached) setAgents(JSON.parse(cached));
+      } catch { setAgents([]); }
+    }
   }
 
   async function saveAgent() {
@@ -3059,9 +3090,10 @@ export default function App() {
   async function createProject() {
     const name = newProjName.trim();
     if (!name) return;
-    const ref = await addDoc(collection(db, "projects"), { userId: user.uid, title: name, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    setProjects(p => [{ id: ref.id, userId: user.uid, title: name, createdAt: { seconds: Date.now() / 1000 } }, ...p]);
-    setNewProjName(""); setShowNewProj(false);
+    const desc = newProjDesc.trim();
+    const ref = await addDoc(collection(db, "projects"), { userId: user.uid, title: name, desc, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    setProjects(p => [{ id: ref.id, userId: user.uid, title: name, desc, createdAt: { seconds: Date.now() / 1000 } }, ...p]);
+    setNewProjName(""); setNewProjDesc(""); setShowNewProj(false);
   }
 
   async function renameProject(id, name) {
@@ -3324,14 +3356,15 @@ export default function App() {
             </div>
             <div className="sb-nav">
               <div className="sb-section">Menu</div>
-              {[
-                { id: "chat", icon: <Ico.Chat />, label: "Chat" },
-                { id: "history", icon: <Ico.History />, label: "History" },
-              ].map(item => (
-                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
-                  {item.icon}<span>{item.label}</span>
-                </div>
-              ))}
+              {/* Chat - stops agent, goes to Saraswati AI */}
+              <div className={"sb-item" + (page === "chat" && !activeAgent ? " active" : "")}
+                onClick={() => { setActiveAgent(null); setPage("chat"); setShowSb(false); setSid(Date.now().toString()); setMsgs([]); }}>
+                <Ico.Chat /><span>Chat</span>
+              </div>
+              <div className={"sb-item" + (page === "history" ? " active" : "")}
+                onClick={() => { setPage("history"); setShowSb(false); }}>
+                <Ico.History /><span>History</span>
+              </div>
               {/* ── AI AGENTS — between History and Projects ── */}
               <div className="sb-item" style={{ justifyContent: "space-between", cursor: "default" }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -3462,37 +3495,13 @@ export default function App() {
         <div className="mbg" onClick={() => setShowAgentBuilder(false)} style={{ zIndex: 999 }}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto", textAlign: "left", maxWidth: 460 }}>
             {/* Header */}
-            <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <div style={{ width: 64, height: 64, borderRadius: 20, background: "linear-gradient(135deg,var(--accent),#ea580c)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
-                {getAgentSVG(agentForm.icon || "robot", 28)}
-              </div>
+            <div style={{ textAlign: "center", marginBottom: 20, paddingTop: 4 }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>🤖</div>
               <h3 style={{ margin: 0 }}>{editingAgent ? "Edit Agent" : "Create AI Agent"}</h3>
               <div style={{ fontSize: 12, color: "var(--mt)", marginTop: 4 }}>Build your own custom AI assistant</div>
             </div>
 
-            {/* Icon picker */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>CHOOSE ICON</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 8 }}>
-                {[
-                  {k:"robot","label":"Robot"},
-                  {k:"doctor","label":"Doctor"},
-                  {k:"teacher","label":"Teacher"},
-                  {k:"farmer","label":"Farmer"},
-                  {k:"lawyer","label":"Lawyer"},
-                  {k:"chef","label":"Chef"},
-                  {k:"friend","label":"Friend"},
-                ].map(ic => (
-                  <div key={ic.k} onClick={() => setAgentForm(f => ({...f, icon: ic.k}))}
-                    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 4px", borderRadius: 12, cursor: "pointer",
-                      background: (agentForm.icon||"robot") === ic.k ? "var(--accent)" : "var(--sf2)",
-                      border: "1.5px solid " + ((agentForm.icon||"robot") === ic.k ? "var(--accent)" : "var(--bd)") }}>
-                    <span style={{ color: (agentForm.icon||"robot") === ic.k ? "#fff" : "var(--tx)" }}>{getAgentSVG(ic.k, 20)}</span>
-                    <span style={{ fontSize: 9, color: (agentForm.icon||"robot") === ic.k ? "#fff" : "var(--mt)", fontWeight: 600 }}>{ic.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+
 
             {/* Name */}
             <div style={{ marginBottom: 14 }}>
@@ -3552,7 +3561,8 @@ export default function App() {
                       professional: "You are a professional business assistant. Give formal, expert advice. Help with business decisions, documents, and professional communication.",
                       funny: "You are a fun and entertaining AI. Keep things light and humorous. Make people laugh while being helpful.",
                     };
-                    setAgentForm(f => ({...f, tone: t.v, instructions: f.instructions || autoInstructions[t.v] || f.instructions}));
+                    const iconMap = { student: "teacher", teacher: "teacher", farmer: "farmer", friendly: "friend", professional: "lawyer", funny: "friend" };
+                    setAgentForm(f => ({...f, tone: t.v, icon: iconMap[t.v] || f.icon || "robot", instructions: f.instructions || autoInstructions[t.v] || f.instructions}));
                   }}
                     style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, cursor: "pointer",
                       background: agentForm.tone === t.v ? "var(--accent)" : "var(--sf2)",
@@ -3575,7 +3585,48 @@ export default function App() {
         </div>
       )}
 
-            {/* ── LEGAL MODAL (Terms / Privacy / Usage) ── */}
+            {/* ── CREATE PROJECT MODAL ── */}
+      {showNewProj && (
+        <div className="mbg" onClick={() => setShowNewProj(false)} style={{ zIndex: 999, alignItems: "flex-end", padding: 0 }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "var(--sf)", borderRadius: "24px 24px 0 0",
+            padding: "8px 20px 32px", width: "100%", maxWidth: 480,
+            boxShadow: "0 -8px 40px #0009"
+          }}>
+            {/* Drag handle */}
+            <div style={{ width: 36, height: 4, background: "var(--bd)", borderRadius: 2, margin: "8px auto 20px" }} />
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>Create a project</div>
+              <button onClick={() => setShowNewProj(false)}
+                style={{ background: "none", border: "none", color: "var(--mt)", cursor: "pointer", fontSize: 20, padding: 4 }}>✕</button>
+            </div>
+            {/* Name field */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: "var(--mt)", marginBottom: 6 }}>What are you working on?</div>
+              <input className="inp" placeholder="Name your project" value={newProjName}
+                onChange={e => setNewProjName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && createProject()}
+                autoFocus style={{ width: "100%", fontSize: 15 }} />
+            </div>
+            {/* Description field */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 13, color: "var(--mt)", marginBottom: 6 }}>What are you trying to achieve?</div>
+              <textarea className="inp iarea" rows={3}
+                placeholder="Describe your project, goals, subject, etc..."
+                value={newProjDesc} onChange={e => setNewProjDesc(e.target.value)}
+                style={{ width: "100%", resize: "none", fontSize: 14 }} />
+            </div>
+            {/* Create button */}
+            <button className="btn btn-p" onClick={createProject}
+              style={{ width: "100%", fontSize: 15, padding: "14px", borderRadius: 14 }}>
+              Create project
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── LEGAL MODAL (Terms / Privacy / Usage) ── */}
       {legalModal && (
         <div className="mbg" onClick={() => setLegalModal(null)} style={{ zIndex: 999 }}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto", textAlign: "left", maxWidth: 480 }}>
@@ -3776,21 +3827,29 @@ export default function App() {
         <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
           onClick={() => { setActiveAgent(null); newChat(); }}>
           <SaraswatiLogo size={26} animate={false} state="idle" />
-          {page === "chat" ? (activeAgent ? <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span>{getAgentSVG(activeAgent.icon, 18)}</span><span>{activeAgent.name}</span></span> : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : "Saraswati AI"}
+          {page === "chat" ? (activeAgent ? <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span>{getAgentSVG(activeAgent.icon, 18)}</span><span>{activeAgent.name}</span></span> : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : page === "marketplace" ? "Agent Marketplace" : "Saraswati AI"}
         </div>
         {/* ── AGENT MARKETPLACE PAGE ── */}
       {page === "marketplace" && (
-        <div className="page" style={{ padding: "16px", overflowY: "auto", flex: 1 }}>
-          <div style={{ marginBottom: 20 }}>
-            <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>🌐 Agent Marketplace</h2>
-            <div style={{ fontSize: 13, color: "var(--mt)" }}>Discover agents built by the community</div>
+        <div className="page" style={{ padding: "16px", overflowY: "auto", flex: 1, background: "var(--bg)", minHeight: "100%" }}>
+          <div style={{ marginBottom: 16, paddingTop: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 2 }}>Agent Marketplace</div>
+            <div style={{ fontSize: 12, color: "var(--mt)" }}>Discover & use agents built by the community</div>
+          </div>
+
+          {/* Search bar */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--sf2)", border: "1px solid var(--bd)", borderRadius: 12, padding: "8px 12px", marginBottom: 12 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input placeholder="Search agents..." value={marketSearch || ""} onChange={e => setMarketSearch(e.target.value)}
+              style={{ background: "none", border: "none", outline: "none", color: "var(--tx)", fontSize: 14, flex: 1 }} />
           </div>
 
           {/* Category filters */}
-          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8, marginBottom: 16 }}>
-            {["All","Farmer","Teacher","Student","Doctor","Lawyer","Chef","Business","Fitness","Other"].map(cat => (
-              <button key={cat} style={{ padding: "6px 14px", borderRadius: 20, border: "1.5px solid var(--bd)",
-                background: "var(--sf2)", color: "var(--tx)", fontSize: 12, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer" }}>
+          <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 16 }}>
+            {["All","Farmer","Teacher","Student","Doctor","Lawyer","Chef","Business","Fitness","Coding","Finance","Health","Yoga","Cooking","Travel","Language","Science","History","Sports","Music","Art","Astrology","Numerology","Vastu","News","Politics","Religion","Psychology","Parenting","Fashion","Beauty","Automobile","Real Estate","Investment","Marketing","Sales","HR","Legal","Writing","Research","Journalist","Actor","Singer","Poet","Motivational","Spiritual","Career","Interview Prep","UPSC","SSC","JEE","NEET","Banking","Railway","Defence","Police","Nurse","Pharmacist","Engineer","Architect","CA","MBA","BBA","Hotel Management","Tourism","Environment","Climate","Space","Technology","AI","Cyber Security","App Dev","Web Dev","Data Science","Machine Learning","Blockchain","Gaming","Esports","Cricket","Football","Kabaddi","Wrestling","Chess","Badminton","Motu Patlu Fan","Mythology","Story Teller","Motivator","Life Coach","Relationship","Divorce","Marriage","Grief","Anxiety","Depression","Other"].map(cat => (
+              <button key={cat} onClick={() => setMarketCat(cat)}
+                style={{ padding: "5px 12px", borderRadius: 16, border: "1.5px solid " + (marketCat === cat ? "var(--accent)" : "var(--bd)"),
+                  background: marketCat === cat ? "var(--accent)" : "var(--sf2)", color: marketCat === cat ? "#fff" : "var(--tx)", fontSize: 11, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer" }}>
                 {cat}
               </button>
             ))}
@@ -4002,13 +4061,7 @@ export default function App() {
               <div className="ptitle" style={{ marginBottom: 0 }}>Projects</div>
               <button className="nbtn" onClick={() => setShowNewProj(true)}>+ New</button>
             </div>
-            {showNewProj && (
-              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                <input className="inp" placeholder="Project name..." value={newProjName} onChange={e => setNewProjName(e.target.value)} onKeyDown={e => e.key === "Enter" && createProject()} autoFocus />
-                <button className="btn btn-p" style={{ width: "auto", padding: "0 16px" }} onClick={createProject}>Create</button>
-                <button className="btn btn-s" style={{ width: "auto", padding: "0 12px" }} onClick={() => setShowNewProj(false)}>✕</button>
-              </div>
-            )}
+
             {projLoad ? <div className="ld">Loading...</div> : projects.length === 0 ? (
               <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
                 <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.3 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg></div>
@@ -4357,7 +4410,7 @@ export default function App() {
 
       {/* ── ADMIN PAGE ── */}
       {page === "admin" && isAdmin && (
-        <div className="page">
+        <div className="page" style={{ background: "var(--bg)" }}>
           <div className="page-inner">
             <div className="ptitle">Admin Panel</div>
             <div className="sgrid">
@@ -4516,6 +4569,7 @@ export default function App() {
           {/* Claude-style Input Bar */}
           <div className="ibar" style={{ position: "relative" }}>
             <input ref={galleryRef} id="gallery-input" type="file" accept="image/*" style={{ display: "none" }} onChange={handleGallery} />
+            <input ref={cameraRef} id="camera-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={handleGallery} />
             <input ref={fileRef} id="file-input" type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log,.xlsx,.xls,.pptx" multiple style={{ display: "none" }} onChange={handleFiles} />
 
             {/* Upgrade banner - free users only */}
@@ -4565,41 +4619,56 @@ export default function App() {
                   {/* Plus menu popup — positioned above + button */}
                   {showPlusMenu && (
                     <>
-                      {/* Backdrop */}
                       <div onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); }}
                         style={{ position: "fixed", inset: 0, zIndex: 98 }} />
-                      {/* iOS-style 2-grid card menu */}
+                      {/* Bottom sheet style — like Claude app */}
                       <div style={{
                         position: "absolute", bottom: "calc(100% + 12px)", left: 0,
-                        display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10,
-                        zIndex: 99, animation: "fadeUp .18s cubic-bezier(.34,1.56,.64,1)"
+                        background: "var(--sf)", border: "1px solid var(--bd)",
+                        borderRadius: 20, padding: 12, zIndex: 99,
+                        boxShadow: "0 12px 40px #000c",
+                        animation: "fadeUp .18s cubic-bezier(.34,1.56,.64,1)",
+                        minWidth: 280
                       }} onClick={e => e.stopPropagation()}>
-                        {/* Photos Card */}
-                        <button type="button"
-                          onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => galleryRef.current?.click(), 50); }}
-                          style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                            gap: 10, width: 130, height: 120, borderRadius: 22,
-                            background: "#1c1c1e", border: "none", cursor: "pointer",
-                            boxShadow: "0 8px 32px #0009", padding: 0 }}>
-                          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "#2c2c2e",
-                            display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="#fff" stroke="none"/><path d="m21 15-5-5L5 21"/></svg>
-                          </div>
-                          <span style={{ fontSize: 15, fontWeight: 600, color: "#fff", fontFamily: "'Inter',sans-serif" }}>Photos</span>
-                        </button>
-                        {/* Files Card */}
-                        <button type="button"
-                          onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => fileRef.current?.click(), 50); }}
-                          style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                            gap: 10, width: 130, height: 120, borderRadius: 22,
-                            background: "#1c1c1e", border: "none", cursor: "pointer",
-                            boxShadow: "0 8px 32px #0009", padding: 0 }}>
-                          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "#2c2c2e",
-                            display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="13" x2="12" y2="17"/><line x1="10" y1="15" x2="14" y2="15"/></svg>
-                          </div>
-                          <span style={{ fontSize: 15, fontWeight: 600, color: "#fff", fontFamily: "'Inter',sans-serif" }}>Files</span>
-                        </button>
+                        {/* Title */}
+                        <div style={{ fontSize: 16, fontWeight: 700, color: "var(--tx)", marginBottom: 12, paddingLeft: 4 }}>Add to chat</div>
+                        {/* 3 cards row */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+                          {/* Camera */}
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => cameraRef.current?.click(), 50); }}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                              gap: 8, padding: "16px 8px", borderRadius: 16, background: "var(--sf2)",
+                              border: "1px solid var(--bd)", cursor: "pointer" }}>
+                            <div style={{ width: 44, height: 44, borderRadius: 12, background: "#3a3a3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--tx)" }}>Camera</span>
+                          </button>
+                          {/* Photos */}
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => galleryRef.current?.click(), 50); }}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                              gap: 8, padding: "16px 8px", borderRadius: 16, background: "var(--sf2)",
+                              border: "1px solid var(--bd)", cursor: "pointer" }}>
+                            <div style={{ width: 44, height: 44, borderRadius: 12, background: "#3a3a3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="#fff" stroke="none"/><path d="m21 15-5-5L5 21"/></svg>
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--tx)" }}>Photos</span>
+                          </button>
+                          {/* Files */}
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => fileRef.current?.click(), 50); }}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                              gap: 8, padding: "16px 8px", borderRadius: 16, background: "var(--sf2)",
+                              border: "1px solid var(--bd)", cursor: "pointer" }}>
+                            <div style={{ width: 44, height: 44, borderRadius: 12, background: "#3a3a3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="13" x2="12" y2="17"/><line x1="10" y1="15" x2="14" y2="15"/></svg>
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--tx)" }}>Files</span>
+                          </button>
+                        </div>
+                        {/* File size note */}
+                        <div style={{ fontSize: 11, color: "var(--mt)", textAlign: "center", paddingTop: 4, borderTop: "1px solid var(--bd)" }}>
+                          Max file size: 2MB • PDF, DOCX, XLSX, TXT, Images
+                        </div>
                       </div>
                     </>
                   )}
@@ -4615,11 +4684,13 @@ export default function App() {
                     style={micActive ? { borderColor: "#ef4444", color: "#ef4444", background: "#ef444418" } : micBusy ? { opacity: 0.6 } : {}}>
                     {micBusy ? <SaraswatiLogo size={18} animate={true} state="thinking" /> : <Ico.Mic on={micActive} />}
                   </button>
-                  {/* Voice Call — Animated Saffron Lotus */}
-                  <button className="ibtn" onClick={openVoiceCall} title="Voice Call"
-                    style={{ borderColor: "#ff993340", background: "#ff772210" }}>
-                    <SaraswatiLogo size={24} animate={true} state="idle" />
-                  </button>
+                  {/* Voice Call — only when no agent active */}
+                  {!activeAgent && (
+                    <button className="ibtn" onClick={openVoiceCall} title="Voice Call"
+                      style={{ borderColor: "#ff993340", background: "#ff772210" }}>
+                      <SaraswatiLogo size={24} animate={true} state="idle" />
+                    </button>
+                  )}
                   {/* Send */}
                   <button className="sbtn"
                     onClick={() => sendMsg()}
