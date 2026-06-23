@@ -630,7 +630,7 @@ async function genTitle(msg) {
   } catch { return null; }
 }
 
-async function callAI(messages, imageB64, tone, memories, language, extraNote = "") {
+async function callAI(messages, imageB64, tone, memories, language, agentOrNote = "") {
   const last = messages[messages.length - 1];
   if (last?.role === "user" && isOwnerQ(last.text)) return "I was created by **Kunal Saraswat**! 😊";
   let ctx = "";
@@ -650,19 +650,27 @@ async function callAI(messages, imageB64, tone, memories, language, extraNote = 
     english: "ALWAYS reply in English, regardless of what language the user writes in.",
     hinglish: "ALWAYS reply in Hinglish (Hindi words written in Roman/English script), regardless of what language the user writes in.",
   }[language] || "Reply in the EXACT language the user writes (Hindi→Hindi, English→English, Hinglish→Hinglish).";
-  const sys = `You are Saraswati AI — India's best AI assistant, created by Kunal Saraswat.
+  // Agent override
+  const agent = (agentOrNote && typeof agentOrNote === "object") ? agentOrNote : null;
+  const extraNote = (agentOrNote && typeof agentOrNote === "string") ? agentOrNote : "";
+  const toneMap = { friendly: "Warm aur friendly raho.", professional: "Professional aur formal raho.", funny: "Funny raho, jokes bhi karo.", strict: "Strict raho, sirf topic pe raho." };
+  const agentSys = agent ? `You are ${agent.emoji} ${agent.name}.
+${agent.instructions || "Be helpful."}
+Tone: ${toneMap[agent.tone] || "Friendly raho."}
+${langInstruction}
+Never break character. Stay focused on your role.${memCtx}${ctx}` : null;
+
+  const sys = agentSys || `You are Saraswati AI — India's best AI assistant, created by Kunal Saraswat.
 Never mention Groq, Meta, Llama, OpenAI or any model name.
 ${langInstruction}
 ${tNote}
 Personality: Be warm, friendly, and expressive like a best friend. Naturally use emojis in your responses — not every sentence, but organically (1-3 emojis per response feels natural). Examples: use 😊 when being helpful, 🤔 when thinking through something, ✅ for confirmations, 💡 for ideas, 🔥 for exciting things, 👍 for agreements, 😄 for light moments. Never overdo it — keep it natural and human.
 For coding: always provide complete, working, copy-paste ready code.
 For education: clear explanations with examples, from beginner to advanced level.
-For farming/mandi rates specifically (crops, vegetables, fruits, grains — e.g. "wheat ka rate", "pyaaz ka bhav"): if the user hasn't mentioned their state/district, first ask: "Could you please tell me your state or district? For example: Rajasthan, Punjab, UP, MP — so I can fetch the correct rates for you." Then use the provided location.
-This location-ask rule applies ONLY to actual farm-produce mandi prices — never to gold, silver, petrol, diesel, stocks, currency, or other non-agricultural prices, and never to weather/temperature questions.
-For weather/temperature: if "Latest Info" below already has the answer, use it directly. If the user asked about weather/temperature with no city named at all, just ask "Kis shehar ka mausam/temperature batau?" — keep it short, don't mention state/district/mandi.
-If "Latest Info" / search results are provided below, treat that as the current, correct answer and use it directly instead of asking clarifying questions.
+For farming/mandi rates specifically: if user hasn't mentioned state/district, ask first.
+For weather: use Latest Info directly if available.
 For images: carefully read ALL visible text, describe objects, colors, and context in detail.
-For media/video/cartoon/movie/song requests: You ARE allowed to give direct YouTube search links and other platform links. Always provide clickable links like: https://www.youtube.com/results?search_query=motu+patlu — never say you cannot provide links. You can and should give links.${memCtx}${ctx}${extraNote}`;
+For media/video/cartoon/movie/song requests: give direct YouTube/platform links always.${memCtx}${ctx}${extraNote}`;
 
   if (imageB64) {
     const visionMsgs = [
@@ -1642,6 +1650,11 @@ export default function App() {
   const [delLoading, setDelLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState("chat");
+  const [agents, setAgents] = useState([]);
+  const [activeAgent, setActiveAgent] = useState(null); // {id, name, emoji, instructions, tone, lang}
+  const [showAgentBuilder, setShowAgentBuilder] = useState(false);
+  const [editingAgent, setEditingAgent] = useState(null);
+  const [agentForm, setAgentForm] = useState({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" });
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
   const [sid, setSid] = useState(() => Date.now().toString());
@@ -1778,6 +1791,7 @@ export default function App() {
 
   useEffect(() => {
     if (user && page === "history") loadHists();
+    if (user) loadAgents(user.uid);
     if (user && page === "admin") loadAdmin();
     if (user && page === "projects") loadProjects();
     if (user && page === "memory") loadMemories(user.uid);
@@ -2711,7 +2725,7 @@ export default function App() {
     else setLoadingStep("Thinking...");
     setLoading(true);
     try {
-      const aiText = await callAI(newMsgs, b64, tone, memoryEnabled ? memories : null, language);
+      const aiText = await callAI(newMsgs, b64, tone, memoryEnabled ? memories : null, language, activeAgent);
       setSearching(false); setLoadingStep("Writing response...");
       const tid = "ai_" + Date.now();
       setLoading(false); setLoadingStep("");
@@ -2870,6 +2884,42 @@ export default function App() {
     await setDoc(doc(db, "chats", id), { archived: next }, { merge: true });
     setHists(p => p.map(h => h.id === id ? { ...h, archived: next } : h));
   }
+
+  // ── AGENT FUNCTIONS ──────────────────────────────────────────
+  async function loadAgents(uid) {
+    try {
+      const q = query(collection(db, "agents"), where("userId", "==", uid), orderBy("createdAt", "desc"));
+      const snap = await getDocs(q);
+      setAgents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch { setAgents([]); }
+  }
+
+  async function saveAgent() {
+    if (!agentForm.name.trim()) return;
+    try {
+      if (editingAgent) {
+        await updateDoc(doc(db, "agents", editingAgent.id), { ...agentForm, updatedAt: serverTimestamp() });
+      } else {
+        await addDoc(collection(db, "agents"), { ...agentForm, userId: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      }
+      await loadAgents(user.uid);
+      setShowAgentBuilder(false);
+      setEditingAgent(null);
+      setAgentForm({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" });
+    } catch (e) { alert("Save failed: " + e.message); }
+  }
+
+  async function deleteAgent(id) {
+    try { await deleteDoc(doc(db, "agents", id)); await loadAgents(user.uid); } catch {}
+  }
+
+  function startAgent(agent) {
+    setActiveAgent(agent);
+    newChat();
+    setShowSb(false);
+  }
+
+  function stopAgent() { setActiveAgent(null); }
 
   async function loadProjects() {
     setProjLoad(true);
@@ -3170,6 +3220,35 @@ export default function App() {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>Admin</span>
                 </div>
               )}
+              {/* ── MY AGENTS SECTION ── */}
+              <div className="sb-section" style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span>🤖 My Agents</span>
+                <span onClick={() => { setEditingAgent(null); setAgentForm({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" }); setShowAgentBuilder(true); }}
+                  style={{ fontSize: 18, cursor: "pointer", color: "var(--accent)", fontWeight: 700, lineHeight: 1 }}>+</span>
+              </div>
+              {agents.length === 0 && (
+                <div style={{ fontSize: 12, color: "var(--mt)", padding: "6px 14px" }}>Koi agent nahi — + se banao</div>
+              )}
+              {agents.map(agent => (
+                <div key={agent.id} className={"sb-item" + (activeAgent?.id === agent.id ? " active" : "")}
+                  style={{ justifyContent: "space-between" }}>
+                  <span onClick={() => startAgent(agent)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                    <span style={{ fontSize: 18 }}>{agent.emoji}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
+                  </span>
+                  <span style={{ display: "flex", gap: 4 }}>
+                    <span onClick={() => { setEditingAgent(agent); setAgentForm({ name: agent.name, emoji: agent.emoji, instructions: agent.instructions, tone: agent.tone, lang: agent.lang }); setShowAgentBuilder(true); }}
+                      style={{ fontSize: 12, color: "var(--mt)", cursor: "pointer", padding: "2px 5px" }}>✏️</span>
+                    <span onClick={() => deleteAgent(agent.id)}
+                      style={{ fontSize: 12, color: "#ef4444", cursor: "pointer", padding: "2px 5px" }}>🗑</span>
+                  </span>
+                </div>
+              ))}
+              {activeAgent && (
+                <div onClick={stopAgent} style={{ fontSize: 12, color: "#ef4444", padding: "4px 14px", cursor: "pointer" }}>
+                  ✕ {activeAgent.emoji} {activeAgent.name} band karo
+                </div>
+              )}
               {pinnedHists.length > 0 && (
                 <>
                   <div className="sb-section">📌 Pinned</div>
@@ -3236,6 +3315,73 @@ export default function App() {
             <p>You've used all {FREE_LIMIT} free messages. Upgrade to Premium for unlimited access!</p>
             <button className="btn btn-p" onClick={() => { setShowLimit(false); setShowUpgrade(true); }}>Upgrade Now</button>
             <button className="btn btn-s" onClick={() => setShowLimit(false)}>Maybe Later</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── AGENT BUILDER MODAL ── */}
+      {showAgentBuilder && (
+        <div className="mbg" onClick={() => setShowAgentBuilder(false)} style={{ zIndex: 999 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "85vh", overflowY: "auto", textAlign: "left", maxWidth: 460 }}>
+            <div className="mi">{agentForm.emoji}</div>
+            <h3 style={{ textAlign: "center", marginBottom: 16 }}>{editingAgent ? "Agent Edit Karo" : "Naya Agent Banao"}</h3>
+
+            {/* Emoji picker */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 6, fontWeight: 600 }}>EMOJI CHOOSE KARO</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {["🤖","👨‍⚕️","👩‍⚕️","👨‍🌾","👩‍🌾","👨‍🏫","👩‍🏫","👨‍💼","👩‍💼","🧑‍🍳","🧑‍💻","😄","🦁","🐯","🦊","⭐","🔥","💎","🎯","🌟"].map(em => (
+                  <span key={em} onClick={() => setAgentForm(f => ({...f, emoji: em}))}
+                    style={{ fontSize: 24, cursor: "pointer", padding: 4, borderRadius: 8, background: agentForm.emoji === em ? "var(--accent)" : "var(--sf2)", border: agentForm.emoji === em ? "2px solid var(--accent)" : "2px solid transparent" }}>{em}</span>
+                ))}
+              </div>
+            </div>
+
+            {/* Name */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 4, fontWeight: 600 }}>AGENT KA NAAM *</div>
+              <input className="inp" placeholder="Jaise: Doctor AI, Kisan AI, Teacher AI..." value={agentForm.name}
+                onChange={e => setAgentForm(f => ({...f, name: e.target.value}))} style={{ width: "100%" }} />
+            </div>
+
+            {/* Instructions */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 4, fontWeight: 600 }}>INSTRUCTIONS (YE AGENT KYA KAREGA?)</div>
+              <textarea className="inp iarea" rows={4} placeholder="Jaise: Tum ek doctor ho. Sirf health se related sawaalon ka jawab do. Hindi mein baat karo. Medical advice clearly do."
+                value={agentForm.instructions} onChange={e => setAgentForm(f => ({...f, instructions: e.target.value}))}
+                style={{ width: "100%", resize: "none" }} />
+            </div>
+
+            {/* Tone */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 6, fontWeight: 600 }}>TONE / STYLE</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[{v:"friendly",l:"😊 Friendly"},{v:"professional",l:"💼 Professional"},{v:"funny",l:"😄 Funny"},{v:"strict",l:"📚 Strict"}].map(t => (
+                  <button key={t.v} onClick={() => setAgentForm(f => ({...f, tone: t.v}))}
+                    style={{ padding: "6px 14px", borderRadius: 20, border: "1.5px solid " + (agentForm.tone === t.v ? "var(--accent)" : "var(--bd)"),
+                      background: agentForm.tone === t.v ? "var(--accent)" : "var(--sf2)", color: agentForm.tone === t.v ? "#fff" : "var(--tx)",
+                      fontSize: 13, cursor: "pointer", fontWeight: agentForm.tone === t.v ? 600 : 400 }}>{t.l}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Language */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 6, fontWeight: 600 }}>LANGUAGE</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[{v:"hindi",l:"🇮🇳 Hindi"},{v:"english",l:"🌐 English"},{v:"hinglish",l:"🤝 Hinglish"}].map(l => (
+                  <button key={l.v} onClick={() => setAgentForm(f => ({...f, lang: l.v}))}
+                    style={{ padding: "6px 14px", borderRadius: 20, border: "1.5px solid " + (agentForm.lang === l.v ? "var(--accent)" : "var(--bd)"),
+                      background: agentForm.lang === l.v ? "var(--accent)" : "var(--sf2)", color: agentForm.lang === l.v ? "#fff" : "var(--tx)",
+                      fontSize: 13, cursor: "pointer", fontWeight: agentForm.lang === l.v ? 600 : 400 }}>{l.l}</button>
+                ))}
+              </div>
+            </div>
+
+            <button className="btn btn-p" onClick={saveAgent} style={{ width: "100%", marginBottom: 8 }}>
+              {editingAgent ? "✅ Update Agent" : "🚀 Agent Banao"}
+            </button>
+            <button className="btn" onClick={() => setShowAgentBuilder(false)} style={{ width: "100%" }}>Cancel</button>
           </div>
         </div>
       )}
@@ -3440,7 +3586,7 @@ export default function App() {
         </button>
         <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <SaraswatiLogo size={26} animate={false} state="idle" />
-          {page === "chat" ? "Saraswati AI" : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : "Saraswati AI"}
+          {page === "chat" ? (activeAgent ? `${activeAgent.emoji} ${activeAgent.name}` : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : "Saraswati AI"}
         </div>
         {page === "chat" && (
           <>
