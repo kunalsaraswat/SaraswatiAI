@@ -653,7 +653,7 @@ async function callAI(messages, imageB64, tone, memories, language, agentOrNote 
   // Agent override
   const agent = (agentOrNote && typeof agentOrNote === "object") ? agentOrNote : null;
   const extraNote = (agentOrNote && typeof agentOrNote === "string") ? agentOrNote : "";
-  const toneMap = { friendly: "Warm aur friendly raho.", professional: "Professional aur formal raho.", funny: "Funny raho, jokes bhi karo.", strict: "Strict raho, sirf topic pe raho." };
+  const toneMap = { friendly: "Be warm and friendly like a best friend.", professional: "Be professional, formal and expert.", funny: "Be funny and entertaining, add jokes.", student: "Be curious, eager to learn, ask good questions.", teacher: "Explain clearly with examples, be educational.", farmer: "Be practical, grounded, give real-world advice.", strict: "Be strict and disciplined, stay on topic." };
   const agentSys = agent ? `You are ${agent.emoji} ${agent.name}.
 ${agent.instructions || "Be helpful."}
 Tone: ${toneMap[agent.tone] || "Friendly raho."}
@@ -1102,6 +1102,21 @@ function CodeBlock({ code, lang }) {
     </div>
   );
 }
+// ── AGENT SVG ICONS ─────────────────────────────────────────────
+const AGENT_ICONS = {
+  robot:   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="8" cy="16" r="1.2" fill="currentColor"/><circle cx="16" cy="16" r="1.2" fill="currentColor"/><path d="M12 3v4M8 7h8M7 11V9a5 5 0 0 1 10 0v2"/></svg>,
+  doctor:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
+  teacher: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>,
+  farmer:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22V12M12 12C12 7 7 4 2 6"/><path d="M12 12c0-5 5-8 10-6"/><circle cx="12" cy="7" r="2"/></svg>,
+  lawyer:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22V2M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+  chef:    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/></svg>,
+  friend:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
+};
+function getAgentSVG(icon, size = 20) {
+  const el = AGENT_ICONS[icon] || AGENT_ICONS.robot;
+  return <span style={{ width: size, height: size, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{el}</span>;
+}
+
 function getLinkMeta(url) {
   if (url.includes("youtube.com") || url.includes("youtu.be"))
     return { label: "YouTube pe dekho", icon: "▶", color: "#ff0000", bg: "#ff00001a" };
@@ -2905,7 +2920,7 @@ export default function App() {
       await loadAgents(user.uid);
       setShowAgentBuilder(false);
       setEditingAgent(null);
-      setAgentForm({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" });
+      setAgentForm({ name: "", icon: "robot", instructions: "", tone: "friendly" });
     } catch (e) { alert("Save failed: " + e.message); }
   }
 
@@ -3208,6 +3223,45 @@ export default function App() {
               {[
                 { id: "chat", icon: <Ico.Chat />, label: "Chat" },
                 { id: "history", icon: <Ico.History />, label: "History" },
+              ].map(item => (
+                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
+                  {item.icon}<span>{item.label}</span>
+                </div>
+              ))}
+              {/* ── AI AGENTS — between History and Projects ── */}
+              <div className="sb-item" style={{ justifyContent: "space-between", cursor: "default" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="8" cy="16" r="1" fill="currentColor"/><circle cx="16" cy="16" r="1" fill="currentColor"/><path d="M12 3v4M8 7h8M7 11V9a5 5 0 0 1 10 0v2"/></svg>
+                  <span style={{ fontWeight: 600 }}>AI Agents</span>
+                </span>
+                <span onClick={() => { setEditingAgent(null); setAgentForm({ name: "", icon: "robot", instructions: "", tone: "friendly" }); setShowAgentBuilder(true); }}
+                  style={{ fontSize: 20, cursor: "pointer", color: "var(--accent)", fontWeight: 700, lineHeight: 1, padding: "0 4px" }}>+</span>
+              </div>
+              {agents.length === 0 && (
+                <div style={{ fontSize: 12, color: "var(--mt)", padding: "4px 20px" }}>No agents yet — tap + to create</div>
+              )}
+              {agents.map(agent => (
+                <div key={agent.id} className={"sb-item" + (activeAgent?.id === agent.id ? " active" : "")}
+                  style={{ justifyContent: "space-between", paddingLeft: 28 }}>
+                  <span onClick={() => startAgent(agent)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                    <span>{getAgentSVG(agent.icon, 16)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
+                    {activeAgent?.id === agent.id && <span style={{ fontSize: 10, background: "var(--accent)", color: "#fff", borderRadius: 8, padding: "1px 6px" }}>Active</span>}
+                  </span>
+                  <span style={{ display: "flex", gap: 2 }}>
+                    <span onClick={() => { setEditingAgent(agent); setAgentForm({ name: agent.name, icon: agent.icon, instructions: agent.instructions, tone: agent.tone }); setShowAgentBuilder(true); }}
+                      style={{ color: "var(--mt)", cursor: "pointer", padding: "2px 6px", fontSize: 13 }}>✏️</span>
+                    <span onClick={() => deleteAgent(agent.id)}
+                      style={{ color: "#ef4444", cursor: "pointer", padding: "2px 6px", fontSize: 13 }}>🗑</span>
+                  </span>
+                </div>
+              ))}
+              {activeAgent && (
+                <div onClick={stopAgent} style={{ fontSize: 12, color: "#ef4444", padding: "4px 20px", cursor: "pointer" }}>
+                  ✕ Stop {activeAgent.name}
+                </div>
+              )}
+              {[
                 { id: "projects", icon: <Ico.Project />, label: "Projects" },
                 { id: "settings", icon: <Ico.Settings />, label: "Settings" },
               ].map(item => (
@@ -3218,35 +3272,6 @@ export default function App() {
               {isAdmin && (
                 <div className={"sb-item" + (page === "admin" ? " active" : "")} onClick={() => { setPage("admin"); setShowSb(false); }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>Admin</span>
-                </div>
-              )}
-              {/* ── MY AGENTS SECTION ── */}
-              <div className="sb-section" style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span>🤖 My Agents</span>
-                <span onClick={() => { setEditingAgent(null); setAgentForm({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" }); setShowAgentBuilder(true); }}
-                  style={{ fontSize: 18, cursor: "pointer", color: "var(--accent)", fontWeight: 700, lineHeight: 1 }}>+</span>
-              </div>
-              {agents.length === 0 && (
-                <div style={{ fontSize: 12, color: "var(--mt)", padding: "6px 14px" }}>Koi agent nahi — + se banao</div>
-              )}
-              {agents.map(agent => (
-                <div key={agent.id} className={"sb-item" + (activeAgent?.id === agent.id ? " active" : "")}
-                  style={{ justifyContent: "space-between" }}>
-                  <span onClick={() => startAgent(agent)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-                    <span style={{ fontSize: 18 }}>{agent.emoji}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
-                  </span>
-                  <span style={{ display: "flex", gap: 4 }}>
-                    <span onClick={() => { setEditingAgent(agent); setAgentForm({ name: agent.name, emoji: agent.emoji, instructions: agent.instructions, tone: agent.tone, lang: agent.lang }); setShowAgentBuilder(true); }}
-                      style={{ fontSize: 12, color: "var(--mt)", cursor: "pointer", padding: "2px 5px" }}>✏️</span>
-                    <span onClick={() => deleteAgent(agent.id)}
-                      style={{ fontSize: 12, color: "#ef4444", cursor: "pointer", padding: "2px 5px" }}>🗑</span>
-                  </span>
-                </div>
-              ))}
-              {activeAgent && (
-                <div onClick={stopAgent} style={{ fontSize: 12, color: "#ef4444", padding: "4px 14px", cursor: "pointer" }}>
-                  ✕ {activeAgent.emoji} {activeAgent.name} band karo
                 </div>
               )}
               {pinnedHists.length > 0 && (
@@ -3322,71 +3347,97 @@ export default function App() {
       {/* ── AGENT BUILDER MODAL ── */}
       {showAgentBuilder && (
         <div className="mbg" onClick={() => setShowAgentBuilder(false)} style={{ zIndex: 999 }}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "85vh", overflowY: "auto", textAlign: "left", maxWidth: 460 }}>
-            <div className="mi">{agentForm.emoji}</div>
-            <h3 style={{ textAlign: "center", marginBottom: 16 }}>{editingAgent ? "Agent Edit Karo" : "Naya Agent Banao"}</h3>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto", textAlign: "left", maxWidth: 460 }}>
+            {/* Header */}
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ width: 64, height: 64, borderRadius: 20, background: "linear-gradient(135deg,var(--accent),#ea580c)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+                {getAgentSVG(agentForm.icon || "robot", 28)}
+              </div>
+              <h3 style={{ margin: 0 }}>{editingAgent ? "Edit Agent" : "Create AI Agent"}</h3>
+              <div style={{ fontSize: 12, color: "var(--mt)", marginTop: 4 }}>Build your own custom AI assistant</div>
+            </div>
 
-            {/* Emoji picker */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 6, fontWeight: 600 }}>EMOJI CHOOSE KARO</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {["🤖","👨‍⚕️","👩‍⚕️","👨‍🌾","👩‍🌾","👨‍🏫","👩‍🏫","👨‍💼","👩‍💼","🧑‍🍳","🧑‍💻","😄","🦁","🐯","🦊","⭐","🔥","💎","🎯","🌟"].map(em => (
-                  <span key={em} onClick={() => setAgentForm(f => ({...f, emoji: em}))}
-                    style={{ fontSize: 24, cursor: "pointer", padding: 4, borderRadius: 8, background: agentForm.emoji === em ? "var(--accent)" : "var(--sf2)", border: agentForm.emoji === em ? "2px solid var(--accent)" : "2px solid transparent" }}>{em}</span>
+            {/* Icon picker */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>CHOOSE ICON</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 8 }}>
+                {[
+                  {k:"robot","label":"Robot"},
+                  {k:"doctor","label":"Doctor"},
+                  {k:"teacher","label":"Teacher"},
+                  {k:"farmer","label":"Farmer"},
+                  {k:"lawyer","label":"Lawyer"},
+                  {k:"chef","label":"Chef"},
+                  {k:"friend","label":"Friend"},
+                ].map(ic => (
+                  <div key={ic.k} onClick={() => setAgentForm(f => ({...f, icon: ic.k}))}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 4px", borderRadius: 12, cursor: "pointer",
+                      background: (agentForm.icon||"robot") === ic.k ? "var(--accent)" : "var(--sf2)",
+                      border: "1.5px solid " + ((agentForm.icon||"robot") === ic.k ? "var(--accent)" : "var(--bd)") }}>
+                    <span style={{ color: (agentForm.icon||"robot") === ic.k ? "#fff" : "var(--tx)" }}>{getAgentSVG(ic.k, 20)}</span>
+                    <span style={{ fontSize: 9, color: (agentForm.icon||"robot") === ic.k ? "#fff" : "var(--mt)", fontWeight: 600 }}>{ic.label}</span>
+                  </div>
                 ))}
               </div>
             </div>
 
             {/* Name */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 4, fontWeight: 600 }}>AGENT KA NAAM *</div>
-              <input className="inp" placeholder="Jaise: Doctor AI, Kisan AI, Teacher AI..." value={agentForm.name}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 6 }}>AGENT NAME *</div>
+              <input className="inp" placeholder="e.g. Doctor AI, Kisan AI, Teacher AI..." value={agentForm.name}
                 onChange={e => setAgentForm(f => ({...f, name: e.target.value}))} style={{ width: "100%" }} />
             </div>
 
             {/* Instructions */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 4, fontWeight: 600 }}>INSTRUCTIONS (YE AGENT KYA KAREGA?)</div>
-              <textarea className="inp iarea" rows={4} placeholder="Jaise: Tum ek doctor ho. Sirf health se related sawaalon ka jawab do. Hindi mein baat karo. Medical advice clearly do."
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 6 }}>INSTRUCTIONS — WHAT WILL THIS AGENT DO?</div>
+              <textarea className="inp iarea" rows={3}
+                placeholder="e.g. You are a doctor. Answer only health-related questions. Give clear medical advice in simple language."
                 value={agentForm.instructions} onChange={e => setAgentForm(f => ({...f, instructions: e.target.value}))}
-                style={{ width: "100%", resize: "none" }} />
+                style={{ width: "100%", resize: "none", fontSize: 13 }} />
             </div>
 
             {/* Tone */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 6, fontWeight: 600 }}>TONE / STYLE</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {[{v:"friendly",l:"😊 Friendly"},{v:"professional",l:"💼 Professional"},{v:"funny",l:"😄 Funny"},{v:"strict",l:"📚 Strict"}].map(t => (
-                  <button key={t.v} onClick={() => setAgentForm(f => ({...f, tone: t.v}))}
-                    style={{ padding: "6px 14px", borderRadius: 20, border: "1.5px solid " + (agentForm.tone === t.v ? "var(--accent)" : "var(--bd)"),
-                      background: agentForm.tone === t.v ? "var(--accent)" : "var(--sf2)", color: agentForm.tone === t.v ? "#fff" : "var(--tx)",
-                      fontSize: 13, cursor: "pointer", fontWeight: agentForm.tone === t.v ? 600 : 400 }}>{t.l}</button>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>PERSONALITY</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {[
+                  {v:"student", l:"Student", desc:"Curious & eager to learn",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>},
+                  {v:"teacher", l:"Teacher", desc:"Clear & educational",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>},
+                  {v:"farmer", l:"Farmer", desc:"Practical & grounded",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 22V12M12 12C12 7 7 4 2 6"/><path d="M12 12c0-5 5-8 10-6"/></svg>},
+                  {v:"friendly", l:"Friendly", desc:"Warm like a best friend",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>},
+                  {v:"professional", l:"Professional", desc:"Formal & expert",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>},
+                  {v:"funny", l:"Comedian", desc:"Fun & entertaining",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 3 4 3 4-3 4-3"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>},
+                ].map(t => (
+                  <div key={t.v} onClick={() => setAgentForm(f => ({...f, tone: t.v}))}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, cursor: "pointer",
+                      background: agentForm.tone === t.v ? "var(--accent)" : "var(--sf2)",
+                      border: "1.5px solid " + (agentForm.tone === t.v ? "var(--accent)" : "var(--bd)") }}>
+                    <span style={{ color: agentForm.tone === t.v ? "#fff" : "var(--accent)", flexShrink: 0 }}>{t.icon}</span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: agentForm.tone === t.v ? "#fff" : "var(--tx)" }}>{t.l}</div>
+                      <div style={{ fontSize: 10, color: agentForm.tone === t.v ? "#ffffffaa" : "var(--mt)" }}>{t.desc}</div>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
 
-            {/* Language */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 6, fontWeight: 600 }}>LANGUAGE</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {[{v:"hindi",l:"🇮🇳 Hindi"},{v:"english",l:"🌐 English"},{v:"hinglish",l:"🤝 Hinglish"}].map(l => (
-                  <button key={l.v} onClick={() => setAgentForm(f => ({...f, lang: l.v}))}
-                    style={{ padding: "6px 14px", borderRadius: 20, border: "1.5px solid " + (agentForm.lang === l.v ? "var(--accent)" : "var(--bd)"),
-                      background: agentForm.lang === l.v ? "var(--accent)" : "var(--sf2)", color: agentForm.lang === l.v ? "#fff" : "var(--tx)",
-                      fontSize: 13, cursor: "pointer", fontWeight: agentForm.lang === l.v ? 600 : 400 }}>{l.l}</button>
-                ))}
-              </div>
-            </div>
-
-            <button className="btn btn-p" onClick={saveAgent} style={{ width: "100%", marginBottom: 8 }}>
-              {editingAgent ? "✅ Update Agent" : "🚀 Agent Banao"}
+            <button className="btn btn-p" onClick={saveAgent} style={{ width: "100%", marginBottom: 8, fontSize: 15, padding: "13px" }}>
+              {editingAgent ? "✅ Update Agent" : "🚀 Create Agent"}
             </button>
-            <button className="btn" onClick={() => setShowAgentBuilder(false)} style={{ width: "100%" }}>Cancel</button>
+            <button className="btn" onClick={() => setShowAgentBuilder(false)} style={{ width: "100%", padding: "11px" }}>Cancel</button>
           </div>
         </div>
       )}
 
-      {/* ── LEGAL MODAL (Terms / Privacy / Usage) ── */}
+            {/* ── LEGAL MODAL (Terms / Privacy / Usage) ── */}
       {legalModal && (
         <div className="mbg" onClick={() => setLegalModal(null)} style={{ zIndex: 999 }}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto", textAlign: "left", maxWidth: 480 }}>
