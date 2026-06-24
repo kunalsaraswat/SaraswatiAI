@@ -3399,9 +3399,7 @@ export default function App() {
                 <span onClick={() => { setEditingAgent(null); setAgentForm({ name: "", icon: "robot", instructions: "", tone: "friendly", category: "Custom", welcomeMsg: "", avatar: "", knowledgeText: "", language: "auto", price: "free" }); setShowAgentBuilder(true); }}
                   style={{ fontSize: 20, cursor: "pointer", color: "var(--accent)", fontWeight: 700, lineHeight: 1, padding: "0 4px" }}>+</span>
               </div>
-              {agents.length === 0 && (
-                <div style={{ fontSize: 12, color: "var(--mt)", padding: "4px 20px" }}>No agents yet — tap + to create</div>
-              )}
+              
               {agents.map(agent => (
                 <div key={agent.id} className={"sb-item" + (activeAgent?.id === agent.id ? " active" : "")}
                   style={{ justifyContent: "space-between", paddingLeft: 28 }}>
@@ -3889,7 +3887,9 @@ export default function App() {
           <SaraswatiLogo size={26} animate={false} state="idle" />
           {page === "chat" ? (activeAgent ? <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span>{getAgentSVG(activeAgent.icon, 18)}</span><span>{activeAgent.name}</span></span> : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : page === "marketplace" ? "Agent Marketplace" : "Saraswati AI"}
         </div>
-        {/* ── AGENT MARKETPLACE PAGE ── */}
+      </div>
+
+      {/* ── AGENT MARKETPLACE PAGE ── */}
       {page === "marketplace" && (
         <div className="page" style={{ padding: "16px", overflowY: "auto", flex: 1, background: "var(--sf)", minHeight: "100%" }}>
           <div style={{ marginBottom: 16, paddingTop: 8 }}>
