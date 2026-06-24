@@ -663,28 +663,11 @@ async function callAI(messages, imageB64, tone, memories, language, agentOrNote 
   const agent = (agentOrNote && typeof agentOrNote === "object") ? agentOrNote : null;
   const extraNote = (agentOrNote && typeof agentOrNote === "string") ? agentOrNote : "";
   const toneMap = { friendly: "Be warm and friendly like a best friend.", professional: "Be professional, formal and expert.", funny: "Be funny and entertaining, add jokes.", student: "Be curious, eager to learn, ask good questions.", teacher: "Explain clearly with examples, be educational.", farmer: "Be practical, grounded, give real-world advice.", strict: "Be strict and disciplined, stay on topic." };
-  // Language instruction for agent
-  const agentLangMap = { hindi: "Always respond in Hindi.", english: "Always respond in English.", bengali: "Always respond in Bengali.", tamil: "Always respond in Tamil.", marathi: "Always respond in Marathi.", auto: "Detect and respond in the user's language." };
-  const agentLangNote = agent?.language ? (agentLangMap[agent.language] || "") : "";
-
-  // Knowledge base context
-  const knowledgeCtx = (agent?.knowledgeText && agent.knowledgeText.trim()) ? `
-
-KNOWLEDGE BASE (use this as your primary source):
-${agent.knowledgeText.slice(0, 3000)}` : "";
-
-  const agentSys = agent ? `You are ${agent.name}${agent.category ? ` — ${agent.category} specialist` : ""}.
-${agent.instructions || "Be helpful and focused on your topic."}
-Tone: ${toneMap[agent.tone] || "Be friendly and helpful."}
-${agentLangNote}
-${knowledgeCtx}
-
-STRICT RULES:
-1. ONLY discuss topics related to your role and category: ${agent.category || "your expertise"}.
-2. If asked something outside your expertise, say: "Main sirf ${agent.category || "apne topic"} ke baare mein help kar sakta hoon. Kya aapka koi ${agent.category || ""} related sawaal hai?"
-3. Never break character. You are ${agent.name}, not Saraswati AI.
-4. Give expert, detailed answers about your specific domain.
-5. Be proactive — suggest related tips the user might find useful.${memCtx}${ctx}` : null;
+  const agentSys = agent ? `You are ${agent.emoji} ${agent.name}.
+${agent.instructions || "Be helpful."}
+Tone: ${toneMap[agent.tone] || "Friendly raho."}
+${langInstruction}
+Never break character. Stay focused on your role.${memCtx}${ctx}` : null;
 
   const sys = agentSys || `You are Saraswati AI — India's best AI assistant, created by Kunal Saraswat.
 Never mention Groq, Meta, Llama, OpenAI or any model name.
@@ -1015,7 +998,7 @@ function speakWithBrowserTTS(text, speed, onDone) {
   // Check browser speech synthesis support (Samsung Internet, UC Browser may not support)
   if (!window.speechSynthesis) { if (onDone) onDone(); return; }
   window.speechSynthesis.cancel();
-  const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^ -ऀ-ॿ .,!?]/g, "").slice(0, 600);
+  const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^-ऀ-ॿ .,!?]/g, "").slice(0, 600);
   const go = () => {
     const vs = window.speechSynthesis.getVoices();
     const v = pickSaraswatiVoice(vs);
@@ -1129,19 +1112,18 @@ function CodeBlock({ code, lang }) {
   );
 }
 // ── AGENT SVG ICONS ─────────────────────────────────────────────
+const AGENT_ICONS = {
+  robot:   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="8" cy="16" r="1.2" fill="currentColor"/><circle cx="16" cy="16" r="1.2" fill="currentColor"/><path d="M12 3v4M8 7h8M7 11V9a5 5 0 0 1 10 0v2"/></svg>,
+  doctor:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
+  teacher: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>,
+  farmer:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22V12M12 12C12 7 7 4 2 6"/><path d="M12 12c0-5 5-8 10-6"/><circle cx="12" cy="7" r="2"/></svg>,
+  lawyer:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22V2M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+  chef:    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/></svg>,
+  friend:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
+};
 function getAgentSVG(icon, size = 20) {
-  const s = { width: size, height: size, fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round" };
-  const icons = {
-    robot:   <svg {...s} viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="8" cy="16" r="1.2" fill="currentColor"/><circle cx="16" cy="16" r="1.2" fill="currentColor"/><path d="M12 3v4M8 7h8M7 11V9a5 5 0 0 1 10 0v2"/></svg>,
-    doctor:  <svg {...s} viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
-    teacher: <svg {...s} viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>,
-    farmer:  <svg {...s} viewBox="0 0 24 24"><path d="M12 22V12M12 12C12 7 7 4 2 6"/><path d="M12 12c0-5 5-8 10-6"/><circle cx="12" cy="7" r="2"/></svg>,
-    lawyer:  <svg {...s} viewBox="0 0 24 24"><path d="M12 22V2M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
-    chef:    <svg {...s} viewBox="0 0 24 24"><path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/></svg>,
-    friend:  <svg {...s} viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
-  };
-  const el = icons[icon] || icons.robot;
-  return <span style={{ width: size, height: size, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{el}</span>;
+  const el = AGENT_ICONS[icon] || AGENT_ICONS.robot;
+  return <span style={{ width: size, height: size, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{el}</span>;
 }
 
 // ── ADMIN AGENTS LIST COMPONENT ──────────────────────────────
@@ -1740,17 +1722,11 @@ export default function App() {
   const [page, setPage] = useState("chat");
   const [marketplaceAgents, setMarketplaceAgents] = useState([]);
   const [marketLoading, setMarketLoading] = useState(false);
-  const [marketSearch, setMarketSearch] = useState("");
-  const [marketCat, setMarketCat] = useState("All");
   const [agents, setAgents] = useState([]);
   const [activeAgent, setActiveAgent] = useState(null); // {id, name, emoji, instructions, tone, lang}
   const [showAgentBuilder, setShowAgentBuilder] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
-  const [agentForm, setAgentForm] = useState({ 
-    name: "", icon: "robot", instructions: "", tone: "friendly",
-    category: "Custom", welcomeMsg: "", avatar: "",
-    knowledgeText: "", language: "auto", price: "free"
-  });
+  const [agentForm, setAgentForm] = useState({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" });
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
   const [sid, setSid] = useState(() => Date.now().toString());
@@ -1761,7 +1737,6 @@ export default function App() {
   const [reactions, setReactions] = useState({});
   const [showRx, setShowRx] = useState(null);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
-  const cameraRef = useRef(null);
   const [chatContextMenu, setChatContextMenu] = useState(null); // { histId, x, y }
   const [loadingStep, setLoadingStep] = useState(""); // "Searching...", "Thinking...", etc.
   const [chatSearch, setChatSearch] = useState(null); // null=hidden, ""=open empty
@@ -1797,7 +1772,6 @@ export default function App() {
   const [projLoad, setProjLoad] = useState(false);
   const [showNewProj, setShowNewProj] = useState(false);
   const [newProjName, setNewProjName] = useState("");
-  const [newProjDesc, setNewProjDesc] = useState("");
   const [renamingProjId, setRenamingProjId] = useState(null);
   const [renameProjVal, setRenameProjVal] = useState("");
   const [upgradePlan, setUpgradePlan] = useState("monthly");
@@ -2170,11 +2144,6 @@ export default function App() {
   function handleGallery(e) {
     const file = e.target.files[0]; if (!file) return;
     e.target.value = "";
-    // 2MB size limit
-    if (file.size > 2 * 1024 * 1024) {
-      alert("Image too large! Max size is 2MB. Please choose a smaller image.");
-      return;
-    }
     const r = new FileReader();
     r.onload = async ev => {
       try {
@@ -2196,13 +2165,6 @@ export default function App() {
     const files = Array.from(e.target.files || []);
     e.target.value = "";
     if (!files.length) return;
-    // 2MB size limit
-    const MAX_SIZE = 2 * 1024 * 1024;
-    const oversized = files.filter(f => f.size > MAX_SIZE);
-    if (oversized.length) {
-      alert(`File too large! Max size is 2MB. Please compress or use a smaller file.`);
-      return;
-    }
     setAttachLoading(true);
     for (const file of files) {
       const result = await extractFileText(file);
@@ -3036,17 +2998,8 @@ export default function App() {
     try {
       const q = query(collection(db, "agents"), where("userId", "==", uid), orderBy("createdAt", "desc"));
       const snap = await getDocs(q);
-      const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setAgents(loaded);
-      // Persist to localStorage for offline access
-      try { localStorage.setItem("saraswati_agents_" + uid, JSON.stringify(loaded)); } catch {}
-    } catch {
-      // Fallback: load from localStorage
-      try {
-        const cached = localStorage.getItem("saraswati_agents_" + uid);
-        if (cached) setAgents(JSON.parse(cached));
-      } catch { setAgents([]); }
-    }
+      setAgents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch { setAgents([]); }
   }
 
   async function saveAgent() {
@@ -3063,18 +3016,12 @@ export default function App() {
       await loadAgents(user.uid);
       setShowAgentBuilder(false);
       setEditingAgent(null);
-      setAgentForm({ name: "", icon: "robot", instructions: "", tone: "friendly", category: "Custom", welcomeMsg: "", avatar: "", knowledgeText: "", language: "auto", price: "free" });
+      setAgentForm({ name: "", icon: "robot", instructions: "", tone: "friendly" });
       // Auto-start the agent after creation
       if (!editingAgent) {
         setActiveAgent(savedAgent);
         setSid(Date.now().toString());
-        // Show welcome message if set
-        const welcomeMsg = savedAgent.welcomeMsg?.trim();
-        if (welcomeMsg) {
-          setMsgs([{ id: "welcome_" + Date.now(), role: "ai", text: welcomeMsg, time: new Date() }]);
-        } else {
-          setMsgs([]);
-        }
+        setMsgs([]);
         setPage("chat");
         setShowSb(false);
       }
@@ -3087,10 +3034,7 @@ export default function App() {
 
   function startAgent(agent) {
     setActiveAgent(agent);
-    setSid(Date.now().toString());
-    setImgB64(null); setImgPrev(null); setAttachments([]); setPage("chat"); setReactions({}); setSessionTone(null);
-    const welcomeMsg = agent.welcomeMsg?.trim();
-    setMsgs(welcomeMsg ? [{ id: "welcome_" + Date.now(), role: "ai", text: welcomeMsg, time: new Date() }] : []);
+    newChat();
     setShowSb(false);
   }
 
@@ -3115,10 +3059,9 @@ export default function App() {
   async function createProject() {
     const name = newProjName.trim();
     if (!name) return;
-    const desc = newProjDesc.trim();
-    const ref = await addDoc(collection(db, "projects"), { userId: user.uid, title: name, desc, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    setProjects(p => [{ id: ref.id, userId: user.uid, title: name, desc, createdAt: { seconds: Date.now() / 1000 } }, ...p]);
-    setNewProjName(""); setNewProjDesc(""); setShowNewProj(false);
+    const ref = await addDoc(collection(db, "projects"), { userId: user.uid, title: name, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    setProjects(p => [{ id: ref.id, userId: user.uid, title: name, createdAt: { seconds: Date.now() / 1000 } }, ...p]);
+    setNewProjName(""); setShowNewProj(false);
   }
 
   async function renameProject(id, name) {
@@ -3381,25 +3324,26 @@ export default function App() {
             </div>
             <div className="sb-nav">
               <div className="sb-section">Menu</div>
-              {/* Chat - stops agent, goes to Saraswati AI */}
-              <div className={"sb-item" + (page === "chat" && !activeAgent ? " active" : "")}
-                onClick={() => { setActiveAgent(null); setPage("chat"); setShowSb(false); setSid(Date.now().toString()); setMsgs([]); }}>
-                <Ico.Chat /><span>Chat</span>
-              </div>
-              <div className={"sb-item" + (page === "history" ? " active" : "")}
-                onClick={() => { setPage("history"); setShowSb(false); }}>
-                <Ico.History /><span>History</span>
-              </div>
+              {[
+                { id: "chat", icon: <Ico.Chat />, label: "Chat" },
+                { id: "history", icon: <Ico.History />, label: "History" },
+              ].map(item => (
+                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
+                  {item.icon}<span>{item.label}</span>
+                </div>
+              ))}
               {/* ── AI AGENTS — between History and Projects ── */}
               <div className="sb-item" style={{ justifyContent: "space-between", cursor: "default" }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="8" cy="16" r="1" fill="currentColor"/><circle cx="16" cy="16" r="1" fill="currentColor"/><path d="M12 3v4M8 7h8M7 11V9a5 5 0 0 1 10 0v2"/></svg>
                   <span style={{ fontWeight: 600 }}>AI Agents</span>
                 </span>
-                <span onClick={() => { setEditingAgent(null); setAgentForm({ name: "", icon: "robot", instructions: "", tone: "friendly", category: "Custom", welcomeMsg: "", avatar: "", knowledgeText: "", language: "auto", price: "free" }); setShowAgentBuilder(true); }}
+                <span onClick={() => { setEditingAgent(null); setAgentForm({ name: "", icon: "robot", instructions: "", tone: "friendly" }); setShowAgentBuilder(true); }}
                   style={{ fontSize: 20, cursor: "pointer", color: "var(--accent)", fontWeight: 700, lineHeight: 1, padding: "0 4px" }}>+</span>
               </div>
-              
+              {agents.length === 0 && (
+                <div style={{ fontSize: 12, color: "var(--mt)", padding: "4px 20px" }}>No agents yet — tap + to create</div>
+              )}
               {agents.map(agent => (
                 <div key={agent.id} className={"sb-item" + (activeAgent?.id === agent.id ? " active" : "")}
                   style={{ justifyContent: "space-between", paddingLeft: 28 }}>
@@ -3412,7 +3356,7 @@ export default function App() {
                     <span onClick={() => agent.published ? unpublishAgent(agent.id) : publishAgent(agent)}
                       title={agent.published ? "Unpublish" : "Publish to Marketplace"}
                       style={{ color: agent.published ? "#f97316" : "var(--mt)", cursor: "pointer", padding: "2px 4px", fontSize: 12 }}>{agent.published ? "🌐" : "📤"}</span>
-                    <span onClick={() => { setEditingAgent(agent); setAgentForm({ name: agent.name, icon: agent.icon || "robot", instructions: agent.instructions || "", tone: agent.tone || "friendly", category: agent.category || "Custom", welcomeMsg: agent.welcomeMsg || "", avatar: agent.avatar || "", knowledgeText: agent.knowledgeText || "", language: agent.language || "auto", price: agent.price || "free" }); setShowAgentBuilder(true); }}
+                    <span onClick={() => { setEditingAgent(agent); setAgentForm({ name: agent.name, icon: agent.icon, instructions: agent.instructions, tone: agent.tone }); setShowAgentBuilder(true); }}
                       style={{ color: "var(--mt)", cursor: "pointer", padding: "2px 4px", fontSize: 12 }}>✏️</span>
                     <span onClick={() => deleteAgent(agent.id)}
                       style={{ color: "#ef4444", cursor: "pointer", padding: "2px 4px", fontSize: 12 }}>🗑</span>
@@ -3515,171 +3459,118 @@ export default function App() {
 
       {/* ── AGENT BUILDER MODAL ── */}
       {showAgentBuilder && (
-        <div className="mbg" onClick={() => setShowAgentBuilder(false)} style={{ zIndex: 999, alignItems: "flex-end", padding: 0 }}>
-          <div onClick={e => e.stopPropagation()} style={{
-            background: "var(--sf)", borderRadius: "24px 24px 0 0",
-            width: "100%", maxWidth: 480, maxHeight: "92vh", overflowY: "auto",
-            boxShadow: "0 -8px 40px #000c"
-          }}>
-            {/* Drag handle */}
-            <div style={{ width: 36, height: 4, background: "var(--bd)", borderRadius: 2, margin: "10px auto 0" }} />
-            
-            <div style={{ padding: "16px 20px 32px" }}>
-              {/* Header */}
-              <div style={{ textAlign: "center", marginBottom: 20 }}>
-                {agentForm.avatar ? (
-                  <img src={agentForm.avatar} alt="avatar" style={{ width: 64, height: 64, borderRadius: 20, objectFit: "cover", margin: "0 auto 8px", display: "block" }} />
-                ) : (
-                  <div style={{ width: 64, height: 64, borderRadius: 20, background: "linear-gradient(135deg,var(--accent),#ea580c)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 8px", fontSize: 28 }}>🤖</div>
-                )}
-                <div style={{ fontSize: 18, fontWeight: 700 }}>{editingAgent ? "Edit Agent" : "Create AI Agent"}</div>
-                <div style={{ fontSize: 12, color: "var(--mt)", marginTop: 3 }}>Build your own custom AI assistant</div>
+        <div className="mbg" onClick={() => setShowAgentBuilder(false)} style={{ zIndex: 999 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto", textAlign: "left", maxWidth: 460 }}>
+            {/* Header */}
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ width: 64, height: 64, borderRadius: 20, background: "linear-gradient(135deg,var(--accent),#ea580c)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+                {getAgentSVG(agentForm.icon || "robot", 28)}
               </div>
-
-              {/* Avatar upload */}
-              <div style={{ marginBottom: 16, textAlign: "center" }}>
-                <label style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600, padding: "6px 16px", border: "1.5px solid var(--accent)", borderRadius: 20, display: "inline-block" }}>
-                  📷 Upload Avatar (optional)
-                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
-                    const file = e.target.files[0]; if (!file) return;
-                    if (file.size > 500000) { alert("Avatar max 500KB"); return; }
-                    const r = new FileReader();
-                    r.onload = ev => setAgentForm(f => ({...f, avatar: ev.target.result}));
-                    r.readAsDataURL(file);
-                  }} />
-                </label>
-                {agentForm.avatar && <button onClick={() => setAgentForm(f => ({...f, avatar: ""}))} style={{ marginLeft: 8, fontSize: 12, color: "#ef4444", background: "none", border: "none", cursor: "pointer" }}>Remove</button>}
-              </div>
-
-              {/* Agent Name */}
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 6 }}>AGENT NAME *</div>
-                <input className="inp" placeholder="e.g. Farming Expert, Study Buddy, Business Coach..."
-                  value={agentForm.name} onChange={e => setAgentForm(f => ({...f, name: e.target.value}))}
-                  style={{ width: "100%", fontSize: 15 }} />
-              </div>
-
-              {/* Category */}
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>CATEGORY</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {["Education","Farming","Business","Health","Coding","Legal","Finance","Sports","Custom"].map(cat => (
-                    <button key={cat} onClick={() => setAgentForm(f => ({...f, category: cat}))}
-                      style={{ padding: "6px 14px", borderRadius: 20, border: "1.5px solid " + (agentForm.category === cat ? "var(--accent)" : "var(--bd)"),
-                        background: agentForm.category === cat ? "var(--accent)" : "var(--sf2)",
-                        color: agentForm.category === cat ? "#fff" : "var(--tx)", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Instructions */}
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
-                  <span>INSTRUCTIONS</span>
-                  <span onClick={() => {
-                    const auto = { Education: "You are an expert teacher. Explain topics clearly with examples. Help students from basics to advanced.", Farming: "You are a farming expert. Give practical advice on crops, fertilizers, irrigation, pest control, mandi rates and government schemes.", Business: "You are a business consultant. Help with business plans, marketing, finance and strategy.", Health: "You are a health advisor. Give clear, practical health and wellness advice.", Coding: "You are an expert programmer. Write clean, working code and explain it clearly.", Legal: "You are a legal assistant. Explain laws and rights in simple language.", Finance: "You are a finance advisor. Give practical money, investment and savings advice.", Sports: "You are a sports coach. Give training tips, techniques and motivation.", Custom: "" };
-                    setAgentForm(f => ({...f, instructions: auto[f.category] || f.instructions}));
-                  }} style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Auto-fill ✨</span>
-                </div>
-                <textarea className="inp iarea" rows={3}
-                  placeholder="e.g. You are a farming expert. Answer only farming related questions. Give practical advice."
-                  value={agentForm.instructions} onChange={e => setAgentForm(f => ({...f, instructions: e.target.value}))}
-                  style={{ width: "100%", resize: "none", fontSize: 13 }} />
-              </div>
-
-              {/* Welcome Message */}
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 6 }}>WELCOME MESSAGE (optional)</div>
-                <input className="inp" placeholder="e.g. नमस्ते! मैं आपका Farming Assistant हूँ। कैसे मदद करूँ?"
-                  value={agentForm.welcomeMsg} onChange={e => setAgentForm(f => ({...f, welcomeMsg: e.target.value}))}
-                  style={{ width: "100%", fontSize: 13 }} />
-              </div>
-
-              {/* Knowledge Base PDF */}
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 6 }}>KNOWLEDGE BASE — PDF UPLOAD (optional)</div>
-                <div style={{ background: "var(--sf2)", border: "1.5px dashed var(--bd)", borderRadius: 12, padding: "12px", textAlign: "center", marginBottom: 6 }}>
-                  <label style={{ cursor: "pointer", color: "var(--accent)", fontSize: 13, fontWeight: 600 }}>
-                    📄 Upload PDF (max 2MB)
-                    <input type="file" accept=".pdf,.txt,.docx" style={{ display: "none" }} onChange={async e => {
-                      const file = e.target.files[0]; if (!file) return;
-                      if (file.size > 2 * 1024 * 1024) { alert("Max 2MB!"); return; }
-                      const text = await extractFileText(file);
-                      setAgentForm(f => ({...f, knowledgeText: text.content || ""}));
-                      alert("✅ Knowledge loaded! " + (text.content?.length || 0) + " characters.");
-                    }} />
-                  </label>
-                </div>
-                {agentForm.knowledgeText && (
-                  <div style={{ fontSize: 11, color: "var(--accent)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span>✅ {agentForm.knowledgeText.length} chars loaded</span>
-                    <span onClick={() => setAgentForm(f => ({...f, knowledgeText: ""}))} style={{ color: "#ef4444", cursor: "pointer" }}>Remove</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Personality */}
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>PERSONALITY</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  {[
-                    {v:"friendly", l:"Friendly", desc:"Warm like a best friend"},
-                    {v:"professional", l:"Professional", desc:"Formal & expert"},
-                    {v:"teacher", l:"Teacher", desc:"Clear & educational"},
-                    {v:"expert", l:"Expert", desc:"Deep knowledge"},
-                    {v:"student", l:"Student", desc:"Curious & eager"},
-                    {v:"funny", l:"Comedian", desc:"Fun & entertaining"},
-                  ].map(t => (
-                    <div key={t.v} onClick={() => setAgentForm(f => ({...f, tone: t.v}))}
-                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, cursor: "pointer",
-                        background: agentForm.tone === t.v ? "var(--accent)" : "var(--sf2)",
-                        border: "1.5px solid " + (agentForm.tone === t.v ? "var(--accent)" : "var(--bd)") }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: agentForm.tone === t.v ? "#fff" : "var(--tx)" }}>{t.l}</div>
-                        <div style={{ fontSize: 10, color: agentForm.tone === t.v ? "#ffffffaa" : "var(--mt)" }}>{t.desc}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Language */}
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>LANGUAGE</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {[{v:"auto",l:"🌐 Auto"},{v:"hindi",l:"🇮🇳 Hindi"},{v:"english",l:"🇬🇧 English"},{v:"bengali",l:"🇧🇩 Bengali"},{v:"tamil",l:"🇮🇳 Tamil"},{v:"marathi",l:"🌸 Marathi"}].map(lang => (
-                    <button key={lang.v} onClick={() => setAgentForm(f => ({...f, language: lang.v}))}
-                      style={{ padding: "6px 12px", borderRadius: 16, border: "1.5px solid " + (agentForm.language === lang.v ? "var(--accent)" : "var(--bd)"),
-                        background: agentForm.language === lang.v ? "var(--accent)" : "var(--sf2)",
-                        color: agentForm.language === lang.v ? "#fff" : "var(--tx)", fontSize: 12, cursor: "pointer" }}>
-                      {lang.l}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Price */}
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>PRICING (Marketplace)</div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {[{v:"free",l:"🆓 Free"},{v:"paid",l:"💰 ₹99/month"}].map(p => (
-                    <button key={p.v} onClick={() => setAgentForm(f => ({...f, price: p.v}))}
-                      style={{ flex: 1, padding: "10px", borderRadius: 12, border: "1.5px solid " + (agentForm.price === p.v ? "var(--accent)" : "var(--bd)"),
-                        background: agentForm.price === p.v ? "var(--accent)" : "var(--sf2)",
-                        color: agentForm.price === p.v ? "#fff" : "var(--tx)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                      {p.l}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button className="btn btn-p" onClick={saveAgent} style={{ width: "100%", fontSize: 15, padding: "14px", borderRadius: 14, marginBottom: 8 }}>
-                {editingAgent ? "✅ Update Agent" : "🚀 Create Agent"}
-              </button>
-              <button className="btn" onClick={() => setShowAgentBuilder(false)} style={{ width: "100%", padding: "12px", borderRadius: 14 }}>Cancel</button>
+              <h3 style={{ margin: 0 }}>{editingAgent ? "Edit Agent" : "Create AI Agent"}</h3>
+              <div style={{ fontSize: 12, color: "var(--mt)", marginTop: 4 }}>Build your own custom AI assistant</div>
             </div>
+
+            {/* Icon picker */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>CHOOSE ICON</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 8 }}>
+                {[
+                  {k:"robot","label":"Robot"},
+                  {k:"doctor","label":"Doctor"},
+                  {k:"teacher","label":"Teacher"},
+                  {k:"farmer","label":"Farmer"},
+                  {k:"lawyer","label":"Lawyer"},
+                  {k:"chef","label":"Chef"},
+                  {k:"friend","label":"Friend"},
+                ].map(ic => (
+                  <div key={ic.k} onClick={() => setAgentForm(f => ({...f, icon: ic.k}))}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 4px", borderRadius: 12, cursor: "pointer",
+                      background: (agentForm.icon||"robot") === ic.k ? "var(--accent)" : "var(--sf2)",
+                      border: "1.5px solid " + ((agentForm.icon||"robot") === ic.k ? "var(--accent)" : "var(--bd)") }}>
+                    <span style={{ color: (agentForm.icon||"robot") === ic.k ? "#fff" : "var(--tx)" }}>{getAgentSVG(ic.k, 20)}</span>
+                    <span style={{ fontSize: 9, color: (agentForm.icon||"robot") === ic.k ? "#fff" : "var(--mt)", fontWeight: 600 }}>{ic.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Name */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 6 }}>AGENT NAME *</div>
+              <input className="inp" placeholder="e.g. Doctor AI, Kisan AI, Teacher AI..." value={agentForm.name}
+                onChange={e => setAgentForm(f => ({...f, name: e.target.value}))} style={{ width: "100%" }} />
+            </div>
+
+            {/* Instructions */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 4, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>INSTRUCTIONS — WHAT WILL THIS AGENT DO?</span>
+                {agentForm.tone && (
+                  <span onClick={() => {
+                    const autoInstructions = {
+                      student: "You are a smart student assistant. Help with studies, homework, exam prep, and learning new topics. Explain concepts simply with examples. Motivate and guide students.",
+                      teacher: "You are an expert teacher. Explain topics clearly with examples and analogies. Be patient and educational. Help students understand from basics to advanced level.",
+                      farmer: "You are an expert farming assistant. Give practical advice on crops, fertilizers, seeds, irrigation, pest control, mandi rates, government schemes, and seasonal farming tips. Be grounded and practical.",
+                      friendly: "You are a warm and friendly AI companion. Chat naturally like a best friend. Be supportive, fun, and helpful with everyday questions.",
+                      professional: "You are a professional business assistant. Give formal, expert advice. Help with business decisions, documents, emails, and professional communication.",
+                      funny: "You are a fun and entertaining AI comedian. Keep things light and humorous. Make people laugh while still being helpful.",
+                    };
+                    if (autoInstructions[agentForm.tone]) setAgentForm(f => ({...f, instructions: autoInstructions[f.tone]}));
+                  }} style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Auto-fill ✨</span>
+                )}
+              </div>
+              <textarea className="inp iarea" rows={3}
+                placeholder="e.g. You are a doctor. Answer only health-related questions. Give clear medical advice in simple language."
+                value={agentForm.instructions} onChange={e => setAgentForm(f => ({...f, instructions: e.target.value}))}
+                style={{ width: "100%", resize: "none", fontSize: 13 }} />
+            </div>
+
+            {/* Tone */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>PERSONALITY</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {[
+                  {v:"student", l:"Student", desc:"Curious & eager to learn",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>},
+                  {v:"teacher", l:"Teacher", desc:"Clear & educational",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>},
+                  {v:"farmer", l:"Farmer", desc:"Practical & grounded",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 22V12M12 12C12 7 7 4 2 6"/><path d="M12 12c0-5 5-8 10-6"/></svg>},
+                  {v:"friendly", l:"Friendly", desc:"Warm like a best friend",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>},
+                  {v:"professional", l:"Professional", desc:"Formal & expert",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>},
+                  {v:"funny", l:"Comedian", desc:"Fun & entertaining",
+                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 3 4 3 4-3 4-3"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>},
+                ].map(t => (
+                  <div key={t.v} onClick={() => {
+                    const autoInstructions = {
+                      student: "You are a smart student assistant. Help with studies, homework, exam prep, and learning new topics. Explain concepts simply with examples. Motivate and guide students.",
+                      teacher: "You are an expert teacher. Explain topics clearly with examples. Be patient and educational. Help from basics to advanced level.",
+                      farmer: "You are an expert farming assistant. Give practical advice on crops, fertilizers, seeds, irrigation, pest control, mandi rates, government schemes, and seasonal farming tips.",
+                      friendly: "You are a warm and friendly AI companion. Chat naturally like a best friend. Be supportive, fun, and helpful.",
+                      professional: "You are a professional business assistant. Give formal, expert advice. Help with business decisions, documents, and professional communication.",
+                      funny: "You are a fun and entertaining AI. Keep things light and humorous. Make people laugh while being helpful.",
+                    };
+                    setAgentForm(f => ({...f, tone: t.v, instructions: f.instructions || autoInstructions[t.v] || f.instructions}));
+                  }}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, cursor: "pointer",
+                      background: agentForm.tone === t.v ? "var(--accent)" : "var(--sf2)",
+                      border: "1.5px solid " + (agentForm.tone === t.v ? "var(--accent)" : "var(--bd)") }}>
+                    <span style={{ color: agentForm.tone === t.v ? "#fff" : "var(--accent)", flexShrink: 0 }}>{t.icon}</span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: agentForm.tone === t.v ? "#fff" : "var(--tx)" }}>{t.l}</div>
+                      <div style={{ fontSize: 10, color: agentForm.tone === t.v ? "#ffffffaa" : "var(--mt)" }}>{t.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <button className="btn btn-p" onClick={saveAgent} style={{ width: "100%", marginBottom: 8, fontSize: 15, padding: "13px" }}>
+              {editingAgent ? "✅ Update Agent" : "🚀 Create Agent"}
+            </button>
+            <button className="btn" onClick={() => setShowAgentBuilder(false)} style={{ width: "100%", padding: "11px" }}>Cancel</button>
           </div>
         </div>
       )}
@@ -3885,31 +3776,21 @@ export default function App() {
         <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
           onClick={() => { setActiveAgent(null); newChat(); }}>
           <SaraswatiLogo size={26} animate={false} state="idle" />
-          {page === "chat" ? (activeAgent ? <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span>{getAgentSVG(activeAgent.icon, 18)}</span><span>{activeAgent.name}</span></span> : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : page === "marketplace" ? "Agent Marketplace" : "Saraswati AI"}
+          {page === "chat" ? (activeAgent ? <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span>{getAgentSVG(activeAgent.icon, 18)}</span><span>{activeAgent.name}</span></span> : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : "Saraswati AI"}
         </div>
-      </div>
-
-      {/* ── AGENT MARKETPLACE PAGE ── */}
+        {/* ── AGENT MARKETPLACE PAGE ── */}
       {page === "marketplace" && (
-        <div className="page" style={{ padding: "16px", overflowY: "auto", flex: 1, background: "var(--sf)", minHeight: "100%" }}>
-          <div style={{ marginBottom: 16, paddingTop: 8 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 2 }}>Agent Marketplace</div>
-            <div style={{ fontSize: 12, color: "var(--mt)" }}>Discover & use agents built by the community</div>
-          </div>
-
-          {/* Search bar */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--sf2)", border: "1px solid var(--bd)", borderRadius: 12, padding: "8px 12px", marginBottom: 12 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input placeholder="Search agents..." value={marketSearch || ""} onChange={e => setMarketSearch(e.target.value)}
-              style={{ background: "none", border: "none", outline: "none", color: "var(--tx)", fontSize: 14, flex: 1 }} />
+        <div className="page" style={{ padding: "16px", overflowY: "auto", flex: 1 }}>
+          <div style={{ marginBottom: 20 }}>
+            <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>🌐 Agent Marketplace</h2>
+            <div style={{ fontSize: 13, color: "var(--mt)" }}>Discover agents built by the community</div>
           </div>
 
           {/* Category filters */}
-          <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 16 }}>
-            {["All","Farmer","Teacher","Student","Doctor","Lawyer","Chef","Business","Fitness","Coding","Finance","Health","Yoga","Cooking","Travel","Language","Science","History","Sports","Music","Art","Astrology","Numerology","Vastu","News","Politics","Religion","Psychology","Parenting","Fashion","Beauty","Automobile","Real Estate","Investment","Marketing","Sales","HR","Legal","Writing","Research","Journalist","Actor","Singer","Poet","Motivational","Spiritual","Career","Interview Prep","UPSC","SSC","JEE","NEET","Banking","Railway","Defence","Police","Nurse","Pharmacist","Engineer","Architect","CA","MBA","BBA","Hotel Management","Tourism","Environment","Climate","Space","Technology","AI","Cyber Security","App Dev","Web Dev","Data Science","Machine Learning","Blockchain","Gaming","Esports","Cricket","Football","Kabaddi","Wrestling","Chess","Badminton","Motu Patlu Fan","Mythology","Story Teller","Motivator","Life Coach","Relationship","Divorce","Marriage","Grief","Anxiety","Depression","Other"].map(cat => (
-              <button key={cat} onClick={() => setMarketCat(cat)}
-                style={{ padding: "5px 12px", borderRadius: 16, border: "1.5px solid " + (marketCat === cat ? "var(--accent)" : "var(--bd)"),
-                  background: marketCat === cat ? "var(--accent)" : "var(--sf2)", color: marketCat === cat ? "#fff" : "var(--tx)", fontSize: 11, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer" }}>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8, marginBottom: 16 }}>
+            {["All","Farmer","Teacher","Student","Doctor","Lawyer","Chef","Business","Fitness","Other"].map(cat => (
+              <button key={cat} style={{ padding: "6px 14px", borderRadius: 20, border: "1.5px solid var(--bd)",
+                background: "var(--sf2)", color: "var(--tx)", fontSize: 12, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer" }}>
                 {cat}
               </button>
             ))}
@@ -4121,7 +4002,13 @@ export default function App() {
               <div className="ptitle" style={{ marginBottom: 0 }}>Projects</div>
               <button className="nbtn" onClick={() => setShowNewProj(true)}>+ New</button>
             </div>
-
+            {showNewProj && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                <input className="inp" placeholder="Project name..." value={newProjName} onChange={e => setNewProjName(e.target.value)} onKeyDown={e => e.key === "Enter" && createProject()} autoFocus />
+                <button className="btn btn-p" style={{ width: "auto", padding: "0 16px" }} onClick={createProject}>Create</button>
+                <button className="btn btn-s" style={{ width: "auto", padding: "0 12px" }} onClick={() => setShowNewProj(false)}>✕</button>
+              </div>
+            )}
             {projLoad ? <div className="ld">Loading...</div> : projects.length === 0 ? (
               <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
                 <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.3 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg></div>
@@ -4470,7 +4357,7 @@ export default function App() {
 
       {/* ── ADMIN PAGE ── */}
       {page === "admin" && isAdmin && (
-        <div className="page" style={{ background: "var(--sf)", color: "var(--tx)" }}>
+        <div className="page">
           <div className="page-inner">
             <div className="ptitle">Admin Panel</div>
             <div className="sgrid">
@@ -4629,7 +4516,6 @@ export default function App() {
           {/* Claude-style Input Bar */}
           <div className="ibar" style={{ position: "relative" }}>
             <input ref={galleryRef} id="gallery-input" type="file" accept="image/*" style={{ display: "none" }} onChange={handleGallery} />
-            <input ref={cameraRef} id="camera-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={handleGallery} />
             <input ref={fileRef} id="file-input" type="file" accept=".pdf,.docx,.txt,.csv,.md,.json,.log,.xlsx,.xls,.pptx" multiple style={{ display: "none" }} onChange={handleFiles} />
 
             {/* Upgrade banner - free users only */}
@@ -4679,56 +4565,41 @@ export default function App() {
                   {/* Plus menu popup — positioned above + button */}
                   {showPlusMenu && (
                     <>
+                      {/* Backdrop */}
                       <div onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); }}
                         style={{ position: "fixed", inset: 0, zIndex: 98 }} />
-                      {/* Bottom sheet style — like Claude app */}
+                      {/* iOS-style 2-grid card menu */}
                       <div style={{
                         position: "absolute", bottom: "calc(100% + 12px)", left: 0,
-                        background: "var(--sf)", border: "1px solid var(--bd)",
-                        borderRadius: 20, padding: 12, zIndex: 99,
-                        boxShadow: "0 12px 40px #000c",
-                        animation: "fadeUp .18s cubic-bezier(.34,1.56,.64,1)",
-                        minWidth: 280
+                        display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10,
+                        zIndex: 99, animation: "fadeUp .18s cubic-bezier(.34,1.56,.64,1)"
                       }} onClick={e => e.stopPropagation()}>
-                        {/* Title */}
-                        <div style={{ fontSize: 16, fontWeight: 700, color: "var(--tx)", marginBottom: 12, paddingLeft: 4 }}>Add to chat</div>
-                        {/* 3 cards row */}
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-                          {/* Camera */}
-                          <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => cameraRef.current?.click(), 50); }}
-                            style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                              gap: 8, padding: "16px 8px", borderRadius: 16, background: "var(--sf2)",
-                              border: "1px solid var(--bd)", cursor: "pointer" }}>
-                            <div style={{ width: 44, height: 44, borderRadius: 12, background: "#3a3a3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                            </div>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--tx)" }}>Camera</span>
-                          </button>
-                          {/* Photos */}
-                          <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => galleryRef.current?.click(), 50); }}
-                            style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                              gap: 8, padding: "16px 8px", borderRadius: 16, background: "var(--sf2)",
-                              border: "1px solid var(--bd)", cursor: "pointer" }}>
-                            <div style={{ width: 44, height: 44, borderRadius: 12, background: "#3a3a3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="#fff" stroke="none"/><path d="m21 15-5-5L5 21"/></svg>
-                            </div>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--tx)" }}>Photos</span>
-                          </button>
-                          {/* Files */}
-                          <button type="button" onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => fileRef.current?.click(), 50); }}
-                            style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                              gap: 8, padding: "16px 8px", borderRadius: 16, background: "var(--sf2)",
-                              border: "1px solid var(--bd)", cursor: "pointer" }}>
-                            <div style={{ width: 44, height: 44, borderRadius: 12, background: "#3a3a3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="13" x2="12" y2="17"/><line x1="10" y1="15" x2="14" y2="15"/></svg>
-                            </div>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--tx)" }}>Files</span>
-                          </button>
-                        </div>
-                        {/* File size note */}
-                        <div style={{ fontSize: 11, color: "var(--mt)", textAlign: "center", paddingTop: 4, borderTop: "1px solid var(--bd)" }}>
-                          Max file size: 2MB • PDF, DOCX, XLSX, TXT, Images
-                        </div>
+                        {/* Photos Card */}
+                        <button type="button"
+                          onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => galleryRef.current?.click(), 50); }}
+                          style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            gap: 10, width: 130, height: 120, borderRadius: 22,
+                            background: "#1c1c1e", border: "none", cursor: "pointer",
+                            boxShadow: "0 8px 32px #0009", padding: 0 }}>
+                          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "#2c2c2e",
+                            display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="#fff" stroke="none"/><path d="m21 15-5-5L5 21"/></svg>
+                          </div>
+                          <span style={{ fontSize: 15, fontWeight: 600, color: "#fff", fontFamily: "'Inter',sans-serif" }}>Photos</span>
+                        </button>
+                        {/* Files Card */}
+                        <button type="button"
+                          onClick={(e) => { e.stopPropagation(); setShowPlusMenu(false); setTimeout(() => fileRef.current?.click(), 50); }}
+                          style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            gap: 10, width: 130, height: 120, borderRadius: 22,
+                            background: "#1c1c1e", border: "none", cursor: "pointer",
+                            boxShadow: "0 8px 32px #0009", padding: 0 }}>
+                          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "#2c2c2e",
+                            display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="13" x2="12" y2="17"/><line x1="10" y1="15" x2="14" y2="15"/></svg>
+                          </div>
+                          <span style={{ fontSize: 15, fontWeight: 600, color: "#fff", fontFamily: "'Inter',sans-serif" }}>Files</span>
+                        </button>
                       </div>
                     </>
                   )}
@@ -4744,13 +4615,11 @@ export default function App() {
                     style={micActive ? { borderColor: "#ef4444", color: "#ef4444", background: "#ef444418" } : micBusy ? { opacity: 0.6 } : {}}>
                     {micBusy ? <SaraswatiLogo size={18} animate={true} state="thinking" /> : <Ico.Mic on={micActive} />}
                   </button>
-                  {/* Voice Call — only when no agent active */}
-                  {!activeAgent && (
-                    <button className="ibtn" onClick={openVoiceCall} title="Voice Call"
-                      style={{ borderColor: "#ff993340", background: "#ff772210" }}>
-                      <SaraswatiLogo size={24} animate={true} state="idle" />
-                    </button>
-                  )}
+                  {/* Voice Call — Animated Saffron Lotus */}
+                  <button className="ibtn" onClick={openVoiceCall} title="Voice Call"
+                    style={{ borderColor: "#ff993340", background: "#ff772210" }}>
+                    <SaraswatiLogo size={24} animate={true} state="idle" />
+                  </button>
                   {/* Send */}
                   <button className="sbtn"
                     onClick={() => sendMsg()}
@@ -4765,4 +4634,4 @@ export default function App() {
       )}
     </div>
   );
-}
+          }
