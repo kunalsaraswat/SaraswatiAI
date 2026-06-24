@@ -253,16 +253,13 @@ function getImgUrl(p) { return `https://image.pollinations.ai/prompt/${encodeURI
 // ── MEDIA LINK FEATURE ──────────────────────────────────────────
 function needsMediaLink(t) {
   const tl = t.toLowerCase();
-  // If user pastes a URL directly - handle separately
-  if (/https?:\/\//.test(t)) return false; // URLs handled by AIText LinkCard
-
   // Action words - user must ask for link/show/search
   const actionWords = [
     "link do","link dedo","link bhejo","link chahiye","link send","link dena",
-    "dikhao","dikha do","dekhna hai","dekhna","watch karna","play karo",
+    "dikhao","dikha do","dikha","dekhna hai","dekhna","watch karna","play karo",
     "download","youtube pe","yt pe","youtube par","youtube link","video link",
-    "search karo","dhundo","kahan dekhe","kahan milega","kaise dekhe",
-    "app link","app download","play store","app store","install","episode"
+    "search karo","dhundo","kahan dekhe","kahan dekhun","kahan milega","kaise dekhe",
+    "app link","app download","play store","app store","install"
   ];
   const hasAction = actionWords.some(k => tl.includes(k));
   if (!hasAction) return false;
@@ -272,8 +269,8 @@ function needsMediaLink(t) {
     "cartoon","motu patlu","doremon","doraemon","shinchan","shin chan","chhota bheem","chota bheem",
     "oggy","tom and jerry","tom jerry","pokemon","dragon ball","naruto","spider man","spiderman",
     "batman","superman","avengers","ninja hattori","hatim","krishna","bal ganesh","hanuman","little singham",
-    "movie","film","natak","serial","show","web series","webseries","episode","season",
-    "song","gana","gaana","music","video","album","track",
+    "movie","film","natak","serial","show","web series","webseries","episode",
+    "song","gana","gaana","music","video",
     "netflix","hotstar","amazon prime","zee5","sonyliv","voot","jiocinema","mx player","youtube"
   ];
   return contentWords.some(k => tl.includes(k));
@@ -281,13 +278,7 @@ function needsMediaLink(t) {
 
 function getMediaLinks(query) {
   const tl = query.toLowerCase();
-  // Extract clean search term - remove filler words, keep exact content name
-  const cleanQuery = query
-    .replace(/link do|link dedo|link bhejo|link chahiye|link send|link dena/gi, "")
-    .replace(/dikhao|dikha do|dikha do|dekhna hai|dekhna|watch karna|play karo/gi, "")
-    .replace(/mujhe|mujhko|please|plz|bhai|yaar|kya|hai|ka|ki|ke|ek|mera|meri|aur|jo|toh|na|bhi/gi, " ")
-    .replace(/\s+/g, " ").trim();
-  const ytQuery = encodeURIComponent(cleanQuery);
+  const ytQuery = encodeURIComponent(query.replace(/link do|link dedo|dikhao|dikha do|chahiye|please|plz|send karo/gi, "").trim());
   
   // Detect type
   const isApp = tl.includes("app") || tl.includes("download") || tl.includes("install") || tl.includes("play store");
@@ -639,7 +630,7 @@ async function genTitle(msg) {
   } catch { return null; }
 }
 
-async function callAI(messages, imageB64, tone, memories, language, agentOrNote = "") {
+async function callAI(messages, imageB64, tone, memories, language, extraNote = "") {
   const last = messages[messages.length - 1];
   if (last?.role === "user" && isOwnerQ(last.text)) return "I was created by **Kunal Saraswat**! 😊";
   let ctx = "";
@@ -659,27 +650,19 @@ async function callAI(messages, imageB64, tone, memories, language, agentOrNote 
     english: "ALWAYS reply in English, regardless of what language the user writes in.",
     hinglish: "ALWAYS reply in Hinglish (Hindi words written in Roman/English script), regardless of what language the user writes in.",
   }[language] || "Reply in the EXACT language the user writes (Hindi→Hindi, English→English, Hinglish→Hinglish).";
-  // Agent override
-  const agent = (agentOrNote && typeof agentOrNote === "object") ? agentOrNote : null;
-  const extraNote = (agentOrNote && typeof agentOrNote === "string") ? agentOrNote : "";
-  const toneMap = { friendly: "Be warm and friendly like a best friend.", professional: "Be professional, formal and expert.", funny: "Be funny and entertaining, add jokes.", student: "Be curious, eager to learn, ask good questions.", teacher: "Explain clearly with examples, be educational.", farmer: "Be practical, grounded, give real-world advice.", strict: "Be strict and disciplined, stay on topic." };
-  const agentSys = agent ? `You are ${agent.emoji} ${agent.name}.
-${agent.instructions || "Be helpful."}
-Tone: ${toneMap[agent.tone] || "Friendly raho."}
-${langInstruction}
-Never break character. Stay focused on your role.${memCtx}${ctx}` : null;
-
-  const sys = agentSys || `You are Saraswati AI — India's best AI assistant, created by Kunal Saraswat.
+  const sys = `You are Saraswati AI — India's best AI assistant, created by Kunal Saraswat.
 Never mention Groq, Meta, Llama, OpenAI or any model name.
 ${langInstruction}
 ${tNote}
 Personality: Be warm, friendly, and expressive like a best friend. Naturally use emojis in your responses — not every sentence, but organically (1-3 emojis per response feels natural). Examples: use 😊 when being helpful, 🤔 when thinking through something, ✅ for confirmations, 💡 for ideas, 🔥 for exciting things, 👍 for agreements, 😄 for light moments. Never overdo it — keep it natural and human.
 For coding: always provide complete, working, copy-paste ready code.
 For education: clear explanations with examples, from beginner to advanced level.
-For farming/mandi rates specifically: if user hasn't mentioned state/district, ask first.
-For weather: use Latest Info directly if available.
+For farming/mandi rates specifically (crops, vegetables, fruits, grains — e.g. "wheat ka rate", "pyaaz ka bhav"): if the user hasn't mentioned their state/district, first ask: "Could you please tell me your state or district? For example: Rajasthan, Punjab, UP, MP — so I can fetch the correct rates for you." Then use the provided location.
+This location-ask rule applies ONLY to actual farm-produce mandi prices — never to gold, silver, petrol, diesel, stocks, currency, or other non-agricultural prices, and never to weather/temperature questions.
+For weather/temperature: if "Latest Info" below already has the answer, use it directly. If the user asked about weather/temperature with no city named at all, just ask "Kis shehar ka mausam/temperature batau?" — keep it short, don't mention state/district/mandi.
+If "Latest Info" / search results are provided below, treat that as the current, correct answer and use it directly instead of asking clarifying questions.
 For images: carefully read ALL visible text, describe objects, colors, and context in detail.
-For media/video/cartoon/movie/song requests: Give the EXACT YouTube search link matching what user asked. If user asks "motu patlu episode 1", link must be https://www.youtube.com/results?search_query=motu+patlu+episode+1 — use EXACT content name. Never give wrong or generic links.${memCtx}${ctx}${extraNote}`;
+For media/video/cartoon/movie/song requests: You ARE allowed to give direct YouTube search links and other platform links. Always provide clickable links like: https://www.youtube.com/results?search_query=motu+patlu — never say you cannot provide links. You can and should give links.${memCtx}${ctx}${extraNote}`;
 
   if (imageB64) {
     const visionMsgs = [
@@ -998,7 +981,7 @@ function speakWithBrowserTTS(text, speed, onDone) {
   // Check browser speech synthesis support (Samsung Internet, UC Browser may not support)
   if (!window.speechSynthesis) { if (onDone) onDone(); return; }
   window.speechSynthesis.cancel();
-  const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^-ऀ-ॿ .,!?]/g, "").slice(0, 600);
+  const clean = text.replace(/```[\s\S]*?```/g, "code block").replace(/\*\*/g, "").replace(/`/g, "").replace(/#+\s/g, "").replace(/[^ -ऀ-ॿ .,!?]/g, "").slice(0, 600);
   const go = () => {
     const vs = window.speechSynthesis.getVoices();
     const v = pickSaraswatiVoice(vs);
@@ -1111,108 +1094,6 @@ function CodeBlock({ code, lang }) {
     </div>
   );
 }
-// ── AGENT SVG ICONS ─────────────────────────────────────────────
-const AGENT_ICONS = {
-  robot:   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="8" cy="16" r="1.2" fill="currentColor"/><circle cx="16" cy="16" r="1.2" fill="currentColor"/><path d="M12 3v4M8 7h8M7 11V9a5 5 0 0 1 10 0v2"/></svg>,
-  doctor:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
-  teacher: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>,
-  farmer:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22V12M12 12C12 7 7 4 2 6"/><path d="M12 12c0-5 5-8 10-6"/><circle cx="12" cy="7" r="2"/></svg>,
-  lawyer:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22V2M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
-  chef:    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/></svg>,
-  friend:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
-};
-function getAgentSVG(icon, size = 20) {
-  const el = AGENT_ICONS[icon] || AGENT_ICONS.robot;
-  return <span style={{ width: size, height: size, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{el}</span>;
-}
-
-// ── ADMIN AGENTS LIST COMPONENT ──────────────────────────────
-function AdminAgentsList() {
-  const [allAgents, setAllAgents] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    async function load() {
-      try {
-        const snap = await getDocs(query(collection(db, "agents"), orderBy("createdAt", "desc")));
-        setAllAgents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch { setAllAgents([]); }
-      setLoading(false);
-    }
-    load();
-  }, []);
-
-  if (loading) return <div style={{ color: "var(--mt)", fontSize: 13, padding: 12 }}>Loading agents...</div>;
-  if (!allAgents.length) return <div style={{ color: "var(--mt)", fontSize: 13, padding: 12 }}>No agents created yet</div>;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {allAgents.map(agent => (
-        <div key={agent.id} style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 14, padding: "12px 14px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,var(--accent),#ea580c)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              {getAgentSVG(agent.icon, 18)}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>{agent.name}</div>
-              <div style={{ fontSize: 11, color: "var(--mt)" }}>
-                Tone: {agent.tone} · {agent.published ? "🌐 Published" : "🔒 Private"} · 👥 {agent.usageCount || 0} uses
-              </div>
-            </div>
-          </div>
-          {agent.instructions && (
-            <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 8, lineHeight: 1.5,
-              overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-              {agent.instructions}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function getLinkMeta(url) {
-  if (url.includes("youtube.com") || url.includes("youtu.be"))
-    return { label: "YouTube pe dekho", icon: "▶", color: "#ff0000", bg: "#ff00001a" };
-  if (url.includes("spotify.com"))
-    return { label: "Spotify pe suno", icon: "♪", color: "#1db954", bg: "#1db9541a" };
-  if (url.includes("hotstar.com"))
-    return { label: "Hotstar pe dekho", icon: "★", color: "#1f80e0", bg: "#1f80e01a" };
-  if (url.includes("netflix.com"))
-    return { label: "Netflix pe dekho", icon: "N", color: "#e50914", bg: "#e509141a" };
-  if (url.includes("primevideo.com") || url.includes("amazon.com"))
-    return { label: "Prime Video", icon: "P", color: "#00a8e0", bg: "#00a8e01a" };
-  if (url.includes("jiocinema.com"))
-    return { label: "JioCinema pe dekho", icon: "J", color: "#8b5cf6", bg: "#8b5cf61a" };
-  if (url.includes("play.google.com"))
-    return { label: "Play Store", icon: "▲", color: "#01875f", bg: "#01875f1a" };
-  if (url.includes("gaana.com"))
-    return { label: "Gaana pe suno", icon: "🎵", color: "#e72c30", bg: "#e72c301a" };
-  return { label: url.replace(/^https?:\/\//, "").slice(0, 30), icon: "🔗", color: "var(--accent)", bg: "var(--sf2)" };
-}
-
-function LinkCard({ url }) {
-  const meta = getLinkMeta(url);
-  return (
-    <a href={url} target="_blank" rel="noopener noreferrer"
-      style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6,
-        background: meta.bg, border: "1px solid " + meta.color + "44",
-        borderRadius: 14, padding: "10px 14px", textDecoration: "none",
-        color: "var(--tx)", cursor: "pointer" }}>
-      <div style={{ width: 36, height: 36, borderRadius: 10, background: meta.color,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 16, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{meta.icon}</div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--tx)" }}>{meta.label}</div>
-        <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 2,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{url.replace(/^https?:\/\//, "")}</div>
-      </div>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-    </a>
-  );
-}
-
 function AIText({ text }) {
   if (!text) return null;
   const parts = []; const re = /```(\w*)\n?([\s\S]*?)```/g;
@@ -1229,19 +1110,6 @@ function AIText({ text }) {
         if (p.type === "code") return <CodeBlock key={i} code={p.content} lang={p.lang} />;
         return p.content.split("\n").map((line, j) => {
           if (!line.trim()) return <span key={i + "-" + j} style={{ height: 5 }} />;
-          // URL detection — render as clickable LinkCard
-          const urlRe = /(https?:\/\/[^\s\)\]>"]+)/g;
-          if (urlRe.test(line)) {
-            urlRe.lastIndex = 0;
-            const lineSegs = []; let lLast = 0, um;
-            while ((um = urlRe.exec(line)) !== null) {
-              if (um.index > lLast) lineSegs.push(<span key={lLast}>{line.slice(lLast, um.index)}</span>);
-              lineSegs.push(<LinkCard key={um.index} url={um[1]} />);
-              lLast = um.index + um[0].length;
-            }
-            if (lLast < line.length) lineSegs.push(<span key={lLast}>{line.slice(lLast)}</span>);
-            return <span key={i + "-" + j} style={{ display: "flex", flexDirection: "column" }}>{lineSegs}</span>;
-          }
           const segs = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((s, k) => {
             if (s.startsWith("**") && s.endsWith("**")) return <strong key={k}>{s.slice(2, -2)}</strong>;
             if (s.startsWith("`") && s.endsWith("`")) return <code key={k} style={{ background: "#ffffff18", borderRadius: 4, padding: "1px 5px", fontFamily: "monospace", fontSize: 12 }}>{s.slice(1, -1)}</code>;
@@ -1720,13 +1588,6 @@ export default function App() {
   const [delLoading, setDelLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState("chat");
-  const [marketplaceAgents, setMarketplaceAgents] = useState([]);
-  const [marketLoading, setMarketLoading] = useState(false);
-  const [agents, setAgents] = useState([]);
-  const [activeAgent, setActiveAgent] = useState(null); // {id, name, emoji, instructions, tone, lang}
-  const [showAgentBuilder, setShowAgentBuilder] = useState(false);
-  const [editingAgent, setEditingAgent] = useState(null);
-  const [agentForm, setAgentForm] = useState({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" });
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
   const [sid, setSid] = useState(() => Date.now().toString());
@@ -1863,7 +1724,6 @@ export default function App() {
 
   useEffect(() => {
     if (user && page === "history") loadHists();
-    if (user) loadAgents(user.uid);
     if (user && page === "admin") loadAdmin();
     if (user && page === "projects") loadProjects();
     if (user && page === "memory") loadMemories(user.uid);
@@ -2797,7 +2657,7 @@ export default function App() {
     else setLoadingStep("Thinking...");
     setLoading(true);
     try {
-      const aiText = await callAI(newMsgs, b64, tone, memoryEnabled ? memories : null, language, activeAgent);
+      const aiText = await callAI(newMsgs, b64, tone, memoryEnabled ? memories : null, language);
       setSearching(false); setLoadingStep("Writing response...");
       const tid = "ai_" + Date.now();
       setLoading(false); setLoadingStep("");
@@ -2956,89 +2816,6 @@ export default function App() {
     await setDoc(doc(db, "chats", id), { archived: next }, { merge: true });
     setHists(p => p.map(h => h.id === id ? { ...h, archived: next } : h));
   }
-
-  // ── AGENT FUNCTIONS ──────────────────────────────────────────
-  async function loadMarketplace() {
-    setMarketLoading(true);
-    try {
-      const q = query(collection(db, "agents"), where("published", "==", true), orderBy("usageCount", "desc"));
-      const snap = await getDocs(q);
-      setMarketplaceAgents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch { setMarketplaceAgents([]); }
-    setMarketLoading(false);
-  }
-
-  async function publishAgent(agent) {
-    try {
-      await updateDoc(doc(db, "agents", agent.id), { published: true, publishedAt: serverTimestamp(), usageCount: agent.usageCount || 0 });
-      await loadAgents(user.uid);
-    } catch (e) { alert("Publish failed: " + e.message); }
-  }
-
-  async function unpublishAgent(agentId) {
-    try {
-      await updateDoc(doc(db, "agents", agentId), { published: false });
-      await loadAgents(user.uid);
-    } catch {}
-  }
-
-  async function useMarketplaceAgent(agent) {
-    // Clone agent for this user if not already owned
-    try {
-      await updateDoc(doc(db, "agents", agent.id), { usageCount: (agent.usageCount || 0) + 1 });
-    } catch {}
-    setActiveAgent(agent);
-    setSid(Date.now().toString());
-    setMsgs([]);
-    setPage("chat");
-    setShowSb(false);
-  }
-
-  async function loadAgents(uid) {
-    try {
-      const q = query(collection(db, "agents"), where("userId", "==", uid), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setAgents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch { setAgents([]); }
-  }
-
-  async function saveAgent() {
-    if (!agentForm.name.trim()) return;
-    try {
-      let savedAgent;
-      if (editingAgent) {
-        await updateDoc(doc(db, "agents", editingAgent.id), { ...agentForm, updatedAt: serverTimestamp() });
-        savedAgent = { ...editingAgent, ...agentForm };
-      } else {
-        const ref = await addDoc(collection(db, "agents"), { ...agentForm, userId: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-        savedAgent = { id: ref.id, ...agentForm };
-      }
-      await loadAgents(user.uid);
-      setShowAgentBuilder(false);
-      setEditingAgent(null);
-      setAgentForm({ name: "", icon: "robot", instructions: "", tone: "friendly" });
-      // Auto-start the agent after creation
-      if (!editingAgent) {
-        setActiveAgent(savedAgent);
-        setSid(Date.now().toString());
-        setMsgs([]);
-        setPage("chat");
-        setShowSb(false);
-      }
-    } catch (e) { alert("Save failed: " + e.message); }
-  }
-
-  async function deleteAgent(id) {
-    try { await deleteDoc(doc(db, "agents", id)); await loadAgents(user.uid); } catch {}
-  }
-
-  function startAgent(agent) {
-    setActiveAgent(agent);
-    newChat();
-    setShowSb(false);
-  }
-
-  function stopAgent() { setActiveAgent(null); }
 
   async function loadProjects() {
     setProjLoad(true);
@@ -3327,54 +3104,6 @@ export default function App() {
               {[
                 { id: "chat", icon: <Ico.Chat />, label: "Chat" },
                 { id: "history", icon: <Ico.History />, label: "History" },
-              ].map(item => (
-                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
-                  {item.icon}<span>{item.label}</span>
-                </div>
-              ))}
-              {/* ── AI AGENTS — between History and Projects ── */}
-              <div className="sb-item" style={{ justifyContent: "space-between", cursor: "default" }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="8" cy="16" r="1" fill="currentColor"/><circle cx="16" cy="16" r="1" fill="currentColor"/><path d="M12 3v4M8 7h8M7 11V9a5 5 0 0 1 10 0v2"/></svg>
-                  <span style={{ fontWeight: 600 }}>AI Agents</span>
-                </span>
-                <span onClick={() => { setEditingAgent(null); setAgentForm({ name: "", icon: "robot", instructions: "", tone: "friendly" }); setShowAgentBuilder(true); }}
-                  style={{ fontSize: 20, cursor: "pointer", color: "var(--accent)", fontWeight: 700, lineHeight: 1, padding: "0 4px" }}>+</span>
-              </div>
-              {agents.length === 0 && (
-                <div style={{ fontSize: 12, color: "var(--mt)", padding: "4px 20px" }}>No agents yet — tap + to create</div>
-              )}
-              {agents.map(agent => (
-                <div key={agent.id} className={"sb-item" + (activeAgent?.id === agent.id ? " active" : "")}
-                  style={{ justifyContent: "space-between", paddingLeft: 28 }}>
-                  <span onClick={() => startAgent(agent)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-                    <span>{getAgentSVG(agent.icon, 16)}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
-                    {activeAgent?.id === agent.id && <span style={{ fontSize: 10, background: "var(--accent)", color: "#fff", borderRadius: 8, padding: "1px 6px" }}>Active</span>}
-                  </span>
-                  <span style={{ display: "flex", gap: 2 }}>
-                    <span onClick={() => agent.published ? unpublishAgent(agent.id) : publishAgent(agent)}
-                      title={agent.published ? "Unpublish" : "Publish to Marketplace"}
-                      style={{ color: agent.published ? "#f97316" : "var(--mt)", cursor: "pointer", padding: "2px 4px", fontSize: 12 }}>{agent.published ? "🌐" : "📤"}</span>
-                    <span onClick={() => { setEditingAgent(agent); setAgentForm({ name: agent.name, icon: agent.icon, instructions: agent.instructions, tone: agent.tone }); setShowAgentBuilder(true); }}
-                      style={{ color: "var(--mt)", cursor: "pointer", padding: "2px 4px", fontSize: 12 }}>✏️</span>
-                    <span onClick={() => deleteAgent(agent.id)}
-                      style={{ color: "#ef4444", cursor: "pointer", padding: "2px 4px", fontSize: 12 }}>🗑</span>
-                  </span>
-                </div>
-              ))}
-              {activeAgent && (
-                <div onClick={stopAgent} style={{ fontSize: 12, color: "#ef4444", padding: "4px 20px", cursor: "pointer" }}>
-                  ✕ Stop {activeAgent.name}
-                </div>
-              )}
-              {/* Marketplace */}
-              <div className={"sb-item" + (page === "marketplace" ? " active" : "")}
-                onClick={() => { setPage("marketplace"); loadMarketplace(); setShowSb(false); }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-                <span>Agent Marketplace</span>
-              </div>
-              {[
                 { id: "projects", icon: <Ico.Project />, label: "Projects" },
                 { id: "settings", icon: <Ico.Settings />, label: "Settings" },
               ].map(item => (
@@ -3457,125 +3186,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── AGENT BUILDER MODAL ── */}
-      {showAgentBuilder && (
-        <div className="mbg" onClick={() => setShowAgentBuilder(false)} style={{ zIndex: 999 }}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto", textAlign: "left", maxWidth: 460 }}>
-            {/* Header */}
-            <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <div style={{ width: 64, height: 64, borderRadius: 20, background: "linear-gradient(135deg,var(--accent),#ea580c)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
-                {getAgentSVG(agentForm.icon || "robot", 28)}
-              </div>
-              <h3 style={{ margin: 0 }}>{editingAgent ? "Edit Agent" : "Create AI Agent"}</h3>
-              <div style={{ fontSize: 12, color: "var(--mt)", marginTop: 4 }}>Build your own custom AI assistant</div>
-            </div>
-
-            {/* Icon picker */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>CHOOSE ICON</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 8 }}>
-                {[
-                  {k:"robot","label":"Robot"},
-                  {k:"doctor","label":"Doctor"},
-                  {k:"teacher","label":"Teacher"},
-                  {k:"farmer","label":"Farmer"},
-                  {k:"lawyer","label":"Lawyer"},
-                  {k:"chef","label":"Chef"},
-                  {k:"friend","label":"Friend"},
-                ].map(ic => (
-                  <div key={ic.k} onClick={() => setAgentForm(f => ({...f, icon: ic.k}))}
-                    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 4px", borderRadius: 12, cursor: "pointer",
-                      background: (agentForm.icon||"robot") === ic.k ? "var(--accent)" : "var(--sf2)",
-                      border: "1.5px solid " + ((agentForm.icon||"robot") === ic.k ? "var(--accent)" : "var(--bd)") }}>
-                    <span style={{ color: (agentForm.icon||"robot") === ic.k ? "#fff" : "var(--tx)" }}>{getAgentSVG(ic.k, 20)}</span>
-                    <span style={{ fontSize: 9, color: (agentForm.icon||"robot") === ic.k ? "#fff" : "var(--mt)", fontWeight: 600 }}>{ic.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Name */}
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 6 }}>AGENT NAME *</div>
-              <input className="inp" placeholder="e.g. Doctor AI, Kisan AI, Teacher AI..." value={agentForm.name}
-                onChange={e => setAgentForm(f => ({...f, name: e.target.value}))} style={{ width: "100%" }} />
-            </div>
-
-            {/* Instructions */}
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 4, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>INSTRUCTIONS — WHAT WILL THIS AGENT DO?</span>
-                {agentForm.tone && (
-                  <span onClick={() => {
-                    const autoInstructions = {
-                      student: "You are a smart student assistant. Help with studies, homework, exam prep, and learning new topics. Explain concepts simply with examples. Motivate and guide students.",
-                      teacher: "You are an expert teacher. Explain topics clearly with examples and analogies. Be patient and educational. Help students understand from basics to advanced level.",
-                      farmer: "You are an expert farming assistant. Give practical advice on crops, fertilizers, seeds, irrigation, pest control, mandi rates, government schemes, and seasonal farming tips. Be grounded and practical.",
-                      friendly: "You are a warm and friendly AI companion. Chat naturally like a best friend. Be supportive, fun, and helpful with everyday questions.",
-                      professional: "You are a professional business assistant. Give formal, expert advice. Help with business decisions, documents, emails, and professional communication.",
-                      funny: "You are a fun and entertaining AI comedian. Keep things light and humorous. Make people laugh while still being helpful.",
-                    };
-                    if (autoInstructions[agentForm.tone]) setAgentForm(f => ({...f, instructions: autoInstructions[f.tone]}));
-                  }} style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Auto-fill ✨</span>
-                )}
-              </div>
-              <textarea className="inp iarea" rows={3}
-                placeholder="e.g. You are a doctor. Answer only health-related questions. Give clear medical advice in simple language."
-                value={agentForm.instructions} onChange={e => setAgentForm(f => ({...f, instructions: e.target.value}))}
-                style={{ width: "100%", resize: "none", fontSize: 13 }} />
-            </div>
-
-            {/* Tone */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", letterSpacing: 1, marginBottom: 8 }}>PERSONALITY</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {[
-                  {v:"student", l:"Student", desc:"Curious & eager to learn",
-                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>},
-                  {v:"teacher", l:"Teacher", desc:"Clear & educational",
-                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>},
-                  {v:"farmer", l:"Farmer", desc:"Practical & grounded",
-                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 22V12M12 12C12 7 7 4 2 6"/><path d="M12 12c0-5 5-8 10-6"/></svg>},
-                  {v:"friendly", l:"Friendly", desc:"Warm like a best friend",
-                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>},
-                  {v:"professional", l:"Professional", desc:"Formal & expert",
-                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>},
-                  {v:"funny", l:"Comedian", desc:"Fun & entertaining",
-                    icon:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 3 4 3 4-3 4-3"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>},
-                ].map(t => (
-                  <div key={t.v} onClick={() => {
-                    const autoInstructions = {
-                      student: "You are a smart student assistant. Help with studies, homework, exam prep, and learning new topics. Explain concepts simply with examples. Motivate and guide students.",
-                      teacher: "You are an expert teacher. Explain topics clearly with examples. Be patient and educational. Help from basics to advanced level.",
-                      farmer: "You are an expert farming assistant. Give practical advice on crops, fertilizers, seeds, irrigation, pest control, mandi rates, government schemes, and seasonal farming tips.",
-                      friendly: "You are a warm and friendly AI companion. Chat naturally like a best friend. Be supportive, fun, and helpful.",
-                      professional: "You are a professional business assistant. Give formal, expert advice. Help with business decisions, documents, and professional communication.",
-                      funny: "You are a fun and entertaining AI. Keep things light and humorous. Make people laugh while being helpful.",
-                    };
-                    setAgentForm(f => ({...f, tone: t.v, instructions: f.instructions || autoInstructions[t.v] || f.instructions}));
-                  }}
-                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, cursor: "pointer",
-                      background: agentForm.tone === t.v ? "var(--accent)" : "var(--sf2)",
-                      border: "1.5px solid " + (agentForm.tone === t.v ? "var(--accent)" : "var(--bd)") }}>
-                    <span style={{ color: agentForm.tone === t.v ? "#fff" : "var(--accent)", flexShrink: 0 }}>{t.icon}</span>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: agentForm.tone === t.v ? "#fff" : "var(--tx)" }}>{t.l}</div>
-                      <div style={{ fontSize: 10, color: agentForm.tone === t.v ? "#ffffffaa" : "var(--mt)" }}>{t.desc}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <button className="btn btn-p" onClick={saveAgent} style={{ width: "100%", marginBottom: 8, fontSize: 15, padding: "13px" }}>
-              {editingAgent ? "✅ Update Agent" : "🚀 Create Agent"}
-            </button>
-            <button className="btn" onClick={() => setShowAgentBuilder(false)} style={{ width: "100%", padding: "11px" }}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-            {/* ── LEGAL MODAL (Terms / Privacy / Usage) ── */}
+      {/* ── LEGAL MODAL (Terms / Privacy / Usage) ── */}
       {legalModal && (
         <div className="mbg" onClick={() => setLegalModal(null)} style={{ zIndex: 999 }}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto", textAlign: "left", maxWidth: 480 }}>
@@ -3773,79 +3384,11 @@ export default function App() {
         <button className="dots" onClick={() => { setShowSb(true); if (user) loadHists(); }}>
           <Ico.Menu />
         </button>
-        <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
-          onClick={() => { setActiveAgent(null); newChat(); }}>
+        <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <SaraswatiLogo size={26} animate={false} state="idle" />
-          {page === "chat" ? (activeAgent ? <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span>{getAgentSVG(activeAgent.icon, 18)}</span><span>{activeAgent.name}</span></span> : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : "Saraswati AI"}
+          {page === "chat" ? "Saraswati AI" : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : "Saraswati AI"}
         </div>
-        {/* ── AGENT MARKETPLACE PAGE ── */}
-      {page === "marketplace" && (
-        <div className="page" style={{ padding: "16px", overflowY: "auto", flex: 1 }}>
-          <div style={{ marginBottom: 20 }}>
-            <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>🌐 Agent Marketplace</h2>
-            <div style={{ fontSize: 13, color: "var(--mt)" }}>Discover agents built by the community</div>
-          </div>
-
-          {/* Category filters */}
-          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8, marginBottom: 16 }}>
-            {["All","Farmer","Teacher","Student","Doctor","Lawyer","Chef","Business","Fitness","Other"].map(cat => (
-              <button key={cat} style={{ padding: "6px 14px", borderRadius: 20, border: "1.5px solid var(--bd)",
-                background: "var(--sf2)", color: "var(--tx)", fontSize: 12, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer" }}>
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {marketLoading && <div style={{ textAlign: "center", color: "var(--mt)", padding: 40 }}>Loading...</div>}
-
-          {!marketLoading && marketplaceAgents.length === 0 && (
-            <div style={{ textAlign: "center", padding: 40 }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>🤖</div>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>No agents published yet</div>
-              <div style={{ fontSize: 13, color: "var(--mt)", marginBottom: 20 }}>Create an agent and publish it to the marketplace!</div>
-              <button className="btn btn-p" onClick={() => { setShowAgentBuilder(true); setPage("chat"); }}>Create Agent</button>
-            </div>
-          )}
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {marketplaceAgents.map(agent => (
-              <div key={agent.id} style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 18, padding: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-                  <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg,var(--accent),#ea580c)",
-                    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    {getAgentSVG(agent.icon, 24)}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>{agent.name}</div>
-                    <div style={{ fontSize: 12, color: "var(--mt)", marginTop: 2 }}>
-                      {agent.tone && <span style={{ background: "var(--sf2)", borderRadius: 8, padding: "2px 8px", marginRight: 4 }}>{agent.tone}</span>}
-                      {agent.usageCount > 0 && <span style={{ color: "var(--mt)" }}>👥 {agent.usageCount} users</span>}
-                    </div>
-                  </div>
-                </div>
-                {agent.instructions && (
-                  <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 12, lineHeight: 1.5,
-                    overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-                    {agent.instructions}
-                  </div>
-                )}
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button className="btn btn-p" onClick={() => useMarketplaceAgent(agent)}
-                    style={{ flex: 1, padding: "8px", fontSize: 13 }}>
-                    🚀 Use This Agent
-                  </button>
-                  {agent.userId === user?.uid && (
-                    <button className="btn" onClick={() => unpublishAgent(agent.id)}
-                      style={{ padding: "8px 12px", fontSize: 12 }}>Unpublish</button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {page === "chat" && (
+        {page === "chat" && (
           <>
             {chatsLeft !== null && chatsLeft <= 10 && (
               <div style={{
@@ -4400,10 +3943,6 @@ export default function App() {
                 </div>
               </div>
             ))}
-
-            {/* ── ADMIN: ALL AGENTS ── */}
-            <div className="sec" style={{ marginTop: 24 }}>🤖 All User Agents</div>
-            <AdminAgentsList />
           </div>
         </div>
       )}
@@ -4634,4 +4173,4 @@ export default function App() {
       )}
     </div>
   );
-          }
+      }
