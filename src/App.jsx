@@ -1308,7 +1308,6 @@ function buildStyles(themeKey, accentKey, fontSize) {
 html,body{height:100%;overflow:hidden;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:${v.bg};color:${v.tx};font-size:${fs}px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
 .app{display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:480px;margin:0 auto;background:${v.bg};position:relative;overflow:hidden;}
-.desktop-sb{display:none;}
 
 .pwa{position:fixed;bottom:70px;left:10px;right:10px;background:${dark?"#1a1a1a":"#fff"};border:1.5px solid var(--accent);border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:10px;z-index:150;box-shadow:0 8px 28px #0009;animation:fadeUp .3s ease;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
@@ -1570,25 +1569,13 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
   .modal { border-radius: 20px; }
 }
 
-/* Desktop - full layout */
-@media (min-width: 900px) {
-  body { display: flex; min-height: 100vh; overflow: hidden; }
-  .app { max-width: 100%; width: 100%; flex-direction: row; }
-  .app-main { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; min-width: 0; }
-  .desktop-sidebar { position: relative; width: 260px; min-width: 260px; max-width: 260px; height: 100vh; border-right: 1px solid var(--bd); display: flex; flex-direction: column; background: var(--navBg, #0e0e0e); overflow-y: auto; flex-shrink: 0; }
-  .desktop-sb { position: relative !important; width: 260px !important; min-width: 260px !important; max-width: 260px !important; height: 100vh !important; border-right: 1px solid var(--bd) !important; flex-direction: column !important; animation: none !important; z-index: 1 !important; flex-shrink: 0 !important; overflow-y: auto !important; }
-  .sb-overlay { display: none !important; }
-  .hide-desktop { display: none !important; } .desktop-sb { display: flex !important; }
-  .hdr { padding-left: 20px; padding-right: 20px; }
-  .chat { padding: 20px 8%; max-width: 860px; margin: 0 auto; width: 100%; }
-  .ibar { padding-left: 8%; padding-right: 8%; max-width: 860px; margin: 0 auto; width: 100%; }
-  .welcome { padding: 60px 20%; }
-  .wsub { max-width: 360px; }
+/* Desktop - center with max width */
+@media (min-width: 768px) {
+  .app { max-width: 800px; margin: 0 auto; border-left: 1px solid var(--bd); border-right: 1px solid var(--bd); box-shadow: 0 0 60px #0008; }
   .auth { padding: 40px; }
-  .card { max-width: 440px; width: 100%; }
+  .card { max-width: 440px; }
   .mbg { align-items: center; }
-  .modal { max-width: 580px; border-radius: 20px; }
-  .page { padding: 24px 6%; max-width: 900px; }
+  .modal { max-width: 560px; border-radius: 20px; }
 }
 
 /* Touch feedback - all clickable elements */
@@ -3466,6 +3453,38 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             style={{ color: "var(--accent)", textDecoration: "underline", fontWeight: 500, cursor: "pointer" }}>Privacy Policy</span>.
         </div>
       </div>
+
+      {/* Legal Modals - shown on auth page too */}
+      {legalModal && (
+        <div className="mbg" onClick={() => setLegalModal(null)} style={{ zIndex: 999, position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ background: "var(--sf, #141414)", borderRadius: "24px 24px 16px 16px", padding: "26px 22px", width: "100%", maxWidth: 480, display: "flex", flexDirection: "column", gap: 13, maxHeight: "88vh", overflowY: "auto" }}>
+            {legalModal === "terms" && (<>
+              <div style={{ fontSize: 28, textAlign: "center" }}>📜</div>
+              <h3 style={{ textAlign: "center", color: "var(--tx, #f0f0f0)" }}>Consumer Terms</h3>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>1. Service</strong><br/>Saraswati AI provides AI-powered chat services. By using our service, you agree to these terms.</p>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>2. Account</strong><br/>You are responsible for maintaining the security of your account and password.</p>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>3. Free & Premium</strong><br/>Free users get {FREE_LIMIT} messages. Premium users get unlimited access.</p>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>4. Content</strong><br/>Do not use Saraswati AI for illegal, harmful, or abusive purposes.</p>
+            </>)}
+            {legalModal === "privacy" && (<>
+              <div style={{ fontSize: 28, textAlign: "center" }}>🔒</div>
+              <h3 style={{ textAlign: "center", color: "var(--tx, #f0f0f0)" }}>Privacy Policy</h3>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>1. Data We Collect</strong><br/>We collect your name, email, and chat messages to provide our service.</p>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>2. How We Use It</strong><br/>Your data is used only to provide and improve Saraswati AI services.</p>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>3. Data Security</strong><br/>We use Firebase by Google for secure data storage and authentication.</p>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>4. AI Processing</strong><br/>Messages are sent to Groq AI for processing. We do not store images in our database.</p>
+            </>)}
+            {legalModal === "usage" && (<>
+              <div style={{ fontSize: 28, textAlign: "center" }}>📋</div>
+              <h3 style={{ textAlign: "center", color: "var(--tx, #f0f0f0)" }}>Usage Policy</h3>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>1. Allowed Use</strong><br/>Saraswati AI is for personal, educational, and professional assistance.</p>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>2. Prohibited Use</strong><br/>Do not use for generating harmful, illegal, or misleading content.</p>
+              <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>3. Fair Use</strong><br/>Free tier is limited to {FREE_LIMIT} messages. Misuse may result in account suspension.</p>
+            </>)}
+            <button className="btn btn-p" onClick={() => setLegalModal(null)} style={{ marginTop: 8 }}>Samajh Gaya ✓</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -3563,7 +3582,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
       {showSb && (
         <>
           <div className="sb-overlay" onClick={() => setShowSb(false)} />
-          <div className="sidebar hide-desktop">
+          <div className="sidebar">
             <div className="sb-head">
               <SaraswatiLogo size={30} animate={true} state="idle" />
               <span className="sb-title">Saraswati AI</span>
@@ -3962,112 +3981,6 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
         </div>
       )}
 
-      {/* ── DESKTOP SIDEBAR (always visible) ── */}
-      <div className="sidebar desktop-sb" id="desktopSidebar">
-            <div className="sb-head">
-              <SaraswatiLogo size={30} animate={true} state="idle" />
-              <span className="sb-title">Saraswati AI</span>
-              <button className="sb-close" onClick={() => setShowSb(false)}>✕</button>
-            </div>
-            <div className="sb-user">
-              {pPhotoUrl
-                ? <img src={pPhotoUrl} alt="" style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", border: `2px solid ${accentColor}`, flexShrink: 0 }} />
-                : <div style={{ width: 40, height: 40, borderRadius: "50%", background: `linear-gradient(135deg,${accentColor},#ea580c)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#fff", fontSize: 16, flexShrink: 0 }}>{displayName[0]?.toUpperCase()}</div>
-              }
-              <div className="sb-uinfo">
-                <div className="sb-uname">{displayName}</div>
-                <div className="sb-email">{user.email}</div>
-              </div>
-              {userData?.premium && <div className="badge" style={{ fontSize: 9 }}>PRO</div>}
-            </div>
-            <div className="sb-nav">
-              <div className="sb-section">Menu</div>
-              {[
-                { id: "chat", icon: <Ico.Chat />, label: "Chat" },
-                { id: "history", icon: <Ico.History />, label: "History" },
-                { id: "projects", icon: <Ico.Project />, label: "Projects" },
-                { id: "settings", icon: <Ico.Settings />, label: "Settings" },
-              ].map(item => (
-                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
-                  {item.icon}<span>{item.label}</span>
-                </div>
-              ))}
-              {isAdmin && (
-                <>
-                <div className={"sb-item" + (page === "admin" ? " active" : "")} onClick={() => { setPage("admin"); setShowSb(false); }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>Admin</span>
-                </div>
-                <div className={"sb-item" + (page === "cmdcenter" ? " active" : "")} onClick={() => { setPage("cmdcenter"); setShowSb(false); setCmdHistory([]); setCmdPending(null); setCmdReport(null); }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><polyline points="6 8 10 12 6 16"/><line x1="14" y1="12" x2="18" y2="12"/></svg>
-                  <span>AI Command</span>
-                </div>
-                </>
-              )}
-              {/* ── MY AGENTS SECTION ── */}
-              <div className="sb-section" style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span>🤖 My Agents</span>
-                <span onClick={() => { setEditingAgent(null); setAgentForm({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" }); setShowAgentBuilder(true); }}
-                  style={{ fontSize: 18, cursor: "pointer", color: "var(--accent)", fontWeight: 700, lineHeight: 1 }}>+</span>
-              </div>
-              {agents.length === 0 && (
-                <div style={{ fontSize: 12, color: "var(--mt)", padding: "6px 14px" }}>Koi agent nahi — + se banao</div>
-              )}
-              {agents.map(agent => (
-                <div key={agent.id} className={"sb-item" + (activeAgent?.id === agent.id ? " active" : "")}
-                  style={{ justifyContent: "space-between" }}>
-                  <span onClick={() => startAgent(agent)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-                    <span style={{ fontSize: 18 }}>{agent.emoji}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
-                  </span>
-                  <span style={{ display: "flex", gap: 4 }}>
-                    <span onClick={() => { setEditingAgent(agent); setAgentForm({ name: agent.name, emoji: agent.emoji, instructions: agent.instructions, tone: agent.tone, lang: agent.lang }); setShowAgentBuilder(true); }}
-                      style={{ fontSize: 12, color: "var(--mt)", cursor: "pointer", padding: "2px 5px" }}>✏️</span>
-                    <span onClick={() => deleteAgent(agent.id)}
-                      style={{ fontSize: 12, color: "#ef4444", cursor: "pointer", padding: "2px 5px" }}>🗑</span>
-                  </span>
-                </div>
-              ))}
-              {activeAgent && (
-                <div onClick={stopAgent} style={{ fontSize: 12, color: "#ef4444", padding: "4px 14px", cursor: "pointer" }}>
-                  ✕ {activeAgent.emoji} {activeAgent.name} band karo
-                </div>
-              )}
-              {pinnedHists.length > 0 && (
-                <>
-                  <div className="sb-section">📌 Pinned</div>
-                  <div className="sb-recent">
-                    {pinnedHists.map(h => (
-                      <div key={h.id} className="sb-ritem" onClick={() => { if (!longPressFired.current) loadSession(h); }} {...bindLongPress(h.id)}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                        <span className="sb-rtxt">{h.title || "Chat"}</span>
-                        <span className="sb-rdate">{fmtDate(h.updatedAt)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-              {hists.filter(h => !h.archived).length > 0 && (
-                <>
-                  <div className="sb-section">Recent</div>
-                  <div className="sb-recent">
-                    {hists.filter(h => !h.archived).slice(0, 10).map(h => (
-                      <div key={h.id} className="sb-ritem" onClick={() => { if (!longPressFired.current) loadSession(h); }} {...bindLongPress(h.id)}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                        <span className="sb-rtxt">{h.title || "Chat"}</span>
-                        <span className="sb-rdate">{fmtDate(h.updatedAt)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-            <div className="sb-bottom">
-              <div className="sb-logout" onClick={() => signOut(auth)}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                <span>Logout</span>
-              </div>
-            </div>
-                </div>
       {/* ── HEADER ── */}
       <div className="hdr">
         <button className="dots hide-desktop" onClick={() => { setShowSb(true); if (user) loadHists(); }}>
