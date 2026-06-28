@@ -1655,6 +1655,21 @@ export default function App() {
   const [showAgentBuilder, setShowAgentBuilder] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
   const [agentForm, setAgentForm] = useState({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" });
+  // ── MARKETPLACE STATE ──────────────────────────────────────
+  const [mkTab, setMkTab] = useState("trending"); // trending | new | toprated | mostused | free | paid
+  const [mkSearch, setMkSearch] = useState("");
+  const [mkCatFilter, setMkCatFilter] = useState("All");
+  const [mkRatingFilter, setMkRatingFilter] = useState(0);
+  const [mkPriceFilter, setMkPriceFilter] = useState("all"); // all | free | paid
+  const [mkAgents, setMkAgents] = useState([]);
+  const [mkLoading, setMkLoading] = useState(false);
+  const [mkDetail, setMkDetail] = useState(null); // selected agent for detail modal
+  const [mkReviewText, setMkReviewText] = useState("");
+  const [mkReviewRating, setMkReviewRating] = useState(5);
+  const [mkReviewLoading, setMkReviewLoading] = useState(false);
+  const [mkReviews, setMkReviews] = useState([]);
+  const [mkBuyLoading, setMkBuyLoading] = useState(false);
+  const [mkOwnedIds, setMkOwnedIds] = useState([]); // agent ids user has bought/used
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
   const [sid, setSid] = useState(() => Date.now().toString());
@@ -1795,6 +1810,7 @@ export default function App() {
     if (user && page === "admin") loadAdmin();
     if (user && page === "projects") loadProjects();
     if (user && page === "memory") loadMemories(user.uid);
+    if (page === "marketplace") loadMarketplace();
     if (page !== "voice") endVoice();
     stopAllSpeech();
     setSpeakId(null); setShowRx(null);
@@ -2919,6 +2935,161 @@ export default function App() {
     setShowSb(false);
   }
 
+  // ── MARKETPLACE FUNCTIONS ────────────────────────────────────
+  async function loadMarketplace() {
+    setMkLoading(true);
+    try {
+      // Load all published agents from all users
+      const q = query(
+        collection(db, "agents"),
+        where("published", "==", true)
+      );
+      const snap = await getDocs(q);
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setMkAgents(all);
+
+      // Load owned/used agent ids for current user
+      if (user) {
+        try {
+          const oSnap = await getDocs(query(collection(db, "agentUsage"), where("userId", "==", user.uid)));
+          setMkOwnedIds(oSnap.docs.map(d => d.data().agentId));
+        } catch {}
+      }
+    } catch (e) {
+      console.error("Marketplace load error:", e);
+      // Use demo data if Firestore fails
+      setMkAgents([]);
+    }
+    setMkLoading(false);
+  }
+
+  async function loadAgentReviews(agentId) {
+    try {
+      const q = query(
+        collection(db, "agentReviews"),
+        where("agentId", "==", agentId),
+        orderBy("createdAt", "desc"),
+        limit(20)
+      );
+      const snap = await getDocs(q);
+      setMkReviews(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch {
+      try {
+        const q2 = query(collection(db, "agentReviews"), where("agentId", "==", agentId));
+        const s2 = await getDocs(q2);
+        setMkReviews(s2.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+      } catch { setMkReviews([]); }
+    }
+  }
+
+  async function submitReview(agentId) {
+    if (!mkReviewText.trim()) return;
+    setMkReviewLoading(true);
+    try {
+      const reviewData = {
+        agentId,
+        userId: user.uid,
+        userName: userData?.name || user?.displayName || "User",
+        rating: mkReviewRating,
+        text: mkReviewText.trim(),
+        createdAt: serverTimestamp()
+      };
+      await addDoc(collection(db, "agentReviews"), reviewData);
+
+      // Update agent avgRating in Firestore
+      const allRevs = [...mkReviews, { ...reviewData, createdAt: { seconds: Date.now()/1000 } }];
+      const avg = allRevs.reduce((s, r) => s + (r.rating || 5), 0) / allRevs.length;
+      await updateDoc(doc(db, "agents", agentId), {
+        avgRating: parseFloat(avg.toFixed(1)),
+        reviewCount: allRevs.length
+      });
+
+      setMkReviewText("");
+      setMkReviewRating(5);
+      await loadAgentReviews(agentId);
+      setMkAgents(p => p.map(a => a.id === agentId ? { ...a, avgRating: parseFloat(avg.toFixed(1)), reviewCount: allRevs.length } : a));
+      if (mkDetail?.id === agentId) setMkDetail(prev => ({ ...prev, avgRating: parseFloat(avg.toFixed(1)), reviewCount: allRevs.length }));
+    } catch (e) { alert("Review submit failed: " + e.message); }
+    setMkReviewLoading(false);
+  }
+
+  async function useMarketplaceAgent(agent) {
+    // Track usage
+    try {
+      const usageRef = collection(db, "agentUsage");
+      const existing = await getDocs(query(usageRef, where("userId", "==", user.uid), where("agentId", "==", agent.id)));
+      if (existing.empty) {
+        await addDoc(usageRef, { userId: user.uid, agentId: agent.id, createdAt: serverTimestamp() });
+        // Increment totalUsers on agent
+        await updateDoc(doc(db, "agents", agent.id), { totalUsers: (agent.totalUsers || 0) + 1 });
+        setMkOwnedIds(p => [...p, agent.id]);
+      }
+    } catch {}
+    // Start agent and go to chat
+    setActiveAgent({ ...agent, id: agent.id });
+    setMkDetail(null);
+    newChat();
+  }
+
+  async function buyMarketplaceAgent(agent) {
+    if (!agent.price || agent.price === 0) {
+      await useMarketplaceAgent(agent);
+      return;
+    }
+    // For paid agents - show upgrade or payment flow
+    setMkDetail(null);
+    setShowUpgrade(true);
+  }
+
+  function getMkFiltered() {
+    let list = [...mkAgents];
+    // Search
+    if (mkSearch.trim()) {
+      const q = mkSearch.toLowerCase();
+      list = list.filter(a =>
+        (a.name || "").toLowerCase().includes(q) ||
+        (a.category || "").toLowerCase().includes(q) ||
+        (a.description || "").toLowerCase().includes(q)
+      );
+    }
+    // Category filter
+    if (mkCatFilter !== "All") {
+      list = list.filter(a => (a.category || "") === mkCatFilter);
+    }
+    // Rating filter
+    if (mkRatingFilter > 0) {
+      list = list.filter(a => (a.avgRating || 0) >= mkRatingFilter);
+    }
+    // Price filter
+    if (mkPriceFilter === "free") list = list.filter(a => !a.price || a.price === 0);
+    if (mkPriceFilter === "paid") list = list.filter(a => a.price && a.price > 0);
+
+    // Tab sort
+    if (mkTab === "trending") list = [...list].sort((a, b) => ((b.totalUsers || 0) + (b.avgRating || 0) * 10) - ((a.totalUsers || 0) + (a.avgRating || 0) * 10));
+    else if (mkTab === "new") list = [...list].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    else if (mkTab === "toprated") list = [...list].sort((a, b) => (b.avgRating || 0) - (a.avgRating || 0));
+    else if (mkTab === "mostused") list = [...list].sort((a, b) => (b.totalUsers || 0) - (a.totalUsers || 0));
+    else if (mkTab === "free") list = list.filter(a => !a.price || a.price === 0);
+    else if (mkTab === "paid") list = list.filter(a => a.price && a.price > 0);
+    return list;
+  }
+
+  // Demo agents for marketplace when no published agents exist
+  const DEMO_MK_AGENTS = [
+    { id: "demo1", name: "Doctor AI", emoji: "👨‍⚕️", category: "Healthcare & Medicine", description: "Aapke health sawaalon ka jawaab, symptoms analysis, aur medical advice Hindi mein.", avgRating: 4.8, reviewCount: 234, totalUsers: 1250, price: 0, creatorName: "Kunal Saraswat", published: true, skills: ["Symptom Analysis","Medicine Info","Diet Advice","Health Tips","First Aid"] },
+    { id: "demo2", name: "Kisan Mitra", emoji: "👨‍🌾", category: "Agriculture & Farming", description: "Khet, fasal, mausam, aur kheti ke baare mein expert advice. Kisan bhai ka sach​a dost.", avgRating: 4.9, reviewCount: 567, totalUsers: 3400, price: 0, creatorName: "AgriTech India", published: true, skills: ["Crop Planning","Weather Tips","Pest Control","Market Rates","Soil Health"] },
+    { id: "demo3", name: "Legal Eagle", emoji: "⚖️", category: "Legal & Law", description: "Indian law, RTI, consumer rights, property matters — sab kuch simple language mein.", avgRating: 4.6, reviewCount: 189, totalUsers: 890, price: 49, creatorName: "LegalTech Pro", published: true, skills: ["RTI Filing","Consumer Rights","Property Law","Contract Review","Court Procedure"] },
+    { id: "demo4", name: "Finance Guru", emoji: "💰", category: "Finance & Banking", description: "Investment, mutual funds, SIP, tax saving — paisa badhao smart tarike se.", avgRating: 4.7, reviewCount: 312, totalUsers: 2100, price: 0, creatorName: "MoneyWise AI", published: true, skills: ["SIP Planning","Tax Saving","Stock Tips","Budget Management","Loan Advice"] },
+    { id: "demo5", name: "English Teacher", emoji: "📚", category: "Education & Tutoring", description: "Spoken English, grammar, vocabulary — Hinglish se English fluency tak ka safar.", avgRating: 4.5, reviewCount: 445, totalUsers: 5600, price: 0, creatorName: "EduAI Labs", published: true, skills: ["Grammar Fix","Speaking Practice","Vocabulary","Writing Help","Interview Prep"] },
+    { id: "demo6", name: "Chef AI", emoji: "🧑‍🍳", category: "Cooking & Recipes", description: "Indian aur international recipes, nutrition tips, meal planning — ghar ka khana best banao.", avgRating: 4.8, reviewCount: 678, totalUsers: 4200, price: 0, creatorName: "FoodieBot", published: true, skills: ["Recipes","Nutrition","Meal Planning","Cooking Tips","Diet Plans"] },
+    { id: "demo7", name: "Code Master", emoji: "🧑‍💻", category: "Technology & Coding", description: "Python, JS, React, SQL — code likhna, debug karna, aur projects banana seekho.", avgRating: 4.9, reviewCount: 890, totalUsers: 6700, price: 99, creatorName: "DevBot Pro", published: true, skills: ["Code Review","Bug Fix","Python","JavaScript","System Design"] },
+    { id: "demo8", name: "Astro Guide", emoji: "🔮", category: "Astrology & Horoscope", description: "Kundali, rashifal, vastu, aur jeevan ke sawal — vedic astrology ka gyaan.", avgRating: 4.4, reviewCount: 234, totalUsers: 1800, price: 0, creatorName: "Jyotish AI", published: true, skills: ["Kundali Reading","Daily Horoscope","Vastu Tips","Gemstone Advice","Career Guidance"] },
+    { id: "demo9", name: "Mental Health Coach", emoji: "🧠", category: "Mental Health & Therapy", description: "Stress, anxiety, depression — emotional support aur coping strategies apni bhasha mein.", avgRating: 4.7, reviewCount: 156, totalUsers: 930, price: 0, creatorName: "MindCare AI", published: true, skills: ["Stress Relief","Anxiety Help","Meditation","CBT Techniques","Sleep Tips"] },
+    { id: "demo10", name: "Fitness Pro", emoji: "💪", category: "Fitness & Exercise", description: "Workout plans, diet tips, weight loss — ghar pe ya gym mein, expert guidance.", avgRating: 4.6, reviewCount: 345, totalUsers: 2800, price: 29, creatorName: "FitLife AI", published: true, skills: ["Workout Plans","Diet Planning","Weight Loss","Muscle Building","Yoga"] },
+    { id: "demo11", name: "Travel Buddy", emoji: "✈️", category: "Travel & Tourism", description: "India aur duniya ke tours, budget travel tips, hidden gems — ghoomna aasaan banao.", avgRating: 4.5, reviewCount: 212, totalUsers: 1560, price: 0, creatorName: "TravelBot", published: true, skills: ["Itinerary Planning","Budget Tips","Visa Help","Hotel Booking","Local Food"] },
+    { id: "demo12", name: "Study Planner", emoji: "📖", category: "Exam Preparation", description: "JEE, NEET, UPSC, SSC — exam preparation strategy, study schedule, revision tips.", avgRating: 4.8, reviewCount: 567, totalUsers: 7800, price: 0, creatorName: "StudyAI", published: true, skills: ["Study Schedule","Mock Tests","Revision Tips","Exam Strategy","Subject Help"] },
+  ];
+
   function stopAgent() { setActiveAgent(null); }
 
   async function loadProjects() {
@@ -3210,8 +3381,9 @@ export default function App() {
                 { id: "history", icon: <Ico.History />, label: "History" },
                 { id: "projects", icon: <Ico.Project />, label: "Projects" },
                 { id: "settings", icon: <Ico.Settings />, label: "Settings" },
+                { id: "marketplace", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>, label: "Marketplace" },
               ].map(item => (
-                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
+                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); if(item.id==="marketplace") loadMarketplace(); }}>
                   {item.icon}<span>{item.label}</span>
                 </div>
               ))}
@@ -3586,7 +3758,7 @@ export default function App() {
         </button>
         <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <SaraswatiLogo size={26} animate={false} state="idle" />
-          {page === "chat" ? (activeAgent ? `${activeAgent.emoji} ${activeAgent.name}` : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : "Saraswati AI"}
+          {page === "chat" ? (activeAgent ? `${activeAgent.emoji} ${activeAgent.name}` : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : page === "marketplace" ? "🛍 Marketplace" : "Saraswati AI"}
         </div>
         {page === "chat" && (
           <>
@@ -4093,6 +4265,364 @@ export default function App() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                 Log out
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MARKETPLACE PAGE ── */}
+      {page === "marketplace" && (() => {
+        const MK_TABS = [
+          { id: "trending", label: "🔥 Trending" },
+          { id: "new", label: "✨ New" },
+          { id: "toprated", label: "⭐ Top Rated" },
+          { id: "mostused", label: "👥 Most Used" },
+          { id: "free", label: "🆓 Free" },
+          { id: "paid", label: "💎 Paid" },
+        ];
+        const displayAgents = mkAgents.length > 0 ? getMkFiltered() : DEMO_MK_AGENTS.filter(a => {
+          let list = DEMO_MK_AGENTS;
+          if (mkSearch.trim()) { const q = mkSearch.toLowerCase(); list = list.filter(a => (a.name||"").toLowerCase().includes(q)||(a.category||"").toLowerCase().includes(q)); }
+          if (mkCatFilter !== "All") list = list.filter(a => a.category === mkCatFilter);
+          if (mkRatingFilter > 0) list = list.filter(a => (a.avgRating||0) >= mkRatingFilter);
+          if (mkPriceFilter === "free") list = list.filter(a => !a.price || a.price === 0);
+          if (mkPriceFilter === "paid") list = list.filter(a => a.price && a.price > 0);
+          if (mkTab === "trending") list = [...list].sort((a,b)=>((b.totalUsers||0)+(b.avgRating||0)*10)-((a.totalUsers||0)+(a.avgRating||0)*10));
+          else if (mkTab === "new") list = [...list].sort((a,b)=>(b.id>a.id?-1:1));
+          else if (mkTab === "toprated") list = [...list].sort((a,b)=>(b.avgRating||0)-(a.avgRating||0));
+          else if (mkTab === "mostused") list = [...list].sort((a,b)=>(b.totalUsers||0)-(a.totalUsers||0));
+          else if (mkTab === "free") list = list.filter(a=>!a.price||a.price===0);
+          else if (mkTab === "paid") list = list.filter(a=>a.price&&a.price>0);
+          return list.some(x => x.id === a.id);
+        });
+        const allCats = ["All", ...Array.from(new Set([...DEMO_MK_AGENTS, ...mkAgents].map(a => a.category).filter(Boolean)))];
+
+        return (
+          <div className="page">
+            <div className="page-inner" style={{ paddingTop: 8 }}>
+
+              {/* Search Bar */}
+              <div style={{ position: "relative", marginBottom: 14 }}>
+                <svg style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input
+                  placeholder="Search agents, categories..."
+                  value={mkSearch}
+                  onChange={e => setMkSearch(e.target.value)}
+                  style={{ width: "100%", padding: "11px 14px 11px 42px", borderRadius: 16, border: "1.5px solid var(--bd)", background: "var(--sf)", color: "var(--tx)", fontSize: 14, fontFamily: "Inter,sans-serif", outline: "none", boxSizing: "border-box", transition: "border-color .2s" }}
+                  onFocus={e => e.target.style.borderColor = "var(--accent)"}
+                  onBlur={e => e.target.style.borderColor = "var(--bd)"}
+                />
+                {mkSearch && <button onClick={() => setMkSearch("")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--mt)", cursor: "pointer", fontSize: 16, padding: 4 }}>✕</button>}
+              </div>
+
+              {/* Filters Row */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
+                {/* Rating filter */}
+                <div style={{ flexShrink: 0 }}>
+                  <select
+                    value={mkRatingFilter}
+                    onChange={e => setMkRatingFilter(Number(e.target.value))}
+                    style={{ padding: "7px 12px", borderRadius: 20, border: "1.5px solid var(--bd)", background: "var(--sf2)", color: "var(--tx)", fontSize: 12, fontFamily: "Inter,sans-serif", cursor: "pointer", outline: "none" }}>
+                    <option value={0}>⭐ All Ratings</option>
+                    <option value={4}>⭐ 4+</option>
+                    <option value={4.5}>⭐ 4.5+</option>
+                    <option value={4.8}>⭐ 4.8+</option>
+                  </select>
+                </div>
+                {/* Price filter */}
+                {["all","free","paid"].map(p => (
+                  <button key={p} onClick={() => setMkPriceFilter(p)}
+                    style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 20, border: "1.5px solid " + (mkPriceFilter === p ? "var(--accent)" : "var(--bd)"),
+                      background: mkPriceFilter === p ? "var(--glow)" : "var(--sf2)",
+                      color: mkPriceFilter === p ? "var(--accent)" : "var(--mt)",
+                      fontSize: 12, fontWeight: mkPriceFilter === p ? 700 : 400, cursor: "pointer", fontFamily: "Inter,sans-serif" }}>
+                    {p === "all" ? "🔘 All" : p === "free" ? "🆓 Free" : "💎 Paid"}
+                  </button>
+                ))}
+              </div>
+
+              {/* Category Filter */}
+              <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 12 }}>
+                {allCats.slice(0, 12).map(cat => (
+                  <button key={cat} onClick={() => setMkCatFilter(cat)}
+                    style={{ flexShrink: 0, padding: "5px 12px", borderRadius: 20, border: "1.5px solid " + (mkCatFilter === cat ? "var(--accent)" : "var(--bd)"),
+                      background: mkCatFilter === cat ? "var(--glow)" : "none",
+                      color: mkCatFilter === cat ? "var(--accent)" : "var(--mt)",
+                      fontSize: 11, fontWeight: mkCatFilter === cat ? 700 : 400, cursor: "pointer", fontFamily: "Inter,sans-serif", whiteSpace: "nowrap" }}>
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tabs */}
+              <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 16 }}>
+                {MK_TABS.map(tab => (
+                  <button key={tab.id} onClick={() => setMkTab(tab.id)}
+                    style={{ flexShrink: 0, padding: "8px 14px", borderRadius: 20,
+                      background: mkTab === tab.id ? "var(--grad)" : "var(--sf2)",
+                      border: "none",
+                      color: mkTab === tab.id ? "#fff" : "var(--mt)",
+                      fontSize: 12, fontWeight: mkTab === tab.id ? 700 : 400,
+                      cursor: "pointer", fontFamily: "Inter,sans-serif",
+                      boxShadow: mkTab === tab.id ? "0 4px 14px var(--glow)" : "none",
+                      transition: "all .2s" }}>
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Agents Grid */}
+              {mkLoading ? (
+                <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
+                  <SaraswatiLogo size={40} animate={true} state="thinking" />
+                  <div style={{ marginTop: 12, fontSize: 14 }}>Loading marketplace...</div>
+                </div>
+              ) : displayAgents.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
+                  <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: "var(--tx)", marginBottom: 8 }}>Koi agent nahi mila</div>
+                  <div style={{ fontSize: 13 }}>Search ya filter change karo</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {displayAgents.map(agent => (
+                    <div key={agent.id}
+                      style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 20, padding: 16, cursor: "pointer", transition: "border-color .2s, transform .15s", position: "relative" }}
+                      onClick={() => { setMkDetail(agent); loadAgentReviews(agent.id); setMkReviewText(""); setMkReviewRating(5); }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--bd)"; e.currentTarget.style.transform = "translateY(0)"; }}>
+
+                      {/* Price badge */}
+                      <div style={{ position: "absolute", top: 14, right: 14, padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                        background: (!agent.price || agent.price === 0) ? "#22c55e20" : "var(--glow)",
+                        color: (!agent.price || agent.price === 0) ? "#22c55e" : "var(--accent)",
+                        border: "1px solid " + ((!agent.price || agent.price === 0) ? "#22c55e40" : "var(--accent)") }}>
+                        {(!agent.price || agent.price === 0) ? "FREE" : "₹" + agent.price}
+                      </div>
+
+                      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                        {/* Avatar */}
+                        <div style={{ width: 58, height: 58, borderRadius: 18, background: "var(--grad)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, flexShrink: 0, boxShadow: "0 4px 16px var(--glow)" }}>
+                          {agent.emoji || "🤖"}
+                        </div>
+
+                        <div style={{ flex: 1, minWidth: 0, paddingRight: 60 }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--tx)", marginBottom: 2 }}>{agent.name}</div>
+                          <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600, marginBottom: 4 }}>{agent.category}</div>
+                          <div style={{ fontSize: 12, color: "var(--mt)", lineHeight: 1.5, marginBottom: 8, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                            {agent.description}
+                          </div>
+
+                          {/* Stats row */}
+                          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ color: "#f59e0b", fontSize: 13 }}>★</span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--tx)" }}>{(agent.avgRating || 4.5).toFixed(1)}</span>
+                              <span style={{ fontSize: 11, color: "var(--mt)" }}>({agent.reviewCount || 0})</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                              <span style={{ fontSize: 11, color: "var(--mt)" }}>{(agent.totalUsers || 0).toLocaleString()} users</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--mt)" }}>by {agent.creatorName || "Creator"}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Skills pills */}
+                      {agent.skills && agent.skills.length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 12 }}>
+                          {(agent.skills || []).slice(0, 4).map((sk, si) => (
+                            <span key={si} style={{ padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 600, background: "var(--sf2)", border: "1px solid var(--bd)", color: "var(--mt)" }}>{sk}</span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); setMkDetail(agent); loadAgentReviews(agent.id); setMkReviewText(""); setMkReviewRating(5); }}
+                          style={{ flex: 1, padding: "9px", borderRadius: 12, border: "1px solid var(--bd)", background: "var(--sf2)", color: "var(--tx)", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter,sans-serif" }}>
+                          👁 View Details
+                        </button>
+                        {(!agent.price || agent.price === 0) ? (
+                          <button
+                            onClick={e => { e.stopPropagation(); useMarketplaceAgent(agent); }}
+                            style={{ flex: 1, padding: "9px", borderRadius: 12, border: "none", background: "var(--grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", boxShadow: "0 3px 12px var(--glow)" }}>
+                            ▶ Use Agent
+                          </button>
+                        ) : (
+                          <button
+                            onClick={e => { e.stopPropagation(); buyMarketplaceAgent(agent); }}
+                            style={{ flex: 1, padding: "9px", borderRadius: 12, border: "none", background: "var(--grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", boxShadow: "0 3px 12px var(--glow)" }}>
+                            🛒 Buy ₹{agent.price}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── MARKETPLACE DETAIL MODAL ── */}
+      {mkDetail && (
+        <div className="mbg" onClick={() => setMkDetail(null)} style={{ zIndex: 999 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto", textAlign: "left", maxWidth: 480, padding: 0, borderRadius: 24, overflow: "hidden" }}>
+
+            {/* Hero section */}
+            <div style={{ background: "var(--grad)", padding: "24px 20px 20px", textAlign: "center", position: "relative" }}>
+              <button onClick={() => setMkDetail(null)} style={{ position: "absolute", top: 16, right: 16, background: "#ffffff30", border: "none", borderRadius: "50%", width: 32, height: 32, color: "#fff", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+              <div style={{ fontSize: 56, marginBottom: 12 }}>{mkDetail.emoji || "🤖"}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 4 }}>{mkDetail.name}</div>
+              <div style={{ fontSize: 12, color: "#ffffff90", marginBottom: 10 }}>{mkDetail.category} · by {mkDetail.creatorName || "Creator"}</div>
+              <div style={{ display: "flex", gap: 16, justifyContent: "center", alignItems: "center" }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>
+                    <span style={{ color: "#fcd34d" }}>★</span> {(mkDetail.avgRating || 4.5).toFixed(1)}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#ffffff70" }}>{mkDetail.reviewCount || 0} reviews</div>
+                </div>
+                <div style={{ width: 1, height: 30, background: "#ffffff30" }} />
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>{(mkDetail.totalUsers || 0).toLocaleString()}</div>
+                  <div style={{ fontSize: 10, color: "#ffffff70" }}>users</div>
+                </div>
+                <div style={{ width: 1, height: 30, background: "#ffffff30" }} />
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>
+                    {(!mkDetail.price || mkDetail.price === 0) ? "FREE" : "₹" + mkDetail.price}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#ffffff70" }}>price</div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ padding: "20px" }}>
+              {/* Description */}
+              <div style={{ fontSize: 14, color: "var(--tx)", lineHeight: 1.7, marginBottom: 18 }}>{mkDetail.description}</div>
+
+              {/* Skills */}
+              {mkDetail.skills && mkDetail.skills.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", marginBottom: 8, textTransform: "uppercase", letterSpacing: ".06em" }}>Skills</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                    {mkDetail.skills.map((sk, si) => (
+                      <span key={si} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: "var(--glow)", border: "1px solid var(--accent)", color: "var(--accent)" }}>{sk}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Welcome message */}
+              {mkDetail.welcomeMessage && (
+                <div style={{ background: "var(--sf2)", borderRadius: 14, padding: "12px 16px", marginBottom: 18, border: "1px solid var(--bd)" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", marginBottom: 6, textTransform: "uppercase", letterSpacing: ".06em" }}>Welcome Message</div>
+                  <div style={{ fontSize: 13, color: "var(--tx)", fontStyle: "italic", lineHeight: 1.6 }}>"{mkDetail.welcomeMessage}"</div>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+                {(!mkDetail.price || mkDetail.price === 0) ? (
+                  <button onClick={() => useMarketplaceAgent(mkDetail)}
+                    style={{ flex: 1, padding: "14px", borderRadius: 16, border: "none", background: "var(--grad)", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", boxShadow: "0 4px 20px var(--glow)" }}>
+                    ▶ Use This Agent
+                  </button>
+                ) : (
+                  <button onClick={() => buyMarketplaceAgent(mkDetail)}
+                    style={{ flex: 1, padding: "14px", borderRadius: 16, border: "none", background: "var(--grad)", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", boxShadow: "0 4px 20px var(--glow)" }}>
+                    🛒 Buy for ₹{mkDetail.price}
+                  </button>
+                )}
+              </div>
+
+              {/* Reviews Section */}
+              <div style={{ borderTop: "1px solid var(--bd)", paddingTop: 18 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx)", marginBottom: 14 }}>Reviews & Ratings</div>
+
+                {/* Rating summary */}
+                <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 18, background: "var(--sf2)", borderRadius: 16, padding: "14px 16px" }}>
+                  <div style={{ textAlign: "center", minWidth: 60 }}>
+                    <div style={{ fontSize: 36, fontWeight: 800, color: "var(--tx)" }}>{(mkDetail.avgRating || 4.5).toFixed(1)}</div>
+                    <div style={{ display: "flex", gap: 2, justifyContent: "center", marginTop: 4 }}>
+                      {[1,2,3,4,5].map(s => (
+                        <span key={s} style={{ color: s <= Math.round(mkDetail.avgRating || 4.5) ? "#f59e0b" : "var(--bd)", fontSize: 14 }}>★</span>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 4 }}>{mkDetail.reviewCount || 0} reviews</div>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    {[5,4,3,2,1].map(star => {
+                      const starRevs = mkReviews.filter(r => Math.round(r.rating || 5) === star);
+                      const pct = mkReviews.length > 0 ? (starRevs.length / mkReviews.length) * 100 : star * 18;
+                      return (
+                        <div key={star} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, color: "var(--mt)", width: 12 }}>{star}</span>
+                          <div style={{ flex: 1, height: 5, background: "var(--bd)", borderRadius: 3, overflow: "hidden" }}>
+                            <div style={{ width: pct + "%", height: "100%", background: "var(--grad)", borderRadius: 3 }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Write review */}
+                {user && (
+                  <div style={{ background: "var(--sf2)", borderRadius: 16, padding: 16, marginBottom: 18 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--mt)", marginBottom: 10, textTransform: "uppercase", letterSpacing: ".05em" }}>Write a Review</div>
+                    {/* Star rating input */}
+                    <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center" }}>
+                      <span style={{ fontSize: 12, color: "var(--mt)" }}>Rating:</span>
+                      {[1,2,3,4,5].map(s => (
+                        <span key={s} onClick={() => setMkReviewRating(s)}
+                          style={{ fontSize: 24, cursor: "pointer", color: s <= mkReviewRating ? "#f59e0b" : "var(--bd)", transition: "color .15s" }}>★</span>
+                      ))}
+                      <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>{mkReviewRating}/5</span>
+                    </div>
+                    <textarea
+                      className="inp iarea"
+                      rows={3}
+                      placeholder="Apna experience share karo..."
+                      value={mkReviewText}
+                      onChange={e => setMkReviewText(e.target.value)}
+                      style={{ width: "100%", resize: "none", marginBottom: 10, fontSize: 13 }}
+                    />
+                    <button
+                      onClick={() => submitReview(mkDetail.id)}
+                      disabled={mkReviewLoading || !mkReviewText.trim()}
+                      style={{ padding: "9px 20px", borderRadius: 12, border: "none", background: "var(--grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", opacity: (!mkReviewText.trim() || mkReviewLoading) ? 0.5 : 1 }}>
+                      {mkReviewLoading ? "Submitting..." : "Submit Review"}
+                    </button>
+                  </div>
+                )}
+
+                {/* Reviews list */}
+                {mkReviews.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "20px 0", color: "var(--mt)", fontSize: 13 }}>
+                    Abhi koi review nahi — pehle review likho! ✍️
+                  </div>
+                ) : (
+                  mkReviews.map(rev => (
+                    <div key={rev.id} style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 14, padding: "12px 14px", marginBottom: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx)" }}>{rev.userName || "User"}</div>
+                          <div style={{ display: "flex", gap: 2, marginTop: 2 }}>
+                            {[1,2,3,4,5].map(s => <span key={s} style={{ color: s <= (rev.rating||5) ? "#f59e0b" : "var(--bd)", fontSize: 12 }}>★</span>)}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--mt)" }}>{fmtDate(rev.createdAt)}</div>
+                      </div>
+                      <div style={{ fontSize: 13, color: "var(--mt)", lineHeight: 1.6 }}>{rev.text}</div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>
