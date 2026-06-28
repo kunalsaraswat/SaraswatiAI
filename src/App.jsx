@@ -1560,13 +1560,34 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .hdr { padding-top: max(11px, env(safe-area-inset-top)); }
 .ibar { padding-bottom: max(10px, env(safe-area-inset-bottom)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
 
-/* Desktop - center app with sidebar-like layout */
-@media (min-width: 500px) {
+/* Tablet */
+@media (min-width: 500px) and (max-width: 900px) {
   body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-  .app { border-left: 1px solid var(--bd); border-right: 1px solid var(--bd); box-shadow: 0 0 60px #0008; }
+  .app { max-width: 540px; border-left: 1px solid var(--bd); border-right: 1px solid var(--bd); box-shadow: 0 0 60px #0008; }
   .sidebar { max-width: 300px; }
   .mbg { align-items: center; }
   .modal { border-radius: 20px; }
+}
+
+/* Desktop - full layout */
+@media (min-width: 900px) {
+  body { display: flex; min-height: 100vh; overflow: hidden; }
+  .app { max-width: 100%; width: 100%; flex-direction: row; }
+  .app-main { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; min-width: 0; }
+  .desktop-sidebar { position: relative; width: 260px; min-width: 260px; max-width: 260px; height: 100vh; border-right: 1px solid var(--bd); display: flex; flex-direction: column; background: var(--navBg, #0e0e0e); overflow-y: auto; flex-shrink: 0; }
+  .sidebar { position: relative; width: 260px; min-width: 260px; max-width: 260px; height: 100vh; border-right: 1px solid var(--bd); display: flex; flex-direction: column; animation: none; z-index: 1; }
+  .sb-overlay { display: none !important; }
+  .hide-desktop { display: none !important; } #desktopSidebar { display: flex !important; }
+  .hdr { padding-left: 20px; padding-right: 20px; }
+  .chat { padding: 20px 8%; max-width: 860px; margin: 0 auto; width: 100%; }
+  .ibar { padding-left: 8%; padding-right: 8%; max-width: 860px; margin: 0 auto; width: 100%; }
+  .welcome { padding: 60px 20%; }
+  .wsub { max-width: 360px; }
+  .auth { padding: 40px; }
+  .card { max-width: 440px; width: 100%; }
+  .mbg { align-items: center; }
+  .modal { max-width: 580px; border-radius: 20px; }
+  .page { padding: 24px 6%; max-width: 900px; }
 }
 
 /* Touch feedback - all clickable elements */
@@ -2088,15 +2109,13 @@ export default function App() {
     setFload(true); setFerr("");
     try {
       const provider = new GoogleAuthProvider();
-      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      if (isMobile) {
-        await signInWithRedirect(auth, provider);
-      } else {
-        const result = await signInWithPopup(auth, provider);
-        await handleGoogleResult(result);
-      }
+      provider.setCustomParameters({ prompt: "select_account" });
+      const result = await signInWithPopup(auth, provider);
+      await handleGoogleResult(result);
     } catch (e) {
-      if (e.code !== "auth/popup-closed-by-user") setFerr("Google sign-in failed. Try again!");
+      if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") {
+        setFerr("Google sign-in failed. Try again!");
+      }
     }
     setFload(false);
   }
@@ -3543,7 +3562,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
       {showSb && (
         <>
           <div className="sb-overlay" onClick={() => setShowSb(false)} />
-          <div className="sidebar">
+          <div className="sidebar hide-desktop">
             <div className="sb-head">
               <SaraswatiLogo size={30} animate={true} state="idle" />
               <span className="sb-title">Saraswati AI</span>
@@ -3942,9 +3961,115 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
         </div>
       )}
 
+      {/* ── DESKTOP SIDEBAR (always visible) ── */}
+      <div className="sidebar" style={{position:"relative",display:"flex",flexDirection:"column",width:260,minWidth:260,maxWidth:260,height:"100vh",borderRight:"1px solid var(--bd)",flexShrink:0}} id="desktopSidebar">
+            <div className="sb-head">
+              <SaraswatiLogo size={30} animate={true} state="idle" />
+              <span className="sb-title">Saraswati AI</span>
+              <button className="sb-close" onClick={() => setShowSb(false)}>✕</button>
+            </div>
+            <div className="sb-user">
+              {pPhotoUrl
+                ? <img src={pPhotoUrl} alt="" style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", border: `2px solid ${accentColor}`, flexShrink: 0 }} />
+                : <div style={{ width: 40, height: 40, borderRadius: "50%", background: `linear-gradient(135deg,${accentColor},#ea580c)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#fff", fontSize: 16, flexShrink: 0 }}>{displayName[0]?.toUpperCase()}</div>
+              }
+              <div className="sb-uinfo">
+                <div className="sb-uname">{displayName}</div>
+                <div className="sb-email">{user.email}</div>
+              </div>
+              {userData?.premium && <div className="badge" style={{ fontSize: 9 }}>PRO</div>}
+            </div>
+            <div className="sb-nav">
+              <div className="sb-section">Menu</div>
+              {[
+                { id: "chat", icon: <Ico.Chat />, label: "Chat" },
+                { id: "history", icon: <Ico.History />, label: "History" },
+                { id: "projects", icon: <Ico.Project />, label: "Projects" },
+                { id: "settings", icon: <Ico.Settings />, label: "Settings" },
+              ].map(item => (
+                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
+                  {item.icon}<span>{item.label}</span>
+                </div>
+              ))}
+              {isAdmin && (
+                <>
+                <div className={"sb-item" + (page === "admin" ? " active" : "")} onClick={() => { setPage("admin"); setShowSb(false); }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>Admin</span>
+                </div>
+                <div className={"sb-item" + (page === "cmdcenter" ? " active" : "")} onClick={() => { setPage("cmdcenter"); setShowSb(false); setCmdHistory([]); setCmdPending(null); setCmdReport(null); }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><polyline points="6 8 10 12 6 16"/><line x1="14" y1="12" x2="18" y2="12"/></svg>
+                  <span>AI Command</span>
+                </div>
+                </>
+              )}
+              {/* ── MY AGENTS SECTION ── */}
+              <div className="sb-section" style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span>🤖 My Agents</span>
+                <span onClick={() => { setEditingAgent(null); setAgentForm({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" }); setShowAgentBuilder(true); }}
+                  style={{ fontSize: 18, cursor: "pointer", color: "var(--accent)", fontWeight: 700, lineHeight: 1 }}>+</span>
+              </div>
+              {agents.length === 0 && (
+                <div style={{ fontSize: 12, color: "var(--mt)", padding: "6px 14px" }}>Koi agent nahi — + se banao</div>
+              )}
+              {agents.map(agent => (
+                <div key={agent.id} className={"sb-item" + (activeAgent?.id === agent.id ? " active" : "")}
+                  style={{ justifyContent: "space-between" }}>
+                  <span onClick={() => startAgent(agent)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                    <span style={{ fontSize: 18 }}>{agent.emoji}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
+                  </span>
+                  <span style={{ display: "flex", gap: 4 }}>
+                    <span onClick={() => { setEditingAgent(agent); setAgentForm({ name: agent.name, emoji: agent.emoji, instructions: agent.instructions, tone: agent.tone, lang: agent.lang }); setShowAgentBuilder(true); }}
+                      style={{ fontSize: 12, color: "var(--mt)", cursor: "pointer", padding: "2px 5px" }}>✏️</span>
+                    <span onClick={() => deleteAgent(agent.id)}
+                      style={{ fontSize: 12, color: "#ef4444", cursor: "pointer", padding: "2px 5px" }}>🗑</span>
+                  </span>
+                </div>
+              ))}
+              {activeAgent && (
+                <div onClick={stopAgent} style={{ fontSize: 12, color: "#ef4444", padding: "4px 14px", cursor: "pointer" }}>
+                  ✕ {activeAgent.emoji} {activeAgent.name} band karo
+                </div>
+              )}
+              {pinnedHists.length > 0 && (
+                <>
+                  <div className="sb-section">📌 Pinned</div>
+                  <div className="sb-recent">
+                    {pinnedHists.map(h => (
+                      <div key={h.id} className="sb-ritem" onClick={() => { if (!longPressFired.current) loadSession(h); }} {...bindLongPress(h.id)}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                        <span className="sb-rtxt">{h.title || "Chat"}</span>
+                        <span className="sb-rdate">{fmtDate(h.updatedAt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {hists.filter(h => !h.archived).length > 0 && (
+                <>
+                  <div className="sb-section">Recent</div>
+                  <div className="sb-recent">
+                    {hists.filter(h => !h.archived).slice(0, 10).map(h => (
+                      <div key={h.id} className="sb-ritem" onClick={() => { if (!longPressFired.current) loadSession(h); }} {...bindLongPress(h.id)}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        <span className="sb-rtxt">{h.title || "Chat"}</span>
+                        <span className="sb-rdate">{fmtDate(h.updatedAt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="sb-bottom">
+              <div className="sb-logout" onClick={() => signOut(auth)}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                <span>Logout</span>
+              </div>
+            </div>
+                </div>
       {/* ── HEADER ── */}
       <div className="hdr">
-        <button className="dots" onClick={() => { setShowSb(true); if (user) loadHists(); }}>
+        <button className="dots hide-desktop" onClick={() => { setShowSb(true); if (user) loadHists(); }}>
           <Ico.Menu />
         </button>
         <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
