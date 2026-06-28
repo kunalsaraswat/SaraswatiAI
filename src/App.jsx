@@ -3227,21 +3227,14 @@ Keep responses concise, professional, in Hinglish or English based on user's lan
       // Parse if action required
       const actionMatch = aiText.match(/ACTION:\s*(\w+)/i);
       const paramsMatch = aiText.match(/PARAMS:\s*(\{[\s\S]*?\})/i);
-      const confirmMatch = aiText.match(/CONFIRM:\s*(.+?)(?:
-|$)/i);
+      const confirmMatch = aiText.match(/CONFIRM:\s*(.+?)(?:\n|$)/i);
 
       if (actionMatch) {
         const action = actionMatch[1];
         let params = {};
         try { params = JSON.parse(paramsMatch?.[1] || "{}"); } catch {}
         const confirmMsg = confirmMatch?.[1] || "Is action ko execute karna chahte ho?";
-        const cleanText = aiText.replace(/ACTION:[\s\S]*?(?=
-
-|
-[A-Z]|$)/i,"").replace(/PARAMS:[\s\S]*?(?=
-
-|
-[A-Z]|$)/i,"").replace(/CONFIRM:.*$/im,"").trim();
+        const cleanText = aiText.replace(/ACTION:[\s\S]*?(?=\n\n|\n[A-Z]|$)/i,"").replace(/PARAMS:[\s\S]*?(?=\n\n|\n[A-Z]|$)/i,"").replace(/CONFIRM:.*$/im,"").trim();
         setCmdHistory(h => [...h, { role:"ai", text: cleanText || aiText, ts: Date.now(), hasAction:true }]);
         setCmdPending({ action, params, confirmMsg });
       } else {
