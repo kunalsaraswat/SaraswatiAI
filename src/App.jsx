@@ -1655,21 +1655,6 @@ export default function App() {
   const [showAgentBuilder, setShowAgentBuilder] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
   const [agentForm, setAgentForm] = useState({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" });
-  // ── MARKETPLACE STATE ──────────────────────────────────────
-  const [mkTab, setMkTab] = useState("trending"); // trending | new | toprated | mostused | free | paid
-  const [mkSearch, setMkSearch] = useState("");
-  const [mkCatFilter, setMkCatFilter] = useState("All");
-  const [mkRatingFilter, setMkRatingFilter] = useState(0);
-  const [mkPriceFilter, setMkPriceFilter] = useState("all"); // all | free | paid
-  const [mkAgents, setMkAgents] = useState([]);
-  const [mkLoading, setMkLoading] = useState(false);
-  const [mkDetail, setMkDetail] = useState(null); // selected agent for detail modal
-  const [mkReviewText, setMkReviewText] = useState("");
-  const [mkReviewRating, setMkReviewRating] = useState(5);
-  const [mkReviewLoading, setMkReviewLoading] = useState(false);
-  const [mkReviews, setMkReviews] = useState([]);
-  const [mkBuyLoading, setMkBuyLoading] = useState(false);
-  const [mkOwnedIds, setMkOwnedIds] = useState([]); // agent ids user has bought/used
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
   const [sid, setSid] = useState(() => Date.now().toString());
@@ -1746,6 +1731,26 @@ export default function App() {
   const [editingMemId, setEditingMemId] = useState(null);
   const [editMemVal, setEditMemVal] = useState("");
 
+  // ════════════════════════════════════════════════════════════════
+  // PART 5 — AI COMMAND CENTER STATE
+  // ════════════════════════════════════════════════════════════════
+  const [cmdInput, setCmdInput] = useState("");
+  const [cmdHistory, setCmdHistory] = useState([]); // [{role,text,data,action,ts}]
+  const [cmdLoading, setCmdLoading] = useState(false);
+  const [cmdPending, setCmdPending] = useState(null); // action awaiting confirm
+  const [cmdReport, setCmdReport] = useState(null);   // daily business report
+  const [cmdReportLoading, setCmdReportLoading] = useState(false);
+  const [cmdReportDate, setCmdReportDate] = useState("");
+  // Agent Architecture Registry — scalable slots for future agent types
+  const AGENT_REGISTRY = {
+    voice:        { label:"Voice Agents",        icon:"🎙", status:"ready",   desc:"Real-time voice conversations, STT/TTS pipeline" },
+    image:        { label:"Image Analysis",      icon:"🖼", status:"ready",   desc:"Vision AI for image understanding & generation" },
+    whatsapp:     { label:"WhatsApp Agents",     icon:"💬", status:"planned", desc:"WhatsApp Business API integration" },
+    team:         { label:"Team Agents",         icon:"👥", status:"planned", desc:"Multi-agent collaboration & task delegation" },
+    subscription: { label:"Subscription Agents", icon:"🔄", status:"planned", desc:"Recurring billing & membership management" },
+    business:     { label:"AI Business Agents",  icon:"🏢", status:"planned", desc:"CRM, analytics, lead generation automation" },
+  };
+
   const bottomRef = useRef(null);
   const galleryRef = useRef(null);
   const fileRef = useRef(null);
@@ -1810,7 +1815,6 @@ export default function App() {
     if (user && page === "admin") loadAdmin();
     if (user && page === "projects") loadProjects();
     if (user && page === "memory") loadMemories(user.uid);
-    if (page === "marketplace") loadMarketplace();
     if (page !== "voice") endVoice();
     stopAllSpeech();
     setSpeakId(null); setShowRx(null);
@@ -2935,161 +2939,6 @@ export default function App() {
     setShowSb(false);
   }
 
-  // ── MARKETPLACE FUNCTIONS ────────────────────────────────────
-  async function loadMarketplace() {
-    setMkLoading(true);
-    try {
-      // Load all published agents from all users
-      const q = query(
-        collection(db, "agents"),
-        where("published", "==", true)
-      );
-      const snap = await getDocs(q);
-      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setMkAgents(all);
-
-      // Load owned/used agent ids for current user
-      if (user) {
-        try {
-          const oSnap = await getDocs(query(collection(db, "agentUsage"), where("userId", "==", user.uid)));
-          setMkOwnedIds(oSnap.docs.map(d => d.data().agentId));
-        } catch {}
-      }
-    } catch (e) {
-      console.error("Marketplace load error:", e);
-      // Use demo data if Firestore fails
-      setMkAgents([]);
-    }
-    setMkLoading(false);
-  }
-
-  async function loadAgentReviews(agentId) {
-    try {
-      const q = query(
-        collection(db, "agentReviews"),
-        where("agentId", "==", agentId),
-        orderBy("createdAt", "desc"),
-        limit(20)
-      );
-      const snap = await getDocs(q);
-      setMkReviews(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch {
-      try {
-        const q2 = query(collection(db, "agentReviews"), where("agentId", "==", agentId));
-        const s2 = await getDocs(q2);
-        setMkReviews(s2.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
-      } catch { setMkReviews([]); }
-    }
-  }
-
-  async function submitReview(agentId) {
-    if (!mkReviewText.trim()) return;
-    setMkReviewLoading(true);
-    try {
-      const reviewData = {
-        agentId,
-        userId: user.uid,
-        userName: userData?.name || user?.displayName || "User",
-        rating: mkReviewRating,
-        text: mkReviewText.trim(),
-        createdAt: serverTimestamp()
-      };
-      await addDoc(collection(db, "agentReviews"), reviewData);
-
-      // Update agent avgRating in Firestore
-      const allRevs = [...mkReviews, { ...reviewData, createdAt: { seconds: Date.now()/1000 } }];
-      const avg = allRevs.reduce((s, r) => s + (r.rating || 5), 0) / allRevs.length;
-      await updateDoc(doc(db, "agents", agentId), {
-        avgRating: parseFloat(avg.toFixed(1)),
-        reviewCount: allRevs.length
-      });
-
-      setMkReviewText("");
-      setMkReviewRating(5);
-      await loadAgentReviews(agentId);
-      setMkAgents(p => p.map(a => a.id === agentId ? { ...a, avgRating: parseFloat(avg.toFixed(1)), reviewCount: allRevs.length } : a));
-      if (mkDetail?.id === agentId) setMkDetail(prev => ({ ...prev, avgRating: parseFloat(avg.toFixed(1)), reviewCount: allRevs.length }));
-    } catch (e) { alert("Review submit failed: " + e.message); }
-    setMkReviewLoading(false);
-  }
-
-  async function useMarketplaceAgent(agent) {
-    // Track usage
-    try {
-      const usageRef = collection(db, "agentUsage");
-      const existing = await getDocs(query(usageRef, where("userId", "==", user.uid), where("agentId", "==", agent.id)));
-      if (existing.empty) {
-        await addDoc(usageRef, { userId: user.uid, agentId: agent.id, createdAt: serverTimestamp() });
-        // Increment totalUsers on agent
-        await updateDoc(doc(db, "agents", agent.id), { totalUsers: (agent.totalUsers || 0) + 1 });
-        setMkOwnedIds(p => [...p, agent.id]);
-      }
-    } catch {}
-    // Start agent and go to chat
-    setActiveAgent({ ...agent, id: agent.id });
-    setMkDetail(null);
-    newChat();
-  }
-
-  async function buyMarketplaceAgent(agent) {
-    if (!agent.price || agent.price === 0) {
-      await useMarketplaceAgent(agent);
-      return;
-    }
-    // For paid agents - show upgrade or payment flow
-    setMkDetail(null);
-    setShowUpgrade(true);
-  }
-
-  function getMkFiltered() {
-    let list = [...mkAgents];
-    // Search
-    if (mkSearch.trim()) {
-      const q = mkSearch.toLowerCase();
-      list = list.filter(a =>
-        (a.name || "").toLowerCase().includes(q) ||
-        (a.category || "").toLowerCase().includes(q) ||
-        (a.description || "").toLowerCase().includes(q)
-      );
-    }
-    // Category filter
-    if (mkCatFilter !== "All") {
-      list = list.filter(a => (a.category || "") === mkCatFilter);
-    }
-    // Rating filter
-    if (mkRatingFilter > 0) {
-      list = list.filter(a => (a.avgRating || 0) >= mkRatingFilter);
-    }
-    // Price filter
-    if (mkPriceFilter === "free") list = list.filter(a => !a.price || a.price === 0);
-    if (mkPriceFilter === "paid") list = list.filter(a => a.price && a.price > 0);
-
-    // Tab sort
-    if (mkTab === "trending") list = [...list].sort((a, b) => ((b.totalUsers || 0) + (b.avgRating || 0) * 10) - ((a.totalUsers || 0) + (a.avgRating || 0) * 10));
-    else if (mkTab === "new") list = [...list].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    else if (mkTab === "toprated") list = [...list].sort((a, b) => (b.avgRating || 0) - (a.avgRating || 0));
-    else if (mkTab === "mostused") list = [...list].sort((a, b) => (b.totalUsers || 0) - (a.totalUsers || 0));
-    else if (mkTab === "free") list = list.filter(a => !a.price || a.price === 0);
-    else if (mkTab === "paid") list = list.filter(a => a.price && a.price > 0);
-    return list;
-  }
-
-  // Demo agents for marketplace when no published agents exist
-  const DEMO_MK_AGENTS = [
-    { id: "demo1", name: "Doctor AI", emoji: "👨‍⚕️", category: "Healthcare & Medicine", description: "Aapke health sawaalon ka jawaab, symptoms analysis, aur medical advice Hindi mein.", avgRating: 4.8, reviewCount: 234, totalUsers: 1250, price: 0, creatorName: "Kunal Saraswat", published: true, skills: ["Symptom Analysis","Medicine Info","Diet Advice","Health Tips","First Aid"] },
-    { id: "demo2", name: "Kisan Mitra", emoji: "👨‍🌾", category: "Agriculture & Farming", description: "Khet, fasal, mausam, aur kheti ke baare mein expert advice. Kisan bhai ka sach​a dost.", avgRating: 4.9, reviewCount: 567, totalUsers: 3400, price: 0, creatorName: "AgriTech India", published: true, skills: ["Crop Planning","Weather Tips","Pest Control","Market Rates","Soil Health"] },
-    { id: "demo3", name: "Legal Eagle", emoji: "⚖️", category: "Legal & Law", description: "Indian law, RTI, consumer rights, property matters — sab kuch simple language mein.", avgRating: 4.6, reviewCount: 189, totalUsers: 890, price: 49, creatorName: "LegalTech Pro", published: true, skills: ["RTI Filing","Consumer Rights","Property Law","Contract Review","Court Procedure"] },
-    { id: "demo4", name: "Finance Guru", emoji: "💰", category: "Finance & Banking", description: "Investment, mutual funds, SIP, tax saving — paisa badhao smart tarike se.", avgRating: 4.7, reviewCount: 312, totalUsers: 2100, price: 0, creatorName: "MoneyWise AI", published: true, skills: ["SIP Planning","Tax Saving","Stock Tips","Budget Management","Loan Advice"] },
-    { id: "demo5", name: "English Teacher", emoji: "📚", category: "Education & Tutoring", description: "Spoken English, grammar, vocabulary — Hinglish se English fluency tak ka safar.", avgRating: 4.5, reviewCount: 445, totalUsers: 5600, price: 0, creatorName: "EduAI Labs", published: true, skills: ["Grammar Fix","Speaking Practice","Vocabulary","Writing Help","Interview Prep"] },
-    { id: "demo6", name: "Chef AI", emoji: "🧑‍🍳", category: "Cooking & Recipes", description: "Indian aur international recipes, nutrition tips, meal planning — ghar ka khana best banao.", avgRating: 4.8, reviewCount: 678, totalUsers: 4200, price: 0, creatorName: "FoodieBot", published: true, skills: ["Recipes","Nutrition","Meal Planning","Cooking Tips","Diet Plans"] },
-    { id: "demo7", name: "Code Master", emoji: "🧑‍💻", category: "Technology & Coding", description: "Python, JS, React, SQL — code likhna, debug karna, aur projects banana seekho.", avgRating: 4.9, reviewCount: 890, totalUsers: 6700, price: 99, creatorName: "DevBot Pro", published: true, skills: ["Code Review","Bug Fix","Python","JavaScript","System Design"] },
-    { id: "demo8", name: "Astro Guide", emoji: "🔮", category: "Astrology & Horoscope", description: "Kundali, rashifal, vastu, aur jeevan ke sawal — vedic astrology ka gyaan.", avgRating: 4.4, reviewCount: 234, totalUsers: 1800, price: 0, creatorName: "Jyotish AI", published: true, skills: ["Kundali Reading","Daily Horoscope","Vastu Tips","Gemstone Advice","Career Guidance"] },
-    { id: "demo9", name: "Mental Health Coach", emoji: "🧠", category: "Mental Health & Therapy", description: "Stress, anxiety, depression — emotional support aur coping strategies apni bhasha mein.", avgRating: 4.7, reviewCount: 156, totalUsers: 930, price: 0, creatorName: "MindCare AI", published: true, skills: ["Stress Relief","Anxiety Help","Meditation","CBT Techniques","Sleep Tips"] },
-    { id: "demo10", name: "Fitness Pro", emoji: "💪", category: "Fitness & Exercise", description: "Workout plans, diet tips, weight loss — ghar pe ya gym mein, expert guidance.", avgRating: 4.6, reviewCount: 345, totalUsers: 2800, price: 29, creatorName: "FitLife AI", published: true, skills: ["Workout Plans","Diet Planning","Weight Loss","Muscle Building","Yoga"] },
-    { id: "demo11", name: "Travel Buddy", emoji: "✈️", category: "Travel & Tourism", description: "India aur duniya ke tours, budget travel tips, hidden gems — ghoomna aasaan banao.", avgRating: 4.5, reviewCount: 212, totalUsers: 1560, price: 0, creatorName: "TravelBot", published: true, skills: ["Itinerary Planning","Budget Tips","Visa Help","Hotel Booking","Local Food"] },
-    { id: "demo12", name: "Study Planner", emoji: "📖", category: "Exam Preparation", description: "JEE, NEET, UPSC, SSC — exam preparation strategy, study schedule, revision tips.", avgRating: 4.8, reviewCount: 567, totalUsers: 7800, price: 0, creatorName: "StudyAI", published: true, skills: ["Study Schedule","Mock Tests","Revision Tips","Exam Strategy","Subject Help"] },
-  ];
-
   function stopAgent() { setActiveAgent(null); }
 
   async function loadProjects() {
@@ -3151,6 +3000,268 @@ export default function App() {
   async function adminDelChat(msgId) {
     await deleteDoc(doc(db, "messages", msgId));
     setAChat(p => ({ ...p, msgs: p.msgs.filter(m => m.id !== msgId) }));
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // PART 5 — AI COMMAND CENTER FUNCTIONS
+  // ════════════════════════════════════════════════════════════════
+
+  // ── Gather live platform data snapshot for AI context ───────────
+  async function gatherPlatformSnapshot() {
+    const snap = {};
+    try {
+      const uSnap = await getDocs(collection(db, "users"));
+      const users = uSnap.docs.map(d => d.data());
+      snap.totalUsers    = users.length;
+      snap.premiumUsers  = users.filter(u => u.premium).length;
+      snap.totalMsgs     = users.reduce((s, u) => s + (u.usageCount || 0), 0);
+    } catch { snap.totalUsers = 0; snap.premiumUsers = 0; snap.totalMsgs = 0; }
+
+    try {
+      const aSnap = await getDocs(collection(db, "agents"));
+      const agents = aSnap.docs.map(d => d.data());
+      snap.totalAgents     = agents.length;
+      snap.publishedAgents = agents.filter(a => a.published).length;
+      snap.topAgents       = [...agents].sort((a, b) => (b.totalUsers||0)-(a.totalUsers||0)).slice(0, 5).map(a => ({ name: a.name, users: a.totalUsers||0, revenue: 0, rating: a.avgRating||0 }));
+    } catch { snap.totalAgents = 0; snap.publishedAgents = 0; snap.topAgents = []; }
+
+    try {
+      const pSnap = await getDocs(collection(db, "agentSales"));
+      const sales = pSnap.docs.map(d => d.data());
+      snap.totalSales      = sales.length;
+      snap.totalRevenue    = sales.reduce((s, p) => s + (p.totalAmount||0), 0);
+      snap.totalCommission = sales.reduce((s, p) => s + (p.platformEarning||0), 0);
+      snap.totalCreatorPay = sales.reduce((s, p) => s + (p.creatorEarning||0), 0);
+      // Today's revenue
+      const today = new Date(); today.setHours(0,0,0,0);
+      const todaySales = sales.filter(s => s.createdAt?.seconds && s.createdAt.seconds * 1000 >= today.getTime());
+      snap.todayRevenue = todaySales.reduce((s, p) => s + (p.totalAmount||0), 0);
+      snap.todaySales   = todaySales.length;
+      // Top selling agents by revenue
+      const agentRevMap = {};
+      sales.forEach(s => { agentRevMap[s.agentName] = (agentRevMap[s.agentName]||0) + (s.totalAmount||0); });
+      snap.topSellingAgents = Object.entries(agentRevMap).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([name,rev])=>({name,revenue:rev}));
+    } catch { snap.totalSales=0; snap.totalRevenue=0; snap.totalCommission=0; snap.todayRevenue=0; snap.todaySales=0; snap.topSellingAgents=[]; }
+
+    try {
+      const wSnap = await getDocs(query(collection(db, "withdrawals"), where("status","==","pending")));
+      snap.pendingWithdrawals = wSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      snap.pendingWithdrawCount = snap.pendingWithdrawals.length;
+      snap.pendingWithdrawTotal = snap.pendingWithdrawals.reduce((s, w) => s + (w.amount||0), 0);
+    } catch { snap.pendingWithdrawals=[]; snap.pendingWithdrawCount=0; snap.pendingWithdrawTotal=0; }
+
+    try {
+      const tSnap = await getDocs(collection(db, "platformEarnings"));
+      snap.publishFeesCollected = tSnap.docs.filter(d => d.data().type==="publish_fee").length * 9;
+    } catch { snap.publishFeesCollected = 0; }
+
+    snap.generatedAt = new Date().toLocaleString("en-IN", { timeZone:"Asia/Kolkata" });
+    return snap;
+  }
+
+  // ── Parse AI command response to extract intent + action ────────
+  function parseCommandIntent(text) {
+    const t = text.toLowerCase();
+    if (t.includes("approve") && t.includes("withdraw")) return "approve_withdraw";
+    if (t.includes("reject") && t.includes("withdraw"))  return "reject_withdraw";
+    if (t.includes("send email") || t.includes("broadcast email")) return "send_email";
+    if (t.includes("send notification") || t.includes("notify all")) return "send_notification";
+    if (t.includes("suspend") && t.includes("agent"))    return "suspend_agent";
+    if (t.includes("approve") && t.includes("agent"))    return "approve_agent";
+    if (t.includes("generate") && t.includes("report"))  return "generate_report";
+    return null;
+  }
+
+  // ── Execute a confirmed action ───────────────────────────────────
+  async function executeCmdAction(action, params = {}) {
+    setCmdLoading(true);
+    let resultMsg = "";
+    try {
+      switch (action) {
+        case "approve_withdraw": {
+          if (!params.withdrawId) { resultMsg = "❌ Withdrawal ID not found. Please specify which withdrawal to approve."; break; }
+          await updateDoc(doc(db, "withdrawals", params.withdrawId), { status:"paid", paidAt: serverTimestamp() });
+          const wd = params.withdrawData;
+          if (wd?.userId) await addDoc(collection(db, "notifications"), { userId: wd.userId, title:"💸 Withdrawal Approved", body:`Your withdrawal of ₹${wd.amount} has been approved.`, read:false, createdAt: serverTimestamp(), type:"admin" });
+          resultMsg = `✅ Withdrawal of ₹${params.amount || ""} approved and marked as paid!`;
+          break;
+        }
+        case "reject_withdraw": {
+          if (!params.withdrawId) { resultMsg = "❌ Withdrawal ID not found."; break; }
+          await updateDoc(doc(db, "withdrawals", params.withdrawId), { status:"rejected", rejectedAt: serverTimestamp() });
+          resultMsg = `❌ Withdrawal rejected and amount refunded to creator wallet.`;
+          break;
+        }
+        case "send_email": {
+          if (!params.subject || !params.body) { resultMsg = "❌ Email subject and body required."; break; }
+          const uSnap = await getDocs(collection(db, "users"));
+          await addDoc(collection(db, "emailBroadcasts"), { subject: params.subject, body: params.body, sentBy: user?.uid, createdAt: serverTimestamp(), status:"queued", recipientCount: uSnap.size });
+          resultMsg = `✅ Email broadcast queued for ${uSnap.size} users! Subject: "${params.subject}"`;
+          break;
+        }
+        case "send_notification": {
+          if (!params.title || !params.body) { resultMsg = "❌ Notification title and body required."; break; }
+          const uSnap2 = await getDocs(collection(db, "users"));
+          for (const ud of uSnap2.docs.slice(0, 100)) {
+            await addDoc(collection(db, "notifications"), { userId: ud.id, title: params.title, body: params.body, read:false, createdAt: serverTimestamp(), type:"broadcast" });
+          }
+          resultMsg = `✅ Notification sent to ${Math.min(uSnap2.size,100)} users!`;
+          break;
+        }
+        case "suspend_agent": {
+          if (!params.agentId) { resultMsg = "❌ Agent ID required."; break; }
+          await updateDoc(doc(db, "agents", params.agentId), { status:"suspended", published:false });
+          resultMsg = `⚠️ Agent suspended successfully.`;
+          break;
+        }
+        case "approve_agent": {
+          if (!params.agentId) { resultMsg = "❌ Agent ID required."; break; }
+          await updateDoc(doc(db, "agents", params.agentId), { status:"approved", published:true, approvedAt: serverTimestamp() });
+          resultMsg = `✅ Agent approved and published to Marketplace!`;
+          break;
+        }
+        default:
+          resultMsg = "✅ Action executed successfully.";
+      }
+    } catch (e) { resultMsg = "❌ Error: " + e.message; }
+    setCmdHistory(h => [...h, { role:"system", text: resultMsg, ts: Date.now() }]);
+    setCmdPending(null);
+    setCmdLoading(false);
+  }
+
+  // ── Main AI Command processor ────────────────────────────────────
+  async function processCommand(inputText) {
+    if (!inputText.trim() || cmdLoading) return;
+    const userMsg = inputText.trim();
+    setCmdInput("");
+    setCmdHistory(h => [...h, { role:"user", text: userMsg, ts: Date.now() }]);
+    setCmdLoading(true);
+
+    try {
+      // Gather live data
+      const snap = await gatherPlatformSnapshot();
+
+      // Build context for AI
+      const systemPrompt = `You are Saraswati AI's Admin Command Center AI. You have LIVE access to the platform data below.
+
+PLATFORM SNAPSHOT (as of ${snap.generatedAt}):
+- Total Users: ${snap.totalUsers} (Premium: ${snap.premiumUsers})
+- Total Messages Sent: ${snap.totalMsgs}
+- Total Agents: ${snap.totalAgents} (Published: ${snap.publishedAgents})
+- Total Sales: ${snap.totalSales}
+- Total Revenue: ₹${snap.totalRevenue} (Today: ₹${snap.todayRevenue})
+- Platform Commission Earned: ₹${snap.totalCommission}
+- Creator Payouts: ₹${snap.totalCreatorPay}
+- Publish Fees Collected: ₹${snap.publishFeesCollected}
+- Pending Withdrawals: ${snap.pendingWithdrawCount} (Total: ₹${snap.pendingWithdrawTotal})
+- Top Selling Agents: ${JSON.stringify(snap.topSellingAgents)}
+- Top Agents by Users: ${JSON.stringify(snap.topAgents)}
+
+PENDING WITHDRAWALS:
+${snap.pendingWithdrawals.map(w => `ID:${w.id} | ${w.userName||"Creator"} | ₹${w.amount} | UPI:${w.upiId}`).join("
+") || "None"}
+
+You can answer questions about platform data OR help admin take actions.
+
+For ACTIONS (approve withdraw, send email, etc.), format your response with:
+ACTION: <action_type>
+PARAMS: <json params>
+CONFIRM: <user-friendly confirmation message>
+
+Action types: approve_withdraw, reject_withdraw, send_email, send_notification, suspend_agent, approve_agent
+
+For INFO queries, just answer clearly with the data.
+Keep responses concise, professional, in Hinglish or English based on user's language.`;
+
+      const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer " + GROQ },
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          messages:[
+            { role:"system", content: systemPrompt },
+            ...cmdHistory.filter(h=>h.role!=="system").slice(-6).map(h=>({ role:h.role==="ai"?"assistant":"user", content:h.text })),
+            { role:"user", content: userMsg }
+          ],
+          max_tokens:600, temperature:0.3
+        })
+      });
+      const data = await aiRes.json();
+      const aiText = data.choices?.[0]?.message?.content || "Sorry, kuch error aaya.";
+
+      // Parse if action required
+      const actionMatch = aiText.match(/ACTION:\s*(\w+)/i);
+      const paramsMatch = aiText.match(/PARAMS:\s*(\{[\s\S]*?\})/i);
+      const confirmMatch = aiText.match(/CONFIRM:\s*(.+?)(?:
+|$)/i);
+
+      if (actionMatch) {
+        const action = actionMatch[1];
+        let params = {};
+        try { params = JSON.parse(paramsMatch?.[1] || "{}"); } catch {}
+        const confirmMsg = confirmMatch?.[1] || "Is action ko execute karna chahte ho?";
+        const cleanText = aiText.replace(/ACTION:[\s\S]*?(?=
+
+|
+[A-Z]|$)/i,"").replace(/PARAMS:[\s\S]*?(?=
+
+|
+[A-Z]|$)/i,"").replace(/CONFIRM:.*$/im,"").trim();
+        setCmdHistory(h => [...h, { role:"ai", text: cleanText || aiText, ts: Date.now(), hasAction:true }]);
+        setCmdPending({ action, params, confirmMsg });
+      } else {
+        setCmdHistory(h => [...h, { role:"ai", text: aiText, data: snap, ts: Date.now() }]);
+      }
+    } catch (e) {
+      setCmdHistory(h => [...h, { role:"ai", text:"❌ Command failed: " + e.message, ts: Date.now() }]);
+    }
+    setCmdLoading(false);
+  }
+
+  // ── Daily Business Report generator ─────────────────────────────
+  async function generateDailyReport() {
+    setCmdReportLoading(true);
+    try {
+      const snap = await gatherPlatformSnapshot();
+      const today = new Date().toLocaleDateString("en-IN", { weekday:"long", year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Kolkata" });
+
+      const prompt = `Generate a professional Daily Business Report for Saraswati AI platform.
+
+DATE: ${today}
+LIVE DATA:
+- Users: ${snap.totalUsers} total, ${snap.premiumUsers} premium
+- Agents: ${snap.totalAgents} total, ${snap.publishedAgents} published
+- Revenue Today: ₹${snap.todayRevenue} (${snap.todaySales} sales)
+- Total Revenue All Time: ₹${snap.totalRevenue}
+- Platform Commission: ₹${snap.totalCommission}
+- Pending Withdrawals: ${snap.pendingWithdrawCount} (₹${snap.pendingWithdrawTotal})
+- Top Agents: ${snap.topSellingAgents.map(a=>a.name+"(₹"+a.revenue+")").join(", ")||"None yet"}
+
+Format the report with these sections:
+1. Executive Summary (2-3 lines)
+2. Key Metrics (bullet points with numbers)  
+3. Revenue Breakdown
+4. Action Items (what admin should do today)
+5. Growth Insights (short recommendation)
+
+Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. Max 400 words.`;
+
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer " + GROQ },
+        body: JSON.stringify({ model: CHAT_MODEL, messages:[{ role:"user", content: prompt }], max_tokens:600, temperature:0.4 })
+      });
+      const d = await res.json();
+      const report = d.choices?.[0]?.message?.content || "Report generate nahi ho saki.";
+
+      // Save report to Firestore
+      const dateKey = new Date().toISOString().split("T")[0];
+      await setDoc(doc(db, "adminReports", dateKey), { report, snapshot: snap, generatedAt: serverTimestamp(), date: dateKey }, { merge:true });
+
+      setCmdReport({ text: report, snap, date: today });
+      setCmdReportDate(dateKey);
+    } catch (e) { console.error("Report error:", e); }
+    setCmdReportLoading(false);
   }
 
   function newChat() { setSid(Date.now().toString()); setMsgs([]); setPage("chat"); setShowSb(false); setImgB64(null); setImgPrev(null); endVoice(); setReactions({}); setSessionTone(null); }
@@ -3381,16 +3492,21 @@ export default function App() {
                 { id: "history", icon: <Ico.History />, label: "History" },
                 { id: "projects", icon: <Ico.Project />, label: "Projects" },
                 { id: "settings", icon: <Ico.Settings />, label: "Settings" },
-                { id: "marketplace", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>, label: "Marketplace" },
               ].map(item => (
-                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); if(item.id==="marketplace") loadMarketplace(); }}>
+                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
                   {item.icon}<span>{item.label}</span>
                 </div>
               ))}
               {isAdmin && (
+                <>
                 <div className={"sb-item" + (page === "admin" ? " active" : "")} onClick={() => { setPage("admin"); setShowSb(false); }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>Admin</span>
                 </div>
+                <div className={"sb-item" + (page === "cmdcenter" ? " active" : "")} onClick={() => { setPage("cmdcenter"); setShowSb(false); setCmdHistory([]); setCmdPending(null); setCmdReport(null); }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><polyline points="6 8 10 12 6 16"/><line x1="14" y1="12" x2="18" y2="12"/></svg>
+                  <span>AI Command</span>
+                </div>
+                </>
               )}
               {/* ── MY AGENTS SECTION ── */}
               <div className="sb-section" style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -3758,7 +3874,7 @@ export default function App() {
         </button>
         <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <SaraswatiLogo size={26} animate={false} state="idle" />
-          {page === "chat" ? (activeAgent ? `${activeAgent.emoji} ${activeAgent.name}` : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : page === "marketplace" ? "🛍 Marketplace" : "Saraswati AI"}
+          {page === "chat" ? (activeAgent ? `${activeAgent.emoji} ${activeAgent.name}` : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : page === "cmdcenter" ? "⚡ AI Command Center" : "Saraswati AI"}
         </div>
         {page === "chat" && (
           <>
@@ -4270,364 +4386,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ── MARKETPLACE PAGE ── */}
-      {page === "marketplace" && (() => {
-        const MK_TABS = [
-          { id: "trending", label: "🔥 Trending" },
-          { id: "new", label: "✨ New" },
-          { id: "toprated", label: "⭐ Top Rated" },
-          { id: "mostused", label: "👥 Most Used" },
-          { id: "free", label: "🆓 Free" },
-          { id: "paid", label: "💎 Paid" },
-        ];
-        const displayAgents = mkAgents.length > 0 ? getMkFiltered() : DEMO_MK_AGENTS.filter(a => {
-          let list = DEMO_MK_AGENTS;
-          if (mkSearch.trim()) { const q = mkSearch.toLowerCase(); list = list.filter(a => (a.name||"").toLowerCase().includes(q)||(a.category||"").toLowerCase().includes(q)); }
-          if (mkCatFilter !== "All") list = list.filter(a => a.category === mkCatFilter);
-          if (mkRatingFilter > 0) list = list.filter(a => (a.avgRating||0) >= mkRatingFilter);
-          if (mkPriceFilter === "free") list = list.filter(a => !a.price || a.price === 0);
-          if (mkPriceFilter === "paid") list = list.filter(a => a.price && a.price > 0);
-          if (mkTab === "trending") list = [...list].sort((a,b)=>((b.totalUsers||0)+(b.avgRating||0)*10)-((a.totalUsers||0)+(a.avgRating||0)*10));
-          else if (mkTab === "new") list = [...list].sort((a,b)=>(b.id>a.id?-1:1));
-          else if (mkTab === "toprated") list = [...list].sort((a,b)=>(b.avgRating||0)-(a.avgRating||0));
-          else if (mkTab === "mostused") list = [...list].sort((a,b)=>(b.totalUsers||0)-(a.totalUsers||0));
-          else if (mkTab === "free") list = list.filter(a=>!a.price||a.price===0);
-          else if (mkTab === "paid") list = list.filter(a=>a.price&&a.price>0);
-          return list.some(x => x.id === a.id);
-        });
-        const allCats = ["All", ...Array.from(new Set([...DEMO_MK_AGENTS, ...mkAgents].map(a => a.category).filter(Boolean)))];
-
-        return (
-          <div className="page">
-            <div className="page-inner" style={{ paddingTop: 8 }}>
-
-              {/* Search Bar */}
-              <div style={{ position: "relative", marginBottom: 14 }}>
-                <svg style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input
-                  placeholder="Search agents, categories..."
-                  value={mkSearch}
-                  onChange={e => setMkSearch(e.target.value)}
-                  style={{ width: "100%", padding: "11px 14px 11px 42px", borderRadius: 16, border: "1.5px solid var(--bd)", background: "var(--sf)", color: "var(--tx)", fontSize: 14, fontFamily: "Inter,sans-serif", outline: "none", boxSizing: "border-box", transition: "border-color .2s" }}
-                  onFocus={e => e.target.style.borderColor = "var(--accent)"}
-                  onBlur={e => e.target.style.borderColor = "var(--bd)"}
-                />
-                {mkSearch && <button onClick={() => setMkSearch("")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--mt)", cursor: "pointer", fontSize: 16, padding: 4 }}>✕</button>}
-              </div>
-
-              {/* Filters Row */}
-              <div style={{ display: "flex", gap: 8, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
-                {/* Rating filter */}
-                <div style={{ flexShrink: 0 }}>
-                  <select
-                    value={mkRatingFilter}
-                    onChange={e => setMkRatingFilter(Number(e.target.value))}
-                    style={{ padding: "7px 12px", borderRadius: 20, border: "1.5px solid var(--bd)", background: "var(--sf2)", color: "var(--tx)", fontSize: 12, fontFamily: "Inter,sans-serif", cursor: "pointer", outline: "none" }}>
-                    <option value={0}>⭐ All Ratings</option>
-                    <option value={4}>⭐ 4+</option>
-                    <option value={4.5}>⭐ 4.5+</option>
-                    <option value={4.8}>⭐ 4.8+</option>
-                  </select>
-                </div>
-                {/* Price filter */}
-                {["all","free","paid"].map(p => (
-                  <button key={p} onClick={() => setMkPriceFilter(p)}
-                    style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 20, border: "1.5px solid " + (mkPriceFilter === p ? "var(--accent)" : "var(--bd)"),
-                      background: mkPriceFilter === p ? "var(--glow)" : "var(--sf2)",
-                      color: mkPriceFilter === p ? "var(--accent)" : "var(--mt)",
-                      fontSize: 12, fontWeight: mkPriceFilter === p ? 700 : 400, cursor: "pointer", fontFamily: "Inter,sans-serif" }}>
-                    {p === "all" ? "🔘 All" : p === "free" ? "🆓 Free" : "💎 Paid"}
-                  </button>
-                ))}
-              </div>
-
-              {/* Category Filter */}
-              <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 12 }}>
-                {allCats.slice(0, 12).map(cat => (
-                  <button key={cat} onClick={() => setMkCatFilter(cat)}
-                    style={{ flexShrink: 0, padding: "5px 12px", borderRadius: 20, border: "1.5px solid " + (mkCatFilter === cat ? "var(--accent)" : "var(--bd)"),
-                      background: mkCatFilter === cat ? "var(--glow)" : "none",
-                      color: mkCatFilter === cat ? "var(--accent)" : "var(--mt)",
-                      fontSize: 11, fontWeight: mkCatFilter === cat ? 700 : 400, cursor: "pointer", fontFamily: "Inter,sans-serif", whiteSpace: "nowrap" }}>
-                    {cat}
-                  </button>
-                ))}
-              </div>
-
-              {/* Tabs */}
-              <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 16 }}>
-                {MK_TABS.map(tab => (
-                  <button key={tab.id} onClick={() => setMkTab(tab.id)}
-                    style={{ flexShrink: 0, padding: "8px 14px", borderRadius: 20,
-                      background: mkTab === tab.id ? "var(--grad)" : "var(--sf2)",
-                      border: "none",
-                      color: mkTab === tab.id ? "#fff" : "var(--mt)",
-                      fontSize: 12, fontWeight: mkTab === tab.id ? 700 : 400,
-                      cursor: "pointer", fontFamily: "Inter,sans-serif",
-                      boxShadow: mkTab === tab.id ? "0 4px 14px var(--glow)" : "none",
-                      transition: "all .2s" }}>
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Agents Grid */}
-              {mkLoading ? (
-                <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
-                  <SaraswatiLogo size={40} animate={true} state="thinking" />
-                  <div style={{ marginTop: 12, fontSize: 14 }}>Loading marketplace...</div>
-                </div>
-              ) : displayAgents.length === 0 ? (
-                <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
-                  <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: "var(--tx)", marginBottom: 8 }}>Koi agent nahi mila</div>
-                  <div style={{ fontSize: 13 }}>Search ya filter change karo</div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {displayAgents.map(agent => (
-                    <div key={agent.id}
-                      style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 20, padding: 16, cursor: "pointer", transition: "border-color .2s, transform .15s", position: "relative" }}
-                      onClick={() => { setMkDetail(agent); loadAgentReviews(agent.id); setMkReviewText(""); setMkReviewRating(5); }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--bd)"; e.currentTarget.style.transform = "translateY(0)"; }}>
-
-                      {/* Price badge */}
-                      <div style={{ position: "absolute", top: 14, right: 14, padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
-                        background: (!agent.price || agent.price === 0) ? "#22c55e20" : "var(--glow)",
-                        color: (!agent.price || agent.price === 0) ? "#22c55e" : "var(--accent)",
-                        border: "1px solid " + ((!agent.price || agent.price === 0) ? "#22c55e40" : "var(--accent)") }}>
-                        {(!agent.price || agent.price === 0) ? "FREE" : "₹" + agent.price}
-                      </div>
-
-                      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                        {/* Avatar */}
-                        <div style={{ width: 58, height: 58, borderRadius: 18, background: "var(--grad)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, flexShrink: 0, boxShadow: "0 4px 16px var(--glow)" }}>
-                          {agent.emoji || "🤖"}
-                        </div>
-
-                        <div style={{ flex: 1, minWidth: 0, paddingRight: 60 }}>
-                          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--tx)", marginBottom: 2 }}>{agent.name}</div>
-                          <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600, marginBottom: 4 }}>{agent.category}</div>
-                          <div style={{ fontSize: 12, color: "var(--mt)", lineHeight: 1.5, marginBottom: 8, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-                            {agent.description}
-                          </div>
-
-                          {/* Stats row */}
-                          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                              <span style={{ color: "#f59e0b", fontSize: 13 }}>★</span>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--tx)" }}>{(agent.avgRating || 4.5).toFixed(1)}</span>
-                              <span style={{ fontSize: 11, color: "var(--mt)" }}>({agent.reviewCount || 0})</span>
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                              <span style={{ fontSize: 11, color: "var(--mt)" }}>{(agent.totalUsers || 0).toLocaleString()} users</span>
-                            </div>
-                            <div style={{ fontSize: 11, color: "var(--mt)" }}>by {agent.creatorName || "Creator"}</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Skills pills */}
-                      {agent.skills && agent.skills.length > 0 && (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 12 }}>
-                          {(agent.skills || []).slice(0, 4).map((sk, si) => (
-                            <span key={si} style={{ padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 600, background: "var(--sf2)", border: "1px solid var(--bd)", color: "var(--mt)" }}>{sk}</span>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Action buttons */}
-                      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                        <button
-                          onClick={e => { e.stopPropagation(); setMkDetail(agent); loadAgentReviews(agent.id); setMkReviewText(""); setMkReviewRating(5); }}
-                          style={{ flex: 1, padding: "9px", borderRadius: 12, border: "1px solid var(--bd)", background: "var(--sf2)", color: "var(--tx)", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter,sans-serif" }}>
-                          👁 View Details
-                        </button>
-                        {(!agent.price || agent.price === 0) ? (
-                          <button
-                            onClick={e => { e.stopPropagation(); useMarketplaceAgent(agent); }}
-                            style={{ flex: 1, padding: "9px", borderRadius: 12, border: "none", background: "var(--grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", boxShadow: "0 3px 12px var(--glow)" }}>
-                            ▶ Use Agent
-                          </button>
-                        ) : (
-                          <button
-                            onClick={e => { e.stopPropagation(); buyMarketplaceAgent(agent); }}
-                            style={{ flex: 1, padding: "9px", borderRadius: 12, border: "none", background: "var(--grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", boxShadow: "0 3px 12px var(--glow)" }}>
-                            🛒 Buy ₹{agent.price}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ── MARKETPLACE DETAIL MODAL ── */}
-      {mkDetail && (
-        <div className="mbg" onClick={() => setMkDetail(null)} style={{ zIndex: 999 }}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto", textAlign: "left", maxWidth: 480, padding: 0, borderRadius: 24, overflow: "hidden" }}>
-
-            {/* Hero section */}
-            <div style={{ background: "var(--grad)", padding: "24px 20px 20px", textAlign: "center", position: "relative" }}>
-              <button onClick={() => setMkDetail(null)} style={{ position: "absolute", top: 16, right: 16, background: "#ffffff30", border: "none", borderRadius: "50%", width: 32, height: 32, color: "#fff", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-              <div style={{ fontSize: 56, marginBottom: 12 }}>{mkDetail.emoji || "🤖"}</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 4 }}>{mkDetail.name}</div>
-              <div style={{ fontSize: 12, color: "#ffffff90", marginBottom: 10 }}>{mkDetail.category} · by {mkDetail.creatorName || "Creator"}</div>
-              <div style={{ display: "flex", gap: 16, justifyContent: "center", alignItems: "center" }}>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>
-                    <span style={{ color: "#fcd34d" }}>★</span> {(mkDetail.avgRating || 4.5).toFixed(1)}
-                  </div>
-                  <div style={{ fontSize: 10, color: "#ffffff70" }}>{mkDetail.reviewCount || 0} reviews</div>
-                </div>
-                <div style={{ width: 1, height: 30, background: "#ffffff30" }} />
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>{(mkDetail.totalUsers || 0).toLocaleString()}</div>
-                  <div style={{ fontSize: 10, color: "#ffffff70" }}>users</div>
-                </div>
-                <div style={{ width: 1, height: 30, background: "#ffffff30" }} />
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>
-                    {(!mkDetail.price || mkDetail.price === 0) ? "FREE" : "₹" + mkDetail.price}
-                  </div>
-                  <div style={{ fontSize: 10, color: "#ffffff70" }}>price</div>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ padding: "20px" }}>
-              {/* Description */}
-              <div style={{ fontSize: 14, color: "var(--tx)", lineHeight: 1.7, marginBottom: 18 }}>{mkDetail.description}</div>
-
-              {/* Skills */}
-              {mkDetail.skills && mkDetail.skills.length > 0 && (
-                <div style={{ marginBottom: 18 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", marginBottom: 8, textTransform: "uppercase", letterSpacing: ".06em" }}>Skills</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-                    {mkDetail.skills.map((sk, si) => (
-                      <span key={si} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: "var(--glow)", border: "1px solid var(--accent)", color: "var(--accent)" }}>{sk}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Welcome message */}
-              {mkDetail.welcomeMessage && (
-                <div style={{ background: "var(--sf2)", borderRadius: 14, padding: "12px 16px", marginBottom: 18, border: "1px solid var(--bd)" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--mt)", marginBottom: 6, textTransform: "uppercase", letterSpacing: ".06em" }}>Welcome Message</div>
-                  <div style={{ fontSize: 13, color: "var(--tx)", fontStyle: "italic", lineHeight: 1.6 }}>"{mkDetail.welcomeMessage}"</div>
-                </div>
-              )}
-
-              {/* Action buttons */}
-              <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
-                {(!mkDetail.price || mkDetail.price === 0) ? (
-                  <button onClick={() => useMarketplaceAgent(mkDetail)}
-                    style={{ flex: 1, padding: "14px", borderRadius: 16, border: "none", background: "var(--grad)", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", boxShadow: "0 4px 20px var(--glow)" }}>
-                    ▶ Use This Agent
-                  </button>
-                ) : (
-                  <button onClick={() => buyMarketplaceAgent(mkDetail)}
-                    style={{ flex: 1, padding: "14px", borderRadius: 16, border: "none", background: "var(--grad)", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", boxShadow: "0 4px 20px var(--glow)" }}>
-                    🛒 Buy for ₹{mkDetail.price}
-                  </button>
-                )}
-              </div>
-
-              {/* Reviews Section */}
-              <div style={{ borderTop: "1px solid var(--bd)", paddingTop: 18 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx)", marginBottom: 14 }}>Reviews & Ratings</div>
-
-                {/* Rating summary */}
-                <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 18, background: "var(--sf2)", borderRadius: 16, padding: "14px 16px" }}>
-                  <div style={{ textAlign: "center", minWidth: 60 }}>
-                    <div style={{ fontSize: 36, fontWeight: 800, color: "var(--tx)" }}>{(mkDetail.avgRating || 4.5).toFixed(1)}</div>
-                    <div style={{ display: "flex", gap: 2, justifyContent: "center", marginTop: 4 }}>
-                      {[1,2,3,4,5].map(s => (
-                        <span key={s} style={{ color: s <= Math.round(mkDetail.avgRating || 4.5) ? "#f59e0b" : "var(--bd)", fontSize: 14 }}>★</span>
-                      ))}
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 4 }}>{mkDetail.reviewCount || 0} reviews</div>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    {[5,4,3,2,1].map(star => {
-                      const starRevs = mkReviews.filter(r => Math.round(r.rating || 5) === star);
-                      const pct = mkReviews.length > 0 ? (starRevs.length / mkReviews.length) * 100 : star * 18;
-                      return (
-                        <div key={star} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                          <span style={{ fontSize: 11, color: "var(--mt)", width: 12 }}>{star}</span>
-                          <div style={{ flex: 1, height: 5, background: "var(--bd)", borderRadius: 3, overflow: "hidden" }}>
-                            <div style={{ width: pct + "%", height: "100%", background: "var(--grad)", borderRadius: 3 }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Write review */}
-                {user && (
-                  <div style={{ background: "var(--sf2)", borderRadius: 16, padding: 16, marginBottom: 18 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--mt)", marginBottom: 10, textTransform: "uppercase", letterSpacing: ".05em" }}>Write a Review</div>
-                    {/* Star rating input */}
-                    <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center" }}>
-                      <span style={{ fontSize: 12, color: "var(--mt)" }}>Rating:</span>
-                      {[1,2,3,4,5].map(s => (
-                        <span key={s} onClick={() => setMkReviewRating(s)}
-                          style={{ fontSize: 24, cursor: "pointer", color: s <= mkReviewRating ? "#f59e0b" : "var(--bd)", transition: "color .15s" }}>★</span>
-                      ))}
-                      <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>{mkReviewRating}/5</span>
-                    </div>
-                    <textarea
-                      className="inp iarea"
-                      rows={3}
-                      placeholder="Apna experience share karo..."
-                      value={mkReviewText}
-                      onChange={e => setMkReviewText(e.target.value)}
-                      style={{ width: "100%", resize: "none", marginBottom: 10, fontSize: 13 }}
-                    />
-                    <button
-                      onClick={() => submitReview(mkDetail.id)}
-                      disabled={mkReviewLoading || !mkReviewText.trim()}
-                      style={{ padding: "9px 20px", borderRadius: 12, border: "none", background: "var(--grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", opacity: (!mkReviewText.trim() || mkReviewLoading) ? 0.5 : 1 }}>
-                      {mkReviewLoading ? "Submitting..." : "Submit Review"}
-                    </button>
-                  </div>
-                )}
-
-                {/* Reviews list */}
-                {mkReviews.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "20px 0", color: "var(--mt)", fontSize: 13 }}>
-                    Abhi koi review nahi — pehle review likho! ✍️
-                  </div>
-                ) : (
-                  mkReviews.map(rev => (
-                    <div key={rev.id} style={{ background: "var(--sf)", border: "1px solid var(--bd)", borderRadius: 14, padding: "12px 14px", marginBottom: 10 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx)" }}>{rev.userName || "User"}</div>
-                          <div style={{ display: "flex", gap: 2, marginTop: 2 }}>
-                            {[1,2,3,4,5].map(s => <span key={s} style={{ color: s <= (rev.rating||5) ? "#f59e0b" : "var(--bd)", fontSize: 12 }}>★</span>)}
-                          </div>
-                        </div>
-                        <div style={{ fontSize: 11, color: "var(--mt)" }}>{fmtDate(rev.createdAt)}</div>
-                      </div>
-                      <div style={{ fontSize: 13, color: "var(--mt)", lineHeight: 1.6 }}>{rev.text}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── ADMIN PAGE ── */}
       {page === "admin" && isAdmin && (
         <div className="page">
@@ -4676,6 +4434,175 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ── AI COMMAND CENTER PAGE (PART 5) ── */}
+      {page === "cmdcenter" && isAdmin && (() => {
+        const QUICK_CMDS = [
+          "Show today's revenue",
+          "Show total users",
+          "Show pending withdrawals",
+          "Show top selling agents",
+          "Approve all pending withdrawals",
+          "Send notification to all users",
+          "Generate daily report",
+        ];
+        return (
+          <div className="page" style={{ display:"flex", flexDirection:"column", height:"100%" }}>
+
+            {/* ── TOP: Daily Report Button ── */}
+            <div style={{ padding:"10px 14px 0", flexShrink:0 }}>
+              <div style={{ background:"var(--grad)", borderRadius:18, padding:"14px 16px", marginBottom:12, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:800, color:"#fff" }}>⚡ AI Command Center</div>
+                  <div style={{ fontSize:11, color:"#ffffff80", marginTop:2 }}>Type commands — AI executes with your confirmation</div>
+                </div>
+                <button onClick={generateDailyReport} disabled={cmdReportLoading}
+                  style={{ padding:"8px 14px", borderRadius:12, background:"#ffffff25", border:"1px solid #ffffff50", color:"#fff", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter,sans-serif", flexShrink:0 }}>
+                  {cmdReportLoading ? "..." : "📊 Report"}
+                </button>
+              </div>
+
+              {/* Daily Report Card */}
+              {cmdReport && (
+                <div style={{ background:"var(--sf)", border:"1px solid var(--bd)", borderRadius:18, padding:"16px", marginBottom:12, maxHeight:260, overflowY:"auto" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:"var(--tx)" }}>📊 Daily Report</div>
+                    <div style={{ fontSize:10, color:"var(--mt)" }}>{cmdReport.date}</div>
+                  </div>
+                  {/* Snap metrics row */}
+                  <div style={{ display:"flex", gap:8, overflowX:"auto", marginBottom:12 }}>
+                    {[
+                      { label:"Today Revenue", value:"₹"+cmdReport.snap.todayRevenue, color:"#22c55e" },
+                      { label:"Today Sales", value:cmdReport.snap.todaySales, color:"#3b82f6" },
+                      { label:"Total Users", value:cmdReport.snap.totalUsers, color:"#8b5cf6" },
+                      { label:"Pending W/D", value:cmdReport.snap.pendingWithdrawCount, color:"#f59e0b" },
+                    ].map((m,i) => (
+                      <div key={i} style={{ flexShrink:0, background:"var(--sf2)", border:"1px solid var(--bd)", borderRadius:12, padding:"8px 12px", textAlign:"center" }}>
+                        <div style={{ fontSize:16, fontWeight:800, color:m.color }}>{m.value}</div>
+                        <div style={{ fontSize:9, color:"var(--mt)", marginTop:2, whiteSpace:"nowrap" }}>{m.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Report text */}
+                  <div style={{ fontSize:12, color:"var(--tx)", lineHeight:1.8, whiteSpace:"pre-wrap" }}>{cmdReport.text}</div>
+                </div>
+              )}
+
+              {/* Quick Command Pills */}
+              <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:8, marginBottom:8 }}>
+                {QUICK_CMDS.map((cmd, i) => (
+                  <button key={i} onClick={() => { setCmdInput(cmd); }}
+                    style={{ flexShrink:0, padding:"6px 12px", borderRadius:20, border:"1.5px solid var(--bd)", background:"var(--sf2)", color:"var(--mt)", fontSize:11, fontWeight:500, cursor:"pointer", fontFamily:"Inter,sans-serif", whiteSpace:"nowrap", transition:"all .15s" }}
+                    onMouseEnter={e=>{e.target.style.borderColor="var(--accent)";e.target.style.color="var(--accent)";}}
+                    onMouseLeave={e=>{e.target.style.borderColor="var(--bd)";e.target.style.color="var(--mt)";}}>
+                    {cmd}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── MIDDLE: Chat History ── */}
+            <div style={{ flex:1, overflowY:"auto", padding:"0 14px", display:"flex", flexDirection:"column", gap:10 }}>
+              {cmdHistory.length === 0 && !cmdReportLoading && (
+                <div style={{ textAlign:"center", padding:"30px 20px", color:"var(--mt)" }}>
+                  <div style={{ fontSize:48, marginBottom:12 }}>⚡</div>
+                  <div style={{ fontSize:15, fontWeight:700, color:"var(--tx)", marginBottom:6 }}>AI Command Center</div>
+                  <div style={{ fontSize:13, lineHeight:1.7, marginBottom:16 }}>
+                    Platform ka poora data AI ke paas hai.<br/>
+                    Koi bhi command type karo — AI execute karega.
+                  </div>
+                  <div style={{ fontSize:12, color:"var(--accent)", fontWeight:600 }}>
+                    💡 Quick pills se try karo ↑
+                  </div>
+                </div>
+              )}
+
+              {cmdHistory.map((msg, i) => (
+                <div key={i} style={{ display:"flex", flexDirection:"column", alignItems: msg.role==="user" ? "flex-end" : "flex-start" }}>
+                  {/* Role label */}
+                  <div style={{ fontSize:10, color:"var(--mt)", marginBottom:3, paddingLeft:4, paddingRight:4 }}>
+                    {msg.role==="user" ? "You" : msg.role==="system" ? "⚙️ System" : "⚡ AI"}
+                    <span style={{ marginLeft:6, opacity:.6 }}>{new Date(msg.ts).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</span>
+                  </div>
+                  <div style={{
+                    maxWidth:"88%", padding:"10px 14px", borderRadius:16, fontSize:13, lineHeight:1.7,
+                    background: msg.role==="user" ? "var(--grad)" : msg.role==="system" ? (msg.text.startsWith("✅")?"#22c55e15":"#ef444415") : "var(--sf)",
+                    color: msg.role==="user" ? "#fff" : msg.role==="system" ? (msg.text.startsWith("✅")?"#22c55e":"#ef4444") : "var(--tx)",
+                    border: msg.role==="system" ? "1px solid "+(msg.text.startsWith("✅")?"#22c55e40":"#ef444440") : msg.role==="ai" ? "1px solid var(--bd)" : "none",
+                    whiteSpace:"pre-wrap", wordBreak:"break-word"
+                  }}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+
+              {/* Pending Action Confirm Card */}
+              {cmdPending && (
+                <div style={{ background:"var(--sf)", border:"2px solid var(--accent)", borderRadius:18, padding:"16px", marginTop:4 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:"var(--accent)", marginBottom:6, textTransform:"uppercase", letterSpacing:".05em" }}>⚡ Action Confirmation Required</div>
+                  <div style={{ fontSize:13, color:"var(--tx)", marginBottom:14, lineHeight:1.6 }}>{cmdPending.confirmMsg}</div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={() => executeCmdAction(cmdPending.action, cmdPending.params)}
+                      style={{ flex:1, padding:"10px", borderRadius:12, border:"none", background:"var(--grad)", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter,sans-serif", boxShadow:"0 3px 12px var(--glow)" }}>
+                      ✅ Confirm & Execute
+                    </button>
+                    <button onClick={() => { setCmdPending(null); setCmdHistory(h=>[...h,{role:"system",text:"⚠️ Action cancelled.",ts:Date.now()}]); }}
+                      style={{ padding:"10px 16px", borderRadius:12, border:"1px solid var(--bd)", background:"none", color:"var(--mt)", fontSize:13, cursor:"pointer", fontFamily:"Inter,sans-serif" }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Loading indicator */}
+              {cmdLoading && (
+                <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px" }}>
+                  <SaraswatiLogo size={20} animate={true} state="thinking" />
+                  <div style={{ fontSize:13, color:"var(--mt)" }}>Processing command...</div>
+                </div>
+              )}
+            </div>
+
+            {/* ── BOTTOM: Input Bar ── */}
+            <div style={{ padding:"10px 14px 14px", flexShrink:0, borderTop:"1px solid var(--bd)", background:"var(--bg)" }}>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <input
+                  value={cmdInput}
+                  onChange={e => setCmdInput(e.target.value)}
+                  onKeyDown={e => { if(e.key==="Enter"&&!e.shiftKey) { e.preventDefault(); processCommand(cmdInput); }}}
+                  placeholder="Type a command... (e.g. 'Show today revenue')"
+                  style={{ flex:1, padding:"11px 16px", borderRadius:24, border:"1.5px solid var(--bd)", background:"var(--sf)", color:"var(--tx)", fontSize:14, fontFamily:"Inter,sans-serif", outline:"none", transition:"border-color .2s" }}
+                  onFocus={e=>e.target.style.borderColor="var(--accent)"}
+                  onBlur={e=>e.target.style.borderColor="var(--bd)"}
+                />
+                <button onClick={() => processCommand(cmdInput)} disabled={cmdLoading || !cmdInput.trim()}
+                  style={{ width:44, height:44, borderRadius:"50%", background:"var(--grad)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 4px 14px var(--glow)", flexShrink:0, opacity: (!cmdInput.trim()||cmdLoading)?0.5:1, transition:"opacity .2s" }}>
+                  ⚡
+                </button>
+              </div>
+            </div>
+
+            {/* ── AGENT ARCHITECTURE REGISTRY ── */}
+            <div style={{ padding:"0 14px 20px", flexShrink:0 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"var(--mt)", marginBottom:8, textTransform:"uppercase", letterSpacing:".05em" }}>🏗 Agent Architecture — Scalable Modules</div>
+              <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:4 }}>
+                {Object.entries(AGENT_REGISTRY).map(([key, ag]) => (
+                  <div key={key}
+                    style={{ flexShrink:0, background:"var(--sf)", border:"1px solid "+(ag.status==="ready"?"var(--accent)":"var(--bd)"), borderRadius:14, padding:"10px 12px", minWidth:130, cursor:"default" }}>
+                    <div style={{ fontSize:22, marginBottom:5 }}>{ag.icon}</div>
+                    <div style={{ fontSize:11, fontWeight:700, color:"var(--tx)" }}>{ag.label}</div>
+                    <div style={{ fontSize:9, color: ag.status==="ready"?"var(--accent)":"var(--mt)", fontWeight:700, marginTop:2, marginBottom:4 }}>
+                      {ag.status==="ready" ? "✓ READY" : "◷ PLANNED"}
+                    </div>
+                    <div style={{ fontSize:9, color:"var(--mt)", lineHeight:1.5 }}>{ag.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        );
+      })()}
 
       {/* ── CHAT PAGE ── */}
       {page === "chat" && (
