@@ -3,7 +3,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebas
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, onAuthStateChanged, updateProfile, sendPasswordResetEmail,
-  updatePassword, reauthenticateWithCredential, EmailAuthProvider, deleteUser
+  updatePassword, reauthenticateWithCredential, EmailAuthProvider, deleteUser,
+  GoogleAuthProvider, signInWithPopup
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, getDoc, collection, addDoc, query,
@@ -2046,6 +2047,41 @@ export default function App() {
     setFload(false);
   }
 
+  async function handleGoogleAuth() {
+    setFload(true); setFerr("");
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const u = result.user;
+      const userRef = doc(db, "users", u.uid);
+      const snap = await getDoc(userRef);
+      if (!snap.exists()) {
+        await setDoc(userRef, {
+          name: u.displayName || "User",
+          email: u.email,
+          premium: false,
+          createdAt: serverTimestamp(),
+          usageCount: 0,
+          theme: "dark",
+          accent: "orange",
+          fontSize: 14
+        });
+        setUserData({ name: u.displayName || "User", email: u.email, premium: false, usageCount: 0 });
+        setPName(u.displayName || "User");
+      } else {
+        const data = snap.data(); setUserData(data);
+        if (data.theme) setThemeKey(data.theme);
+        if (data.accent) setAccentKey(data.accent);
+        if (data.fontSize) setFontSize(data.fontSize);
+        if (data.language) setLanguage(data.language);
+        if (data.memoryEnabled === false) setMemoryEnabled(false);
+      }
+    } catch (e) {
+      if (e.code !== "auth/popup-closed-by-user") setFerr("Google sign-in failed. Try again!");
+    }
+    setFload(false);
+  }
+
   async function savePref(key, val) {
     if (key === "theme") setThemeKey(val);
     if (key === "accent") setAccentKey(val);
@@ -3158,8 +3194,7 @@ PLATFORM SNAPSHOT (as of ${snap.generatedAt}):
 - Top Agents by Users: ${JSON.stringify(snap.topAgents)}
 
 PENDING WITHDRAWALS:
-${snap.pendingWithdrawals.map(w => `ID:${w.id} | ${w.userName||"Creator"} | ₹${w.amount} | UPI:${w.upiId}`).join("
-") || "None"}
+${snap.pendingWithdrawals.map(w => `ID:${w.id} | ${w.userName||"Creator"} | ₹${w.amount} | UPI:${w.upiId}`).join("\n") || "None"}
 
 You can answer questions about platform data OR help admin take actions.
 
@@ -3348,6 +3383,34 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
           ) : (
             <>
               <div className="card-head">{authMode === "login" ? "Welcome Back 👋" : "Create Account ✨"}</div>
+              {/* Google Sign-In Button */}
+              <button
+                onClick={handleGoogleAuth}
+                disabled={fload}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                  width: "100%", padding: "12px 16px", borderRadius: 10,
+                  border: "1.5px solid var(--bd)", background: "var(--sf2)",
+                  color: "var(--tx)", fontSize: 15, fontWeight: 600, cursor: "pointer",
+                  marginBottom: 4, transition: "all 0.2s"
+                }}
+                onMouseOver={e => e.currentTarget.style.background = "var(--bd)"}
+                onMouseOut={e => e.currentTarget.style.background = "var(--sf2)"}
+              >
+                <svg width="20" height="20" viewBox="0 0 48 48">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
+                Continue with Google
+              </button>
+              {/* OR divider */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0" }}>
+                <div style={{ flex: 1, height: 1, background: "var(--bd)" }} />
+                <span style={{ color: "var(--mt)", fontSize: 12, fontWeight: 500 }}>OR</span>
+                <div style={{ flex: 1, height: 1, background: "var(--bd)" }} />
+              </div>
               {authMode === "signup" && <div className="iw"><div className="ilbl">Name</div><input className="inp" placeholder="Your name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>}
               <div className="iw"><div className="ilbl">Email</div><input className="inp" type="email" placeholder="your@email.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
               <div className="iw"><div className="ilbl">Password</div><input className="inp" type="password" placeholder="Min 8 characters" value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} /></div>
