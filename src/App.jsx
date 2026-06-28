@@ -1308,6 +1308,7 @@ function buildStyles(themeKey, accentKey, fontSize) {
 html,body{height:100%;overflow:hidden;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:${v.bg};color:${v.tx};font-size:${fs}px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
 .app{display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:480px;margin:0 auto;background:${v.bg};position:relative;overflow:hidden;}
+.desktop-sb{display:none;}
 
 .pwa{position:fixed;bottom:70px;left:10px;right:10px;background:${dark?"#1a1a1a":"#fff"};border:1.5px solid var(--accent);border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:10px;z-index:150;box-shadow:0 8px 28px #0009;animation:fadeUp .3s ease;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
@@ -1575,9 +1576,9 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
   .app { max-width: 100%; width: 100%; flex-direction: row; }
   .app-main { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; min-width: 0; }
   .desktop-sidebar { position: relative; width: 260px; min-width: 260px; max-width: 260px; height: 100vh; border-right: 1px solid var(--bd); display: flex; flex-direction: column; background: var(--navBg, #0e0e0e); overflow-y: auto; flex-shrink: 0; }
-  .sidebar { position: relative; width: 260px; min-width: 260px; max-width: 260px; height: 100vh; border-right: 1px solid var(--bd); display: flex; flex-direction: column; animation: none; z-index: 1; }
+  .desktop-sb { position: relative !important; width: 260px !important; min-width: 260px !important; max-width: 260px !important; height: 100vh !important; border-right: 1px solid var(--bd) !important; flex-direction: column !important; animation: none !important; z-index: 1 !important; flex-shrink: 0 !important; overflow-y: auto !important; }
   .sb-overlay { display: none !important; }
-  .hide-desktop { display: none !important; } #desktopSidebar { display: flex !important; }
+  .hide-desktop { display: none !important; } .desktop-sb { display: flex !important; }
   .hdr { padding-left: 20px; padding-right: 20px; }
   .chat { padding: 20px 8%; max-width: 860px; margin: 0 auto; width: 100%; }
   .ibar { padding-left: 8%; padding-right: 8%; max-width: 860px; margin: 0 auto; width: 100%; }
@@ -3962,7 +3963,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
       )}
 
       {/* ── DESKTOP SIDEBAR (always visible) ── */}
-      <div className="sidebar" style={{position:"relative",display:"flex",flexDirection:"column",width:260,minWidth:260,maxWidth:260,height:"100vh",borderRight:"1px solid var(--bd)",flexShrink:0}} id="desktopSidebar">
+      <div className="sidebar desktop-sb" id="desktopSidebar">
             <div className="sb-head">
               <SaraswatiLogo size={30} animate={true} state="idle" />
               <span className="sb-title">Saraswati AI</span>
