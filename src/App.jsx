@@ -4,7 +4,7 @@ import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, onAuthStateChanged, updateProfile, sendPasswordResetEmail,
   updatePassword, reauthenticateWithCredential, EmailAuthProvider, deleteUser,
-  GoogleAuthProvider, signInWithPopup
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, getDoc, collection, addDoc, query,
@@ -1808,6 +1808,15 @@ export default function App() {
     return () => { unsub(); if (unsubUserDoc) unsubUserDoc(); };
   }, []);
 
+  // Handle Google redirect result on mobile
+  useEffect(() => {
+    getRedirectResult(auth).then(async result => {
+      if (result) {
+        try { await handleGoogleResult(result); } catch {}
+      }
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, loading]);
 
   useEffect(() => {
@@ -2047,34 +2056,44 @@ export default function App() {
     setFload(false);
   }
 
+  async function handleGoogleResult(result) {
+    if (!result) return;
+    const u = result.user;
+    const userRef = doc(db, "users", u.uid);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) {
+      await setDoc(userRef, {
+        name: u.displayName || "User",
+        email: u.email,
+        premium: false,
+        createdAt: serverTimestamp(),
+        usageCount: 0,
+        theme: "dark",
+        accent: "orange",
+        fontSize: 14
+      });
+      setUserData({ name: u.displayName || "User", email: u.email, premium: false, usageCount: 0 });
+      setPName(u.displayName || "User");
+    } else {
+      const data = snap.data(); setUserData(data);
+      if (data.theme) setThemeKey(data.theme);
+      if (data.accent) setAccentKey(data.accent);
+      if (data.fontSize) setFontSize(data.fontSize);
+      if (data.language) setLanguage(data.language);
+      if (data.memoryEnabled === false) setMemoryEnabled(false);
+    }
+  }
+
   async function handleGoogleAuth() {
     setFload(true); setFerr("");
     try {
       const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const u = result.user;
-      const userRef = doc(db, "users", u.uid);
-      const snap = await getDoc(userRef);
-      if (!snap.exists()) {
-        await setDoc(userRef, {
-          name: u.displayName || "User",
-          email: u.email,
-          premium: false,
-          createdAt: serverTimestamp(),
-          usageCount: 0,
-          theme: "dark",
-          accent: "orange",
-          fontSize: 14
-        });
-        setUserData({ name: u.displayName || "User", email: u.email, premium: false, usageCount: 0 });
-        setPName(u.displayName || "User");
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (isMobile) {
+        await signInWithRedirect(auth, provider);
       } else {
-        const data = snap.data(); setUserData(data);
-        if (data.theme) setThemeKey(data.theme);
-        if (data.accent) setAccentKey(data.accent);
-        if (data.fontSize) setFontSize(data.fontSize);
-        if (data.language) setLanguage(data.language);
-        if (data.memoryEnabled === false) setMemoryEnabled(false);
+        const result = await signInWithPopup(auth, provider);
+        await handleGoogleResult(result);
       }
     } catch (e) {
       if (e.code !== "auth/popup-closed-by-user") setFerr("Google sign-in failed. Try again!");
