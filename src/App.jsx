@@ -1763,6 +1763,8 @@ export default function App() {
   }
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [payDone, setPayDone] = useState(false);
+  const [payStatus, setPayStatus] = useState(null); // null | "success" | "fail"
+  const [agentChatCounts, setAgentChatCounts] = useState({}); // { agentId: count }
   const [copied, setCopied] = useState(null);
   const [speakId, setSpeakId] = useState(null);
   const [micActive, setMicActive] = useState(false);
@@ -2948,6 +2950,12 @@ export default function App() {
     const nc = (ud?.usageCount || 0) + 1;
     await setDoc(doc(db, "users", user.uid), { usageCount: nc }, { merge: true });
     setUserData(p => ({ ...p, usageCount: nc }));
+    // Track per-agent chat count
+    if (activeAgent?.id) {
+      const agId = activeAgent.id;
+      setAgentChatCounts(p => ({ ...p, [agId]: (p[agId] || 0) + 1 }));
+      try { await updateDoc(doc(db, "agents", agId), { totalChats: (activeAgent.totalChats||0) + 1 }); } catch {}
+    }
     // Fire memory save in background — intentionally not awaited so AI response isn't blocked
     // Explicit "remember" commands still work because maybeSaveMemory handles them first
     if (memoryEnabled) maybeSaveMemory(msgText).catch(() => {});
@@ -3419,6 +3427,10 @@ Return ONLY valid JSON (no backticks, no markdown):
         upiId:cd.upiId||"",
         agentsData:myAg,
       });
+      // Load per-agent chat counts into state
+      const chatCountMap = {};
+      myAg.forEach(a => { chatCountMap[a.id] = a.totalChats || 0; });
+      setAgentChatCounts(prev => ({ ...prev, ...chatCountMap }));
       setCreatorUpiVal(cd.upiId||"");
     } catch(e){console.error(e);}
     setCreatorLoading(false);
@@ -4381,15 +4393,51 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
 
       {/* ── UPGRADE MODAL ── */}
       {showUpgrade && (
-        <div className="mbg" onClick={() => { setShowUpgrade(false); setPayDone(false); }}>
+        <div className="mbg" onClick={() => { setShowUpgrade(false); setPayDone(false); setPayStatus(null); }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            {payDone ? (
+            {payStatus === "success" ? (
+              <>
+                <div className="mi">✅</div>
+                <h3 style={{ color: "#22c55e" }}>Payment Successful!</h3>
+                <p>Payment ho gayi! Screenshot bhejo WhatsApp pe — 30 min mein Premium activate ho jayega.</p>
+                <div style={{ background: "#22c55e15", border: "1px solid #22c55e40", borderRadius: 14, padding: "14px 16px", marginBottom: 4 }}>
+                  <div style={{ fontSize: 13, color: "#22c55e", fontWeight: 700, marginBottom: 6 }}>✅ Aage kya karna hai:</div>
+                  <div style={{ fontSize: 12, color: "var(--mt)", lineHeight: 1.8 }}>
+                    1. Payment screenshot lo<br/>
+                    2. WhatsApp pe bhejo<br/>
+                    3. 30 min mein Premium ON ho jayega
+                  </div>
+                </div>
+                <button className="btn btn-p" onClick={() => window.open("https://wa.me/91" + UPI + "?text=Maine%20Saraswati%20AI%20Premium%20ke%20liye%20payment%20kiya%20hai.%20Screenshot%20attach%20kar%20raha%20hoon.", "_blank")}>📲 WhatsApp pe Screenshot Bhejo</button>
+                <button className="btn btn-s" onClick={() => { setShowUpgrade(false); setPayDone(false); setPayStatus(null); }}>Close</button>
+              </>
+            ) : payStatus === "fail" ? (
+              <>
+                <div className="mi">❌</div>
+                <h3 style={{ color: "#ef4444" }}>Payment Failed</h3>
+                <p>Payment nahi ho payi. Koi baat nahi — dobara try karo ya doosra UPI app use karo.</p>
+                <div style={{ background: "#ef444415", border: "1px solid #ef444440", borderRadius: 14, padding: "14px 16px", marginBottom: 4 }}>
+                  <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, marginBottom: 6 }}>⚠️ Possible reasons:</div>
+                  <div style={{ fontSize: 12, color: "var(--mt)", lineHeight: 1.8 }}>
+                    • UPI app mein balance nahi<br/>
+                    • Internet issue tha<br/>
+                    • Transaction timeout hua
+                  </div>
+                </div>
+                <button className="btn btn-p" onClick={() => {
+                  setPayStatus(null);
+                  window.open("upi://pay?pa=" + UPI + "@upi&pn=SaraswatiAI&am=" + (upgradePlan === "monthly" ? "99" : "29") + "&cu=INR", "_blank");
+                  setTimeout(() => setPayStatus("success"), 3000);
+                }}>🔄 Dobara Try Karo</button>
+                <button className="btn btn-s" onClick={() => { setPayStatus(null); }}>Back</button>
+              </>
+            ) : payDone ? (
               <>
                 <div className="mi">✅</div>
                 <h3>Payment Sent!</h3>
                 <p>Screenshot bhejo WhatsApp pe — 30 min mein activate ho jayega!</p>
                 <button className="btn btn-p" onClick={() => window.open("https://wa.me/91" + UPI + "?text=Maine%20Saraswati%20AI%20Premium%20ke%20liye%20payment%20kiya%20hai", "_blank")}>📲 WhatsApp karo</button>
-                <button className="btn btn-s" onClick={() => { setShowUpgrade(false); setPayDone(false); }}>Close</button>
+                <button className="btn btn-s" onClick={() => { setShowUpgrade(false); setPayDone(false); setPayStatus(null); }}>Close</button>
               </>
             ) : (
               <>
@@ -4402,9 +4450,19 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   <div className="pstep"><span style={{fontWeight:700,color:"var(--accent)"}}>2.</span><span>Screenshot lo</span></div>
                   <div className="pstep"><span style={{fontWeight:700,color:"var(--accent)"}}>3.</span><span>Send screenshot on WhatsApp for confirmation</span></div>
                 </div>
-                <button className="btn btn-p" onClick={() => { window.open("upi://pay?pa=" + UPI + "@upi&pn=SaraswatiAI&am=" + (upgradePlan === "monthly" ? "99" : "29") + "&cu=INR", "_blank"); setPayDone(true); }}>💳 Pay Now</button>
+                <div style={{ display: "flex", gap: 8, marginBottom: 2 }}>
+                  <button className="btn btn-p" style={{ flex: 1 }} onClick={() => {
+                    window.open("upi://pay?pa=" + UPI + "@upi&pn=SaraswatiAI&am=" + (upgradePlan === "monthly" ? "99" : "29") + "&cu=INR", "_blank");
+                    // After 4s, show did payment go through prompt
+                    setTimeout(() => setPayStatus("success"), 4000);
+                  }}>💳 Pay Now</button>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+                  <button className="btn btn-s" style={{ flex: 1, fontSize: 12 }} onClick={() => setPayStatus("fail")}>❌ Payment Failed?</button>
+                  <button className="btn btn-s" style={{ flex: 1, fontSize: 12 }} onClick={() => setPayStatus("success")}>✅ Payment Done?</button>
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button className={"btn btn-s" + (upgradePlan === "monthly" ? " " : "")} style={{ flex: 1, opacity: upgradePlan === "monthly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("monthly")}>Monthly ₹99</button>
+                  <button className={"btn btn-s"} style={{ flex: 1, opacity: upgradePlan === "monthly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("monthly")}>Monthly ₹99</button>
                   <button className="btn btn-s" style={{ flex: 1, opacity: upgradePlan === "weekly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("weekly")}>Weekly ₹29</button>
                 </div>
                 <button className="btn btn-s" onClick={() => setShowUpgrade(false)}>Cancel</button>
@@ -5717,7 +5775,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                     <div style={{fontSize:15,fontWeight:700,color:"var(--tx)"}}>{PLATFORM_UPI}@upi</div>
                     <div style={{fontSize:11,color:"var(--mt)",marginTop:2}}>Amount: ₹{buyModalAgent.price} · Note: {buyModalAgent.name}</div>
                   </div>
-                  <div style={{fontSize:11,color:"var(--mt)",marginTop:8}}>Creator ko ₹{Math.round(buyModalAgent.price*0.80)} milega (80%)</div>
+                  <div style={{fontSize:11,color:"var(--mt)",marginTop:8}}>Creator ko ₹{Math.round(buyModalAgent.price*0.80)} milega · Commission Tax: ₹{Math.round(buyModalAgent.price*0.20)} (20%)</div>
                 </div>
                 <button className="btn btn-p" onClick={()=>{window.open("upi://pay?pa="+PLATFORM_UPI+"@upi&pn=SaraswatiAI&am="+buyModalAgent.price+"&cu=INR&tn="+encodeURIComponent(buyModalAgent.name),"_blank");setTimeout(()=>setBuyPayDone(true),1500);}} style={{width:"100%",marginBottom:8}}>
                   Pay ₹{buyModalAgent.price} via UPI →
@@ -5759,7 +5817,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                           {label:"Published",value:creatorData?.publishedAgents||0,icon:"🌐",color:"#22c55e"},
                           {label:"Total Sales",value:creatorData?.totalSales||0,icon:"🛒",color:"#f59e0b"},
                           {label:"Total Revenue",value:"₹"+(creatorData?.totalRevenue||0),icon:"💰",color:"#8b5cf6"},
-                          {label:"Platform Commission",value:"₹"+(creatorData?.commission||0),icon:"🏦",color:"#ef4444"},
+                          {label:"Commission Tax",value:"₹"+(creatorData?.commission||0),icon:"🏛️",color:"#ef4444"},
                           {label:"Pending Balance",value:"₹"+(creatorData?.pendingBalance||0),icon:"⏳",color:"#f97316"},
                         ].map((s,i)=>(
                           <div key={i} style={{background:"var(--sf2)",borderRadius:14,padding:"12px",border:"1px solid var(--bd)"}}>
@@ -5811,7 +5869,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                               <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>{agent.name}</div><div style={{fontSize:10,color:"var(--accent)"}}>{agent.category}</div></div>
                             </div>
                             <div style={{display:"flex",gap:10}}>
-                              {[{label:"Sales",val:agSales.length,color:"#f59e0b"},{label:"Revenue",val:"₹"+agRev,color:"#22c55e"},{label:"Users",val:agent.totalUsers||0,color:"#3b82f6"},{label:"Rating",val:agent.avgRating?agent.avgRating.toFixed(1):"—",color:"#8b5cf6"}].map((m,i)=>(
+                              {[{label:"Sales",val:agSales.length,color:"#f59e0b"},{label:"Revenue",val:"₹"+agRev,color:"#22c55e"},{label:"Users",val:agent.totalUsers||0,color:"#3b82f6"},{label:"Chats",val:(agentChatCounts[agent.id]||agent.totalChats||0),color:"#8b5cf6"}].map((m,i)=>(
                                 <div key={i} style={{textAlign:"center",flex:1}}>
                                   <div style={{fontSize:15,fontWeight:800,color:m.color}}>{m.val}</div>
                                   <div style={{fontSize:9,color:"var(--mt)"}}>{m.label}</div>
@@ -5826,10 +5884,37 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   )}
                   {creatorTab==="wallet"&&(
                     <>
-                      <div style={{background:"var(--grad)",borderRadius:18,padding:"18px",marginBottom:14,textAlign:"center"}}>
+                      <div style={{background:"var(--grad)",borderRadius:18,padding:"18px",marginBottom:10,textAlign:"center"}}>
                         <div style={{fontSize:11,color:"#ffffff80",marginBottom:4}}>Available Balance</div>
                         <div style={{fontSize:36,fontWeight:900,color:"#fff"}}>₹{(creatorData?.walletBalance||0).toFixed(2)}</div>
+                        {(creatorData?.walletBalance||0) >= 500 && (
+                          <div style={{marginTop:8,background:"#22c55e30",border:"1px solid #22c55e60",borderRadius:20,padding:"4px 12px",display:"inline-block"}}>
+                            <span style={{fontSize:11,color:"#22c55e",fontWeight:700}}>🚀 Auto Payout Ready — Min ₹500 reached!</span>
+                          </div>
+                        )}
                       </div>
+                      {/* Pending Balance Card */}
+                      {(creatorData?.pendingBalance||0) > 0 && (
+                        <div style={{background:"#f59e0b15",border:"1px solid #f59e0b40",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:10}}>
+                          <span style={{fontSize:22}}>⏳</span>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:12,fontWeight:700,color:"#f59e0b"}}>Pending Balance</div>
+                            <div style={{fontSize:11,color:"var(--mt)"}}>Withdrawal request processing...</div>
+                          </div>
+                          <div style={{fontSize:18,fontWeight:800,color:"#f59e0b"}}>₹{(creatorData?.pendingBalance||0).toFixed(2)}</div>
+                        </div>
+                      )}
+                      {/* Commission Tax Info */}
+                      {(creatorData?.commission||0) > 0 && (
+                        <div style={{background:"var(--sf2)",border:"1px solid var(--bd)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:10}}>
+                          <span style={{fontSize:22}}>🏛️</span>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:12,fontWeight:700,color:"var(--tx)"}}>Commission Tax (Platform)</div>
+                            <div style={{fontSize:11,color:"var(--mt)"}}>20% platform fee deducted from sales</div>
+                          </div>
+                          <div style={{fontSize:16,fontWeight:800,color:"#ef4444"}}>-₹{(creatorData?.commission||0).toFixed(2)}</div>
+                        </div>
+                      )}
                       <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Withdrawal History</div>
                       {creatorWithdrawals.length===0?<div style={{textAlign:"center",padding:"14px 0",color:"var(--mt)",fontSize:13}}>Koi history nahi</div>:
                         creatorWithdrawals.map(w=>(
@@ -5848,6 +5933,15 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   )}
                   {creatorTab==="withdraw"&&(
                     <>
+                      {(creatorData?.walletBalance||0) >= 500 && (
+                        <div style={{background:"#22c55e15",border:"1px solid #22c55e40",borderRadius:14,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontSize:20}}>🚀</span>
+                          <div>
+                            <div style={{fontSize:12,fontWeight:700,color:"#22c55e"}}>Auto Payout Ready!</div>
+                            <div style={{fontSize:11,color:"var(--mt)"}}>Balance ₹500+ ho gayi — withdraw karo</div>
+                          </div>
+                        </div>
+                      )}
                       <div style={{background:"var(--grad)",borderRadius:16,padding:"14px 18px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                         <div><div style={{fontSize:10,color:"#ffffff80"}}>Available</div><div style={{fontSize:26,fontWeight:900,color:"#fff"}}>₹{(creatorData?.walletBalance||0).toFixed(2)}</div></div>
                         <div style={{fontSize:28}}>💰</div>
