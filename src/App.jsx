@@ -3139,8 +3139,7 @@ export default function App() {
         let txt = "";
         for (let i = 0; i < Math.min(arr.length, 50000); i++) {
           if (arr[i] >= 32 && arr[i] < 127) txt += String.fromCharCode(arr[i]);
-          else if (arr[i] === 10 || arr[i] === 13) txt += "
-";
+          else if (arr[i] === 10 || arr[i] === 13) txt += String.fromCharCode(10);
         }
         setAgentPdfText(txt.replace(/\s+/g," ").trim().slice(0,8000));
       };
