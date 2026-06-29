@@ -1661,10 +1661,84 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState("chat");
   const [agents, setAgents] = useState([]);
-  const [activeAgent, setActiveAgent] = useState(null); // {id, name, emoji, instructions, tone, lang}
+  const [activeAgent, setActiveAgent] = useState(null);
   const [showAgentBuilder, setShowAgentBuilder] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
   const [agentForm, setAgentForm] = useState({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" });
+  // ── AGENTS PAGE (PART 1) ──────────────────────────────────────
+  const [agentTab, setAgentTab] = useState("my");
+  const [agentCatSearch, setAgentCatSearch] = useState("");
+  const [agentCreateForm, setAgentCreateForm] = useState({ name:"", category:"" });
+  const [agentGenLoading, setAgentGenLoading] = useState(false);
+  const [agentGenData, setAgentGenData] = useState(null);
+  const [agentSaving, setAgentSaving] = useState(false);
+  const [agentEditId, setAgentEditId] = useState(null);
+  const [agentAvatarFile, setAgentAvatarFile] = useState(null);
+  const [agentAvatarPreview, setAgentAvatarPreview] = useState(null);
+  const [agentPdfFile, setAgentPdfFile] = useState(null);
+  const [agentPdfName, setAgentPdfName] = useState("");
+  const [agentPdfText, setAgentPdfText] = useState("");
+  // ── MARKETPLACE (PART 2) ─────────────────────────────────────
+  const [mkTab, setMkTab] = useState("trending");
+  const [mkSearch, setMkSearch] = useState("");
+  const [mkCatFilter, setMkCatFilter] = useState("All");
+  const [mkRatingFilter, setMkRatingFilter] = useState(0);
+  const [mkPriceFilter, setMkPriceFilter] = useState("all");
+  const [mkAgents, setMkAgents] = useState([]);
+  const [mkLoading, setMkLoading] = useState(false);
+  const [mkDetail, setMkDetail] = useState(null);
+  const [mkReviewText, setMkReviewText] = useState("");
+  const [mkReviewRating, setMkReviewRating] = useState(5);
+  const [mkReviewLoading, setMkReviewLoading] = useState(false);
+  const [mkReviews, setMkReviews] = useState([]);
+  const [mkOwnedIds, setMkOwnedIds] = useState([]);
+  const [mkCreatorProfile, setMkCreatorProfile] = useState(null);
+  // ── CREATOR DASHBOARD (PART 3) ───────────────────────────────
+  const [showCreatorDash, setShowCreatorDash] = useState(false);
+  const [creatorTab, setCreatorTab] = useState("overview");
+  const [creatorData, setCreatorData] = useState(null);
+  const [creatorSales, setCreatorSales] = useState([]);
+  const [creatorWithdrawals, setCreatorWithdrawals] = useState([]);
+  const [creatorLoading, setCreatorLoading] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawUpi, setWithdrawUpi] = useState("");
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [creatorUpiEdit, setCreatorUpiEdit] = useState(false);
+  const [creatorUpiVal, setCreatorUpiVal] = useState("");
+  const [showPublishFee, setShowPublishFee] = useState(false);
+  const [publishFeeAgent, setPublishFeeAgent] = useState(null);
+  const [publishFeeDone, setPublishFeeDone] = useState(false);
+  const [publishFeeLoading, setPublishFeeLoading] = useState(false);
+  const [agentPrice, setAgentPrice] = useState("0");
+  const [showBuyModal, setShowBuyModal] = useState(false);
+  const [buyModalAgent, setBuyModalAgent] = useState(null);
+  const [buyPayDone, setBuyPayDone] = useState(false);
+  // ── ADMIN PANEL (PART 4) ─────────────────────────────────────
+  const [adminTab, setAdminTab] = useState("overview");
+  const [adminAllAgents, setAdminAllAgents] = useState([]);
+  const [adminPurchases, setAdminPurchases] = useState([]);
+  const [adminWithdraws, setAdminWithdraws] = useState([]);
+  const [adminTransactions, setAdminTransactions] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminSearch, setAdminSearch] = useState("");
+  const [adminEditPriceId, setAdminEditPriceId] = useState(null);
+  const [adminEditPriceVal, setAdminEditPriceVal] = useState("");
+  const [adminEditCommission, setAdminEditCommission] = useState(false);
+  const [adminCommissionVal, setAdminCommissionVal] = useState("20");
+  const [adminCommission, setAdminCommission] = useState(20);
+  const [adminCategories, setAdminCategories] = useState([]);
+  const [adminNewCat, setAdminNewCat] = useState("");
+  const [adminCatEditId, setAdminCatEditId] = useState(null);
+  const [adminCatEditVal, setAdminCatEditVal] = useState("");
+  const [adminFeaturedIds, setAdminFeaturedIds] = useState([]);
+  const [broadcastSubject, setBroadcastSubject] = useState("");
+  const [broadcastBody, setBroadcastBody] = useState("");
+  const [broadcastTarget, setBroadcastTarget] = useState("all");
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastSent, setBroadcastSent] = useState(false);
+  const [notifTitle, setNotifTitle] = useState("");
+  const [notifBody, setNotifBody] = useState("");
+  const [notifLoading, setNotifLoading] = useState(false);
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
   const [sid, setSid] = useState(() => Date.now().toString());
@@ -1834,6 +1908,8 @@ export default function App() {
     if (user && page === "admin") loadAdmin();
     if (user && page === "projects") loadProjects();
     if (user && page === "memory") loadMemories(user.uid);
+    if (page === "marketplace") loadMarketplace();
+    if (user && page === "admin") loadAdminFull();
     if (page !== "voice") endVoice();
     stopAllSpeech();
     setSpeakId(null); setShowRx(null);
@@ -3003,6 +3079,496 @@ export default function App() {
 
   function stopAgent() { setActiveAgent(null); }
 
+  // ═══════════════════════════════════════════════════════════════
+  // ALL MARKETPLACE + AGENTS + CREATOR + ADMIN FUNCTIONS
+  // ═══════════════════════════════════════════════════════════════
+
+  const PLATFORM_UPI  = "8126630980";
+  const PUBLISH_FEE   = 9;
+  const PLATFORM_CUT  = 0.20;
+  const CREATOR_SHARE = 0.80;
+
+  const ALL_CATEGORIES = [
+    "Farming & Agriculture","UPSC Preparation","NEET Preparation","JEE Preparation",
+    "Coding & Programming","Finance & Banking","Business & Startup","Marketing & SEO",
+    "Healthcare & Medicine","Legal & Law","Fitness & Exercise","Education & Tutoring",
+    "Travel & Tourism","Cooking & Recipes","Spiritual & Meditation","Real Estate",
+    "YouTube & Content","Instagram & Social Media","AI & Machine Learning","Technology",
+    "Photography","Video Editing","Freelancing","Mental Health & Therapy","Nutrition & Diet",
+    "Yoga & Wellness","Veterinary & Animal Care","Weather & Environment","Mathematics",
+    "Science & Research","History & Culture","Language Learning","Literature & Writing",
+    "Music & Arts","Tax & Accounting","Insurance","Web Development","Mobile Apps",
+    "Cybersecurity","Customer Support","HR & Recruitment","Business Strategy","E-commerce",
+    "Journalism & News","Interior Design","Architecture","Automobile & Vehicles",
+    "Electronics & Gadgets","Home Improvement","Gardening","Sustainability","Sports & Cricket",
+    "Football & Sports","Chess & Games","Astrology & Horoscope","Parenting & Child Care",
+    "Relationships","Senior Care","Women Empowerment","Government Schemes","RTI & Rights",
+    "Railway & Travel","Job Search","Entrepreneurship","Graphic Design","Data Analysis",
+    "Research Assistant","Translation","Event Planning","Wedding Planning","Stock Market",
+    "Cryptocurrency","Import & Export","Supply Chain","Pharmacy","Dental Care","Eye Care",
+    "Skin & Beauty","Hair & Grooming","Police & Safety","NGO & Social Work","Religious & Faith",
+    "Mythology","Palmistry","Numerology","Pet Care","Bird Watching","Hiking & Trekking",
+    "Space & Astronomy","Geography","Economics","Psychology","Philosophy","Motivational Coach",
+    "Life Coach","Career Counseling","Study Planner","Exam Preparation","Hindi Literature",
+    "Urdu Poetry","Sanskrit","Sign Language","Digital Literacy","Tribal Culture",
+    "Rural Development","Urban Planning","Smart Cities","School Education","College Education",
+    "Teacher Assistant","Doctor AI","Lawyer AI","CA & Tax Expert","Immigration Consultant"
+  ];
+
+  // ── FIX: Image Avatar ─────────────────────────────────────────
+  function handleAgentAvatar(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setAgentAvatarPreview(ev.target.result); setAgentAvatarFile(ev.target.result); };
+    reader.readAsDataURL(file);
+  }
+
+  // ── FIX: PDF Knowledge Base ───────────────────────────────────
+  async function handleAgentPdf(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAgentPdfName(file.name);
+    try {
+      const text = await file.text();
+      setAgentPdfText(text.slice(0, 8000));
+    } catch {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const arr = new Uint8Array(ev.target.result);
+        let txt = "";
+        for (let i = 0; i < Math.min(arr.length, 50000); i++) {
+          if (arr[i] >= 32 && arr[i] < 127) txt += String.fromCharCode(arr[i]);
+          else if (arr[i] === 10 || arr[i] === 13) txt += "
+";
+        }
+        setAgentPdfText(txt.replace(/\s+/g," ").trim().slice(0,8000));
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+
+  // ── AI Agent Data Generator ───────────────────────────────────
+  async function generateAgentData(name, category) {
+    if (!name.trim() || !category.trim()) return null;
+    try {
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+GROQ},
+        body: JSON.stringify({ model:CHAT_MODEL, max_tokens:700, temperature:0.7,
+          messages:[{ role:"user", content:`Generate complete AI agent config for:
+Name: "${name}", Category: "${category}"
+Return ONLY valid JSON (no backticks, no markdown):
+{
+  "description": "2-3 line description",
+  "instructions": "Detailed system prompt 4-5 sentences",
+  "systemPrompt": "You are ${name}, a specialized AI assistant for ${category}...",
+  "welcomeMessage": "Warm first-person welcome message",
+  "personality": "e.g. Professional & Empathetic",
+  "language": "Hindi/English/Hinglish",
+  "expertise": "Top 3 expertise areas comma separated",
+  "conversationStyle": "e.g. Friendly, Detailed, Step-by-step",
+  "suggestedAvatar": "single most relevant emoji",
+  "skills": ["skill1","skill2","skill3","skill4","skill5"]
+}` }]
+        })
+      });
+      const d = await r.json();
+      let raw = (d.choices?.[0]?.message?.content||"").trim().replace(/```json\s*/gi,"").replace(/```\s*/g,"").trim();
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) return null;
+      return JSON.parse(m[0]);
+    } catch { return null; }
+  }
+
+  // ── Save New Agent ────────────────────────────────────────────
+  async function saveNewAgent(name, category, genData) {
+    if (!name.trim() || !category.trim()) return;
+    setAgentSaving(true);
+    try {
+      const agentData = {
+        name: name.trim(), category: category.trim(),
+        emoji: agentAvatarFile ? "" : (genData?.suggestedAvatar||"🤖"),
+        avatarImg: agentAvatarFile || null,
+        pdfKnowledge: agentPdfText || null,
+        pdfName: agentPdfName || null,
+        description: genData?.description||"",
+        instructions: genData?.instructions||"",
+        systemPrompt: genData?.systemPrompt||"",
+        welcomeMessage: genData?.welcomeMessage||"",
+        personality: genData?.personality||"Friendly",
+        language: genData?.language||"Hinglish",
+        expertise: genData?.expertise||"",
+        conversationStyle: genData?.conversationStyle||"",
+        skills: genData?.skills||[],
+        status:"active", published:false,
+        userId: user.uid,
+        creatorName: userData?.name||user?.displayName||"Creator",
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+        tone:"friendly", lang:"hindi",
+        totalChats:0, totalUsers:0, avgRating:0, reviewCount:0,
+      };
+      if (agentEditId) {
+        await updateDoc(doc(db,"agents",agentEditId), {...agentData, updatedAt:serverTimestamp()});
+        setAgentEditId(null);
+      } else {
+        await addDoc(collection(db,"agents"), agentData);
+      }
+      await loadAgents(user.uid);
+      setAgentTab("my");
+      setAgentCreateForm({name:"",category:""});
+      setAgentGenData(null); setAgentCatSearch("");
+      setAgentAvatarFile(null); setAgentAvatarPreview(null);
+      setAgentPdfFile(null); setAgentPdfName(""); setAgentPdfText("");
+      setAgentPrice("0");
+    } catch(e){ alert("Save failed: "+e.message); }
+    setAgentSaving(false);
+  }
+
+  // ── Publish Fee Flow ──────────────────────────────────────────
+  function initiatePublishFee(agent, customPrice) {
+    setPublishFeeAgent({...agent, customPrice: parseFloat(customPrice)||0});
+    setPublishFeeDone(false); setShowPublishFee(true);
+  }
+
+  async function confirmPublish() {
+    if (!publishFeeAgent) return;
+    setPublishFeeLoading(true);
+    try {
+      await updateDoc(doc(db,"agents",publishFeeAgent.id), {
+        published:true, price: parseFloat(publishFeeAgent.customPrice)||0,
+        publishedAt:serverTimestamp(),
+        creatorName: userData?.name||user?.displayName||"Creator",
+        creatorId: user.uid, featured:false,
+        publishFeePaid:true,
+      });
+      await addDoc(collection(db,"platformEarnings"), {
+        type:"publish_fee", amount:PUBLISH_FEE,
+        userId:user.uid, agentId:publishFeeAgent.id,
+        agentName:publishFeeAgent.name, createdAt:serverTimestamp()
+      });
+      await loadAgents(user.uid);
+      setShowPublishFee(false); setPublishFeeAgent(null); setPublishFeeDone(false);
+    } catch(e){ alert("Publish failed: "+e.message); }
+    setPublishFeeLoading(false);
+  }
+
+  async function toggleAgentPublish(id, cur) {
+    if (!cur) { const ag = agents.find(a=>a.id===id); if(ag) initiatePublishFee(ag, ag.price||0); return; }
+    try { await updateDoc(doc(db,"agents",id),{published:false,updatedAt:serverTimestamp()}); await loadAgents(user.uid); } catch {}
+  }
+
+  // ── Marketplace Functions ─────────────────────────────────────
+  async function loadMarketplace() {
+    setMkLoading(true);
+    try {
+      const q = query(collection(db,"agents"), where("published","==",true));
+      const snap = await getDocs(q);
+      setMkAgents(snap.docs.map(d=>({id:d.id,...d.data()})));
+      if (user) {
+        try {
+          const os = await getDocs(query(collection(db,"agentUsage"),where("userId","==",user.uid)));
+          setMkOwnedIds(os.docs.map(d=>d.data().agentId));
+        } catch {}
+      }
+    } catch { setMkAgents([]); }
+    setMkLoading(false);
+  }
+
+  async function loadAgentReviews(agentId) {
+    try {
+      const q = query(collection(db,"agentReviews"),where("agentId","==",agentId),orderBy("createdAt","desc"),limit(20));
+      setMkReviews((await getDocs(q)).docs.map(d=>({id:d.id,...d.data()})));
+    } catch {
+      try {
+        const s = await getDocs(query(collection(db,"agentReviews"),where("agentId","==",agentId)));
+        setMkReviews(s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
+      } catch { setMkReviews([]); }
+    }
+  }
+
+  async function submitReview(agentId) {
+    if (!mkReviewText.trim()) return;
+    setMkReviewLoading(true);
+    try {
+      await addDoc(collection(db,"agentReviews"),{agentId,userId:user.uid,userName:userData?.name||"User",rating:mkReviewRating,text:mkReviewText.trim(),createdAt:serverTimestamp()});
+      const allR=[...mkReviews,{rating:mkReviewRating}];
+      const avg=allR.reduce((s,r)=>s+(r.rating||5),0)/allR.length;
+      await updateDoc(doc(db,"agents",agentId),{avgRating:parseFloat(avg.toFixed(1)),reviewCount:allR.length});
+      setMkReviewText(""); setMkReviewRating(5);
+      await loadAgentReviews(agentId);
+      setMkAgents(p=>p.map(a=>a.id===agentId?{...a,avgRating:parseFloat(avg.toFixed(1)),reviewCount:allR.length}:a));
+    } catch(e){alert("Review failed: "+e.message);}
+    setMkReviewLoading(false);
+  }
+
+  async function useMarketplaceAgent(agent) {
+    try {
+      const ex=await getDocs(query(collection(db,"agentUsage"),where("userId","==",user.uid),where("agentId","==",agent.id)));
+      if(ex.empty){
+        await addDoc(collection(db,"agentUsage"),{userId:user.uid,agentId:agent.id,createdAt:serverTimestamp()});
+        await updateDoc(doc(db,"agents",agent.id),{totalUsers:(agent.totalUsers||0)+1});
+        setMkOwnedIds(p=>[...p,agent.id]);
+      }
+    } catch {}
+    setActiveAgent({...agent}); setMkDetail(null); newChat();
+  }
+
+  async function buyMarketplaceAgent(agent) {
+    if (!agent.price||agent.price===0){ await useMarketplaceAgent(agent); return; }
+    setBuyModalAgent(agent); setBuyPayDone(false); setShowBuyModal(true); setMkDetail(null);
+  }
+
+  async function recordAgentSale(agent) {
+    if (!agent.price||agent.price===0) return;
+    const total=agent.price, plat=Math.round(total*PLATFORM_CUT), creator=Math.round(total*CREATOR_SHARE);
+    try {
+      await addDoc(collection(db,"agentSales"),{agentId:agent.id,agentName:agent.name,buyerId:user.uid,buyerName:userData?.name||"User",creatorId:agent.userId||"",totalAmount:total,platformEarning:plat,creatorEarning:creator,createdAt:serverTimestamp(),status:"paid"});
+      if(agent.userId){
+        const cd=await getDoc(doc(db,"creators",agent.userId));
+        const cur=cd.exists()?(cd.data().walletBalance||0):0;
+        await setDoc(doc(db,"creators",agent.userId),{walletBalance:cur+creator,updatedAt:serverTimestamp()},{merge:true});
+      }
+      await updateDoc(doc(db,"agents",agent.id),{totalUsers:(agent.totalUsers||0)+1});
+    } catch(e){console.error(e);}
+  }
+
+  function shareAgent(agent) {
+    const url = window.location.origin + "?agent=" + agent.id;
+    if (navigator.share) {
+      navigator.share({ title: agent.name, text: agent.description||"", url });
+    } else {
+      navigator.clipboard?.writeText(url);
+      alert("Link copied: " + url);
+    }
+  }
+
+  function getMkFiltered() {
+    let list = mkAgents.length>0 ? [...mkAgents] : [...DEMO_AGENTS];
+    if(mkSearch.trim()){const q=mkSearch.toLowerCase();list=list.filter(a=>(a.name||"").toLowerCase().includes(q)||(a.category||"").toLowerCase().includes(q)||(a.description||"").toLowerCase().includes(q));}
+    if(mkCatFilter!=="All") list=list.filter(a=>(a.category||"")===mkCatFilter);
+    if(mkRatingFilter>0) list=list.filter(a=>(a.avgRating||0)>=mkRatingFilter);
+    if(mkPriceFilter==="free") list=list.filter(a=>!a.price||a.price===0);
+    if(mkPriceFilter==="paid") list=list.filter(a=>a.price&&a.price>0);
+    const sorted = [...list];
+    if(mkTab==="trending") sorted.sort((a,b)=>((b.totalUsers||0)+(b.avgRating||0)*10)-((a.totalUsers||0)+(a.avgRating||0)*10));
+    else if(mkTab==="new"||mkTab==="recent") sorted.sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+    else if(mkTab==="toprated") sorted.sort((a,b)=>(b.avgRating||0)-(a.avgRating||0));
+    else if(mkTab==="mostused") sorted.sort((a,b)=>(b.totalUsers||0)-(a.totalUsers||0));
+    else if(mkTab==="free") return sorted.filter(a=>!a.price||a.price===0);
+    else if(mkTab==="paid") return sorted.filter(a=>a.price&&a.price>0);
+    else if(mkTab==="recommended") sorted.sort((a,b)=>(b.avgRating||0)-(a.avgRating||0));
+    if(mkTab==="trending") return [sorted.find(a=>a.featured),...sorted.filter(a=>!a.featured)].filter(Boolean);
+    return sorted;
+  }
+
+  const DEMO_AGENTS = [
+    {id:"d1",name:"Doctor AI",emoji:"👨‍⚕️",category:"Healthcare & Medicine",description:"Health sawaalon ka jawaab, symptoms analysis aur medical guidance Hindi mein.",avgRating:4.8,reviewCount:234,totalUsers:1250,price:0,creatorName:"Kunal S",published:true,featured:true,skills:["Symptom Analysis","Medicine Info","Diet Advice","Health Tips","First Aid"]},
+    {id:"d2",name:"Kisan Mitra",emoji:"👨‍🌾",category:"Farming & Agriculture",description:"Khet, fasal, mausam aur kheti ke baare mein expert advice.",avgRating:4.9,reviewCount:567,totalUsers:3400,price:0,creatorName:"AgriTech India",published:true,featured:true,skills:["Crop Planning","Weather Tips","Pest Control","Market Rates","Soil Health"]},
+    {id:"d3",name:"Legal Eagle",emoji:"⚖️",category:"Legal & Law",description:"Indian law, RTI, consumer rights — simple language mein.",avgRating:4.6,reviewCount:189,totalUsers:890,price:49,creatorName:"LegalTech Pro",published:true,skills:["RTI Filing","Consumer Rights","Property Law","Contract Review","Court Procedure"]},
+    {id:"d4",name:"Finance Guru",emoji:"💰",category:"Finance & Banking",description:"Investment, SIP, tax saving — paisa badhao smart tarike se.",avgRating:4.7,reviewCount:312,totalUsers:2100,price:0,creatorName:"MoneyWise AI",published:true,skills:["SIP Planning","Tax Saving","Stock Tips","Budget","Loan Advice"]},
+    {id:"d5",name:"Code Master",emoji:"🧑‍💻",category:"Coding & Programming",description:"Python, JS, React, SQL — code likhna aur debug karna seekho.",avgRating:4.9,reviewCount:890,totalUsers:6700,price:99,creatorName:"DevBot Pro",published:true,featured:true,skills:["Code Review","Bug Fix","Python","JavaScript","System Design"]},
+    {id:"d6",name:"Study Planner",emoji:"📖",category:"UPSC Preparation",description:"UPSC, JEE, NEET — exam strategy aur study schedule.",avgRating:4.8,reviewCount:567,totalUsers:7800,price:0,creatorName:"StudyAI",published:true,skills:["Study Schedule","Mock Tests","Revision Tips","Exam Strategy","Subject Help"]},
+    {id:"d7",name:"Chef AI",emoji:"🧑‍🍳",category:"Cooking & Recipes",description:"Indian aur international recipes, nutrition tips.",avgRating:4.8,reviewCount:678,totalUsers:4200,price:0,creatorName:"FoodieBot",published:true,skills:["Recipes","Nutrition","Meal Planning","Cooking Tips","Diet Plans"]},
+    {id:"d8",name:"Fitness Pro",emoji:"💪",category:"Fitness & Exercise",description:"Workout plans, diet tips, weight loss guidance.",avgRating:4.6,reviewCount:345,totalUsers:2800,price:29,creatorName:"FitLife AI",published:true,skills:["Workout Plans","Diet Planning","Weight Loss","Muscle Building","Yoga"]},
+    {id:"d9",name:"Astro Guide",emoji:"🔮",category:"Astrology & Horoscope",description:"Kundali, rashifal, vastu — vedic astrology ka gyaan.",avgRating:4.4,reviewCount:234,totalUsers:1800,price:0,creatorName:"Jyotish AI",published:true,skills:["Kundali Reading","Daily Horoscope","Vastu Tips","Gemstone Advice","Career"]},
+    {id:"d10",name:"Travel Buddy",emoji:"✈️",category:"Travel & Tourism",description:"India aur duniya ke tours, budget travel tips.",avgRating:4.5,reviewCount:212,totalUsers:1560,price:0,creatorName:"TravelBot",published:true,skills:["Itinerary Planning","Budget Tips","Visa Help","Hotel Booking","Local Food"]},
+    {id:"d11",name:"Mental Coach",emoji:"🧠",category:"Mental Health & Therapy",description:"Stress, anxiety — emotional support aur coping strategies.",avgRating:4.7,reviewCount:156,totalUsers:930,price:0,creatorName:"MindCare AI",published:true,skills:["Stress Relief","Anxiety Help","Meditation","CBT Techniques","Sleep Tips"]},
+    {id:"d12",name:"Business Advisor",emoji:"🏢",category:"Business & Startup",description:"Startup ideas, business planning, marketing strategies.",avgRating:4.6,reviewCount:289,totalUsers:1670,price:79,creatorName:"BizAI Pro",published:true,skills:["Business Plan","Marketing","Funding","Team Building","Growth Hacks"]},
+  ];
+
+  // ── Creator Dashboard ─────────────────────────────────────────
+  async function loadCreatorData() {
+    if (!user) return;
+    setCreatorLoading(true);
+    try {
+      const cDoc = await getDoc(doc(db,"creators",user.uid));
+      const cd = cDoc.exists()?cDoc.data():{};
+      let myAg=[];
+      try { const as=await getDocs(query(collection(db,"agents"),where("userId","==",user.uid))); myAg=as.docs.map(d=>({id:d.id,...d.data()})); } catch {}
+      let sales=[];
+      try {
+        try {
+          const sq=query(collection(db,"agentSales"),where("creatorId","==",user.uid),orderBy("createdAt","desc"),limit(50));
+          sales=(await getDocs(sq)).docs.map(d=>({id:d.id,...d.data()}));
+        } catch {
+          const s2=await getDocs(query(collection(db,"agentSales"),where("creatorId","==",user.uid)));
+          sales=s2.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+        }
+      } catch {}
+      setCreatorSales(sales);
+      let wds=[];
+      try {
+        try {
+          const wq=query(collection(db,"withdrawals"),where("userId","==",user.uid),orderBy("createdAt","desc"),limit(20));
+          wds=(await getDocs(wq)).docs.map(d=>({id:d.id,...d.data()}));
+        } catch {
+          const w2=await getDocs(query(collection(db,"withdrawals"),where("userId","==",user.uid)));
+          wds=w2.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+        }
+      } catch {}
+      setCreatorWithdrawals(wds);
+      const totalRevenue=sales.reduce((s,p)=>s+(p.creatorEarning||0),0);
+      const commission=sales.reduce((s,p)=>s+(p.platformEarning||0),0);
+      const withdrawn=wds.filter(w=>w.status==="paid").reduce((s,w)=>s+(w.amount||0),0);
+      const pendingBal=wds.filter(w=>w.status==="pending").reduce((s,w)=>s+(w.amount||0),0);
+      setCreatorData({
+        totalAgents:myAg.length, publishedAgents:myAg.filter(a=>a.published).length,
+        totalSales:sales.length, totalRevenue, commission,
+        walletBalance:cd.walletBalance!==undefined?cd.walletBalance:Math.max(0,totalRevenue-withdrawn),
+        pendingBalance:pendingBal,
+        upiId:cd.upiId||"",
+        agentsData:myAg,
+      });
+      setCreatorUpiVal(cd.upiId||"");
+    } catch(e){console.error(e);}
+    setCreatorLoading(false);
+  }
+
+  async function saveCreatorUpi(upiId) {
+    if (!upiId.trim()) return;
+    try {
+      await setDoc(doc(db,"creators",user.uid),{upiId:upiId.trim(),updatedAt:serverTimestamp()},{merge:true});
+      setCreatorData(p=>({...p,upiId:upiId.trim()}));
+      setCreatorUpiEdit(false);
+    } catch(e){alert("UPI save failed: "+e.message);}
+  }
+
+  async function requestWithdraw() {
+    const amt=parseFloat(withdrawAmount);
+    if(!amt||amt<50){alert("Minimum ₹50!");return;}
+    if(!withdrawUpi.trim()){alert("UPI ID daalo!");return;}
+    if(creatorData&&amt>creatorData.walletBalance){alert("Insufficient balance!");return;}
+    setWithdrawLoading(true);
+    try {
+      await addDoc(collection(db,"withdrawals"),{userId:user.uid,userName:userData?.name||"",amount:amt,upiId:withdrawUpi.trim(),status:"pending",createdAt:serverTimestamp()});
+      await setDoc(doc(db,"creators",user.uid),{walletBalance:Math.max(0,(creatorData?.walletBalance||0)-amt),updatedAt:serverTimestamp()},{merge:true});
+      setCreatorData(p=>({...p,walletBalance:Math.max(0,(p?.walletBalance||0)-amt)}));
+      setWithdrawAmount("");
+      alert("✅ Withdrawal request submit! 24-48 hours mein process hogi.");
+      await loadCreatorData();
+    } catch(e){alert("Withdraw failed: "+e.message);}
+    setWithdrawLoading(false);
+  }
+
+  // ── Admin Functions ───────────────────────────────────────────
+  async function loadAdminFull() {
+    setAdminLoading(true);
+    try {
+      try { const s=await getDocs(collection(db,"agents")); setAdminAllAgents(s.docs.map(d=>({id:d.id,...d.data()}))); } catch {}
+      try { const s=await getDocs(collection(db,"agentSales")); setAdminPurchases(s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0))); } catch {}
+      try { const s=await getDocs(collection(db,"withdrawals")); setAdminWithdraws(s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0))); } catch {}
+      try { const s=await getDocs(collection(db,"platformEarnings")); setAdminTransactions(s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0))); } catch {}
+      try {
+        const cDoc=await getDoc(doc(db,"adminConfig","categories"));
+        if(cDoc.exists()) setAdminCategories(cDoc.data().list||[]);
+        const cfg=await getDoc(doc(db,"adminConfig","settings"));
+        if(cfg.exists()){setAdminCommission(cfg.data().commissionPct||20);setAdminCommissionVal(String(cfg.data().commissionPct||20));}
+        const feat=await getDoc(doc(db,"adminConfig","featured"));
+        if(feat.exists()) setAdminFeaturedIds(feat.data().ids||[]);
+      } catch {}
+    } catch(e){console.error(e);}
+    setAdminLoading(false);
+  }
+
+  async function adminApproveAgent(id){
+    await updateDoc(doc(db,"agents",id),{status:"approved",published:true,approvedAt:serverTimestamp()});
+    setAdminAllAgents(p=>p.map(a=>a.id===id?{...a,status:"approved",published:true}:a));
+    const ag=adminAllAgents.find(a=>a.id===id);
+    if(ag?.userId) await addDoc(collection(db,"notifications"),{userId:ag.userId,title:"✅ Agent Approved",body:`"${ag.name}" is now live!`,read:false,createdAt:serverTimestamp(),type:"admin"});
+  }
+  async function adminRejectAgent(id){
+    await updateDoc(doc(db,"agents",id),{status:"rejected",published:false});
+    setAdminAllAgents(p=>p.map(a=>a.id===id?{...a,status:"rejected",published:false}:a));
+  }
+  async function adminSuspendAgent(id){
+    await updateDoc(doc(db,"agents",id),{status:"suspended",published:false});
+    setAdminAllAgents(p=>p.map(a=>a.id===id?{...a,status:"suspended",published:false}:a));
+  }
+  async function adminRemoveAgent(id){
+    askConfirm({title:"Remove Agent?",message:"Permanently delete this agent.",danger:true,onConfirm:async()=>{
+      await deleteDoc(doc(db,"agents",id));
+      setAdminAllAgents(p=>p.filter(a=>a.id!==id));
+    }});
+  }
+  async function adminUpdatePrice(id,price){
+    await updateDoc(doc(db,"agents",id),{price:parseFloat(price)||0});
+    setAdminAllAgents(p=>p.map(a=>a.id===id?{...a,price:parseFloat(price)||0}:a));
+    setAdminEditPriceId(null);
+  }
+  async function adminToggleFeature(id){
+    const isFeat=adminFeaturedIds.includes(id);
+    const newIds=isFeat?adminFeaturedIds.filter(x=>x!==id):[...adminFeaturedIds,id];
+    setAdminFeaturedIds(newIds);
+    await setDoc(doc(db,"adminConfig","featured"),{ids:newIds,updatedAt:serverTimestamp()},{merge:true});
+    await updateDoc(doc(db,"agents",id),{featured:!isFeat});
+    setAdminAllAgents(p=>p.map(a=>a.id===id?{...a,featured:!isFeat}:a));
+  }
+  async function adminSaveCommission(pct){
+    const val=Math.min(100,Math.max(0,parseFloat(pct)||20));
+    await setDoc(doc(db,"adminConfig","settings"),{commissionPct:val,updatedAt:serverTimestamp()},{merge:true});
+    setAdminCommission(val); setAdminEditCommission(false);
+  }
+  async function adminApproveWithdraw(id){
+    await updateDoc(doc(db,"withdrawals",id),{status:"paid",paidAt:serverTimestamp()});
+    setAdminWithdraws(p=>p.map(w=>w.id===id?{...w,status:"paid"}:w));
+    const wd=adminWithdraws.find(w=>w.id===id);
+    if(wd?.userId) await addDoc(collection(db,"notifications"),{userId:wd.userId,title:"💸 Withdrawal Approved",body:`₹${wd.amount} sent to ${wd.upiId}`,read:false,createdAt:serverTimestamp(),type:"admin"});
+  }
+  async function adminRejectWithdraw(id){
+    const wd=adminWithdraws.find(w=>w.id===id);
+    await updateDoc(doc(db,"withdrawals",id),{status:"rejected",rejectedAt:serverTimestamp()});
+    setAdminWithdraws(p=>p.map(w=>w.id===id?{...w,status:"rejected"}:w));
+    if(wd?.userId&&wd?.amount){
+      const cd=await getDoc(doc(db,"creators",wd.userId));
+      const cur=cd.exists()?(cd.data().walletBalance||0):0;
+      await setDoc(doc(db,"creators",wd.userId),{walletBalance:cur+wd.amount,updatedAt:serverTimestamp()},{merge:true});
+    }
+  }
+  async function adminAddCategory(name){
+    if(!name.trim())return;
+    const updated=[...adminCategories,name.trim()];
+    await setDoc(doc(db,"adminConfig","categories"),{list:updated,updatedAt:serverTimestamp()},{merge:true});
+    setAdminCategories(updated); setAdminNewCat("");
+  }
+  async function adminSaveEditCat(oldName,newName){
+    if(!newName.trim())return;
+    const updated=adminCategories.map(c=>c===oldName?newName.trim():c);
+    await setDoc(doc(db,"adminConfig","categories"),{list:updated,updatedAt:serverTimestamp()},{merge:true});
+    setAdminCategories(updated); setAdminCatEditId(null); setAdminCatEditVal("");
+  }
+  async function adminRemoveCategory(name){
+    const updated=adminCategories.filter(c=>c!==name);
+    await setDoc(doc(db,"adminConfig","categories"),{list:updated,updatedAt:serverTimestamp()},{merge:true});
+    setAdminCategories(updated);
+  }
+  async function sendNotification(){
+    if(!notifTitle.trim()||!notifBody.trim())return;
+    setNotifLoading(true);
+    try {
+      const us=await getDocs(collection(db,"users"));
+      for(const ud of us.docs.slice(0,200))
+        await addDoc(collection(db,"notifications"),{userId:ud.id,title:notifTitle.trim(),body:notifBody.trim(),read:false,createdAt:serverTimestamp(),type:"broadcast"});
+      setNotifTitle("");setNotifBody("");
+      alert("✅ Notification sent to "+Math.min(us.size,200)+" users!");
+    } catch(e){alert("Failed: "+e.message);}
+    setNotifLoading(false);
+  }
+  async function sendEmailBroadcast(){
+    if(!broadcastSubject.trim()||!broadcastBody.trim())return;
+    setBroadcastLoading(true);
+    try {
+      await addDoc(collection(db,"emailBroadcasts"),{
+        subject:broadcastSubject.trim(),body:broadcastBody.trim(),
+        target:broadcastTarget, sentBy:user.uid,
+        createdAt:serverTimestamp(),status:"queued",recipientCount:adminUsers.length
+      });
+      setBroadcastSent(true); setBroadcastSubject("");setBroadcastBody("");
+      setTimeout(()=>setBroadcastSent(false),4000);
+    } catch(e){alert("Failed: "+e.message);}
+    setBroadcastLoading(false);
+  }
+
   async function loadProjects() {
     setProjLoad(true);
     try {
@@ -3605,9 +4171,11 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 { id: "chat", icon: <Ico.Chat />, label: "Chat" },
                 { id: "history", icon: <Ico.History />, label: "History" },
                 { id: "projects", icon: <Ico.Project />, label: "Projects" },
+                { id: "agents", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>, label: "Agents" },
+                { id: "marketplace", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>, label: "Marketplace" },
                 { id: "settings", icon: <Ico.Settings />, label: "Settings" },
               ].map(item => (
-                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
+                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); if(item.id==="marketplace") loadMarketplace(); if(item.id==="agents") { setAgentTab("my"); } }}>
                   {item.icon}<span>{item.label}</span>
                 </div>
               ))}
@@ -3622,33 +4190,13 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 </div>
                 </>
               )}
-              {/* ── MY AGENTS SECTION ── */}
-              <div className="sb-section" style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span>🤖 My Agents</span>
-                <span onClick={() => { setEditingAgent(null); setAgentForm({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" }); setShowAgentBuilder(true); }}
-                  style={{ fontSize: 18, cursor: "pointer", color: "var(--accent)", fontWeight: 700, lineHeight: 1 }}>+</span>
-              </div>
-              {agents.length === 0 && (
-                <div style={{ fontSize: 12, color: "var(--mt)", padding: "6px 14px" }}>Koi agent nahi — + se banao</div>
-              )}
-              {agents.map(agent => (
-                <div key={agent.id} className={"sb-item" + (activeAgent?.id === agent.id ? " active" : "")}
-                  style={{ justifyContent: "space-between" }}>
-                  <span onClick={() => startAgent(agent)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-                    <span style={{ fontSize: 18 }}>{agent.emoji}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
-                  </span>
-                  <span style={{ display: "flex", gap: 4 }}>
-                    <span onClick={() => { setEditingAgent(agent); setAgentForm({ name: agent.name, emoji: agent.emoji, instructions: agent.instructions, tone: agent.tone, lang: agent.lang }); setShowAgentBuilder(true); }}
-                      style={{ fontSize: 12, color: "var(--mt)", cursor: "pointer", padding: "2px 5px" }}>✏️</span>
-                    <span onClick={() => deleteAgent(agent.id)}
-                      style={{ fontSize: 12, color: "#ef4444", cursor: "pointer", padding: "2px 5px" }}>🗑</span>
-                  </span>
-                </div>
-              ))}
+              {/* Active Agent Banner */}
               {activeAgent && (
-                <div onClick={stopAgent} style={{ fontSize: 12, color: "#ef4444", padding: "4px 14px", cursor: "pointer" }}>
-                  ✕ {activeAgent.emoji} {activeAgent.name} band karo
+                <div style={{ margin:"8px 14px", padding:"8px 12px", background:"var(--glow)", border:"1px solid var(--accent)", borderRadius:12, display:"flex", alignItems:"center", gap:8, justifyContent:"space-between" }}>
+                  <span style={{ fontSize:13, fontWeight:600, color:"var(--accent)" }}>
+                    {activeAgent.avatarImg ? <img src={activeAgent.avatarImg} style={{width:20,height:20,borderRadius:"50%",objectFit:"cover"}} alt="" /> : activeAgent.emoji||"🤖"} {activeAgent.name}
+                  </span>
+                  <span onClick={stopAgent} style={{ fontSize:11, color:"#ef4444", cursor:"pointer" }}>✕ Stop</span>
                 </div>
               )}
               {pinnedHists.length > 0 && (
@@ -3988,7 +4536,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
         </button>
         <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <SaraswatiLogo size={26} animate={false} state="idle" />
-          {page === "chat" ? (activeAgent ? `${activeAgent.emoji} ${activeAgent.name}` : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : page === "cmdcenter" ? "⚡ AI Command Center" : "Saraswati AI"}
+          {page === "chat" ? (activeAgent ? `${activeAgent.emoji} ${activeAgent.name}` : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : page === "cmdcenter" ? "⚡ AI Command" : page === "agents" ? "🤖 Agents" : page === "marketplace" ? "🛍 Marketplace" : "Saraswati AI"}
         </div>
         {page === "chat" && (
           <>
@@ -4449,6 +4997,25 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
               </div>
             )}
 
+            <div className="sec" style={{ marginTop: 8 }}>Creator</div>
+            <div className="scard" style={{ marginBottom: 8 }}>
+              <div className="srow" style={{ cursor:"pointer" }} onClick={()=>{ setShowCreatorDash(true); loadCreatorData(); }}>
+                <div className="sicon">🚀</div>
+                <div className="stxt"><div className="slbl">Creator Dashboard</div><div className="sdesc">Agents, Sales, Revenue, Wallet</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+              <div className="srow" style={{ cursor:"pointer" }} onClick={()=>{ setPage("marketplace"); setShowSb(false); loadMarketplace(); }}>
+                <div className="sicon">🛍</div>
+                <div className="stxt"><div className="slbl">Marketplace</div><div className="sdesc">Browse aur buy agents</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+              <div className="srow" style={{ cursor:"pointer" }} onClick={()=>{ setPage("agents"); setShowSb(false); }}>
+                <div className="sicon">🤖</div>
+                <div className="stxt"><div className="slbl">My Agents</div><div className="sdesc">Create aur manage agents</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+            </div>
+
             <div className="sec" style={{ marginTop: 8 }}>Account</div>
             <div className="scard">
               <div className="srow" style={{ cursor: "pointer" }} onClick={() => setShowChangePw(true)}>
@@ -4495,6 +5062,825 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                 Log out
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════
+           AGENTS PAGE
+      ══════════════════════════════════════════════════════════ */}
+      {page === "agents" && (
+        <div className="page">
+          <div className="page-inner">
+            {/* Tab switcher */}
+            <div style={{ display:"flex", gap:8, marginBottom:18 }}>
+              {[{id:"my",label:"🤖 My Agents"},{id:"create",label:"✨ Create Agent"}].map(t=>(
+                <button key={t.id} onClick={()=>{setAgentTab(t.id);if(t.id==="create"){setAgentCreateForm({name:"",category:""});setAgentGenData(null);setAgentEditId(null);setAgentAvatarFile(null);setAgentAvatarPreview(null);setAgentPdfFile(null);setAgentPdfName("");setAgentPdfText("");}}}
+                  style={{flex:1,padding:"11px",borderRadius:16,border:"none",fontWeight:700,fontSize:14,fontFamily:"Inter,sans-serif",cursor:"pointer",
+                    background:agentTab===t.id?"var(--grad)":"var(--sf2)",color:agentTab===t.id?"#fff":"var(--mt)",
+                    boxShadow:agentTab===t.id?"0 4px 16px var(--glow)":"none",transition:"all .2s"}}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* ── MY AGENTS TAB ── */}
+            {agentTab==="my" && (
+              <>
+                {agents.length===0?(
+                  <div style={{textAlign:"center",padding:"40px 20px",color:"var(--mt)"}}>
+                    <div style={{fontSize:56,marginBottom:16}}>🤖</div>
+                    <div style={{fontSize:16,fontWeight:600,color:"var(--tx)",marginBottom:8}}>Koi Agent Nahi Hai</div>
+                    <div style={{fontSize:13,lineHeight:1.7,marginBottom:20}}>
+                      Create Agent tab se apna pehla AI agent banao!<br/>
+                      <span style={{color:"var(--accent)"}}>Bas naam aur category — baaki AI karta hai ✨</span>
+                    </div>
+                    <button onClick={()=>setAgentTab("create")}
+                      style={{background:"var(--grad)",color:"#fff",border:"none",borderRadius:14,padding:"12px 24px",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                      + Create First Agent
+                    </button>
+                  </div>
+                ):(
+                  agents.map(agent=>(
+                    <div key={agent.id} style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:18,padding:"16px",marginBottom:12,position:"relative"}}>
+                      {/* Top row */}
+                      <div style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:10}}>
+                        {/* Avatar */}
+                        <div style={{width:58,height:58,borderRadius:18,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0,boxShadow:"0 4px 14px var(--glow)",overflow:"hidden"}}>
+                          {agent.avatarImg ? <img src={agent.avatarImg} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" /> : (agent.emoji||"🤖")}
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:2}}>{agent.name}</div>
+                          <div style={{fontSize:11,color:"var(--accent)",fontWeight:600,marginBottom:2}}>{agent.category}</div>
+                          {/* FIX: Created Date */}
+                          <div style={{fontSize:10,color:"var(--mt)",marginBottom:4}}>
+                            Created: {agent.createdAt?.seconds ? new Date(agent.createdAt.seconds*1000).toLocaleDateString("en-IN") : "Today"}
+                          </div>
+                          {agent.description&&<div style={{fontSize:12,color:"var(--mt)",lineHeight:1.5,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{agent.description}</div>}
+                        </div>
+                        {/* Status badge */}
+                        <div style={{padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700,
+                          background:agent.published?"#22c55e20":"var(--sf2)",
+                          color:agent.published?"#22c55e":"var(--mt)",
+                          border:"1px solid "+(agent.published?"#22c55e50":"var(--bd)"),whiteSpace:"nowrap"}}>
+                          {agent.published?"🌐 Live":"⚪ Draft"}
+                        </div>
+                      </div>
+
+                      {/* Skills */}
+                      {agent.skills&&agent.skills.length>0&&(
+                        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+                          {agent.skills.slice(0,4).map((sk,si)=>(
+                            <span key={si} style={{padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:600,background:"var(--sf2)",border:"1px solid var(--bd)",color:"var(--mt)"}}>{sk}</span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Extra fields */}
+                      {(agent.expertise||agent.conversationStyle)&&(
+                        <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                          {agent.expertise&&<span style={{fontSize:10,color:"var(--mt)",background:"var(--sf2)",padding:"2px 8px",borderRadius:10}}>🎯 {agent.expertise}</span>}
+                          {agent.conversationStyle&&<span style={{fontSize:10,color:"var(--mt)",background:"var(--sf2)",padding:"2px 8px",borderRadius:10}}>💬 {agent.conversationStyle}</span>}
+                        </div>
+                      )}
+
+                      {/* PDF badge */}
+                      {agent.pdfName&&(
+                        <div style={{fontSize:10,color:"#3b82f6",marginBottom:8}}>📄 PDF: {agent.pdfName}</div>
+                      )}
+
+                      {/* Action buttons */}
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        <button onClick={()=>{setActiveAgent(agent);newChat();}}
+                          style={{flex:1,padding:"8px",borderRadius:10,border:"none",background:"var(--grad)",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",minWidth:70}}>
+                          ▶ Open
+                        </button>
+                        <button onClick={()=>{
+                          setAgentEditId(agent.id);
+                          setAgentCreateForm({name:agent.name,category:agent.category||""});
+                          setAgentGenData({description:agent.description,instructions:agent.instructions,systemPrompt:agent.systemPrompt,welcomeMessage:agent.welcomeMessage,personality:agent.personality,language:agent.language,expertise:agent.expertise,conversationStyle:agent.conversationStyle,suggestedAvatar:agent.emoji,skills:agent.skills||[]});
+                          setAgentAvatarPreview(agent.avatarImg||null);
+                          setAgentTab("create");
+                        }}
+                          style={{padding:"8px 12px",borderRadius:10,border:"1px solid var(--bd)",background:"var(--sf2)",color:"var(--tx)",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                          ✏️ Edit
+                        </button>
+                        <button onClick={()=>toggleAgentPublish(agent.id,agent.published)}
+                          style={{padding:"8px 12px",borderRadius:10,border:"1px solid "+(agent.published?"#22c55e50":"var(--bd)"),background:agent.published?"#22c55e15":"var(--sf2)",color:agent.published?"#22c55e":"var(--mt)",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                          {agent.published?"📤 Unpublish":"🌐 Publish"}
+                        </button>
+                        <button onClick={()=>askConfirm({title:"Delete Agent?",message:`"${agent.name}" permanently delete hoga.`,onConfirm:()=>deleteAgent(agent.id)})}
+                          style={{padding:"8px 10px",borderRadius:10,border:"1px solid #ef444430",background:"none",color:"#ef4444",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                          🗑
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </>
+            )}
+
+            {/* ── CREATE AGENT TAB ── */}
+            {agentTab==="create" && (
+              <div>
+                <div style={{fontSize:13,color:"var(--mt)",marginBottom:16,lineHeight:1.6}}>
+                  {agentEditId?"Agent ko edit karo 👇":"Sirf naam aur category do — AI baaki sab generate karega! ✨"}
+                </div>
+
+                {/* Agent Name */}
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:6,letterSpacing:".05em",textTransform:"uppercase"}}>Agent Name *</div>
+                  <input className="inp" placeholder="Jaise: Doctor AI, Kisan Mitra, Legal Expert..."
+                    value={agentCreateForm.name} onChange={e=>setAgentCreateForm(f=>({...f,name:e.target.value}))} style={{width:"100%"}} />
+                </div>
+
+                {/* Category */}
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:6,letterSpacing:".05em",textTransform:"uppercase"}}>Category *</div>
+                  {agentCreateForm.category&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",borderRadius:12,background:"var(--glow)",border:"1.5px solid var(--accent)",marginBottom:8}}>
+                      <span style={{fontSize:13,fontWeight:600,color:"var(--accent)",flex:1}}>✓ {agentCreateForm.category}</span>
+                      <button onClick={()=>setAgentCreateForm(f=>({...f,category:""}))} style={{background:"none",border:"none",color:"var(--mt)",cursor:"pointer",fontSize:14,padding:2}}>✕</button>
+                    </div>
+                  )}
+                  <div style={{position:"relative",marginBottom:8}}>
+                    <svg style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input placeholder="Category search karo... (100+ options)"
+                      value={agentCatSearch} onChange={e=>setAgentCatSearch(e.target.value)}
+                      style={{width:"100%",padding:"9px 12px 9px 34px",borderRadius:12,border:"1.5px solid var(--bd)",background:"var(--sf2)",color:"var(--tx)",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none",boxSizing:"border-box"}} />
+                  </div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:160,overflowY:"auto",padding:"4px 0"}}>
+                    {ALL_CATEGORIES.filter(cat=>cat.toLowerCase().includes(agentCatSearch.toLowerCase())).map(cat=>(
+                      <button key={cat} onClick={()=>{setAgentCreateForm(f=>({...f,category:cat}));setAgentCatSearch("");}}
+                        style={{padding:"5px 12px",borderRadius:20,border:"1.5px solid "+(agentCreateForm.category===cat?"var(--accent)":"var(--bd)"),
+                          background:agentCreateForm.category===cat?"var(--glow)":"var(--sf2)",
+                          color:agentCreateForm.category===cat?"var(--accent)":"var(--mt)",
+                          fontSize:11,fontWeight:agentCreateForm.category===cat?700:400,cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap"}}>
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* FIX: Avatar Upload */}
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:6,letterSpacing:".05em",textTransform:"uppercase"}}>Avatar (Optional)</div>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{width:56,height:56,borderRadius:16,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,overflow:"hidden",flexShrink:0}}>
+                      {agentAvatarPreview?<img src={agentAvatarPreview} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />:(agentGenData?.suggestedAvatar||"🤖")}
+                    </div>
+                    <div style={{flex:1}}>
+                      <label style={{display:"inline-block",padding:"8px 16px",borderRadius:10,border:"1.5px solid var(--bd)",background:"var(--sf2)",color:"var(--mt)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                        📸 Upload Photo
+                        <input type="file" accept="image/*" onChange={handleAgentAvatar} style={{display:"none"}} />
+                      </label>
+                      {agentAvatarPreview&&<button onClick={()=>{setAgentAvatarFile(null);setAgentAvatarPreview(null);}} style={{marginLeft:8,background:"none",border:"none",color:"#ef4444",fontSize:12,cursor:"pointer"}}>Remove</button>}
+                      <div style={{fontSize:10,color:"var(--mt)",marginTop:4}}>Ya AI se emoji avatar auto-generate hoga</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* FIX: PDF Knowledge Base */}
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:6,letterSpacing:".05em",textTransform:"uppercase"}}>PDF Knowledge Base (Optional)</div>
+                  <label style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:12,border:"1.5px dashed var(--bd)",background:"var(--sf2)",cursor:"pointer"}}>
+                    <span style={{fontSize:24}}>📄</span>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:"var(--tx)"}}>{agentPdfName||"Upload PDF file"}</div>
+                      <div style={{fontSize:11,color:"var(--mt)"}}>Agent is PDF se knowledge lega</div>
+                    </div>
+                    <input type="file" accept=".pdf,.txt,.doc" onChange={handleAgentPdf} style={{display:"none"}} />
+                  </label>
+                  {agentPdfName&&<div style={{marginTop:6,display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:11,color:"#22c55e"}}>✓ {agentPdfName} loaded</span>
+                    <button onClick={()=>{setAgentPdfFile(null);setAgentPdfName("");setAgentPdfText("");}} style={{background:"none",border:"none",color:"#ef4444",fontSize:11,cursor:"pointer"}}>Remove</button>
+                  </div>}
+                </div>
+
+                {/* Generate Button */}
+                {!agentGenData&&(
+                  <button onClick={async()=>{
+                    if(!agentCreateForm.name.trim()){alert("Agent ka naam daalo!");return;}
+                    if(!agentCreateForm.category.trim()){alert("Category choose karo!");return;}
+                    setAgentGenLoading(true);
+                    const data=await generateAgentData(agentCreateForm.name,agentCreateForm.category);
+                    setAgentGenData(data);
+                    setAgentGenLoading(false);
+                  }} disabled={agentGenLoading||!agentCreateForm.name.trim()||!agentCreateForm.category.trim()}
+                    style={{width:"100%",padding:"13px",borderRadius:14,border:"none",
+                      background:(!agentCreateForm.name.trim()||!agentCreateForm.category.trim())?"var(--sf2)":"var(--grad)",
+                      color:(!agentCreateForm.name.trim()||!agentCreateForm.category.trim())?"var(--mt)":"#fff",
+                      fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",
+                      boxShadow:(!agentCreateForm.name.trim()||!agentCreateForm.category.trim())?"none":"0 4px 20px var(--glow)",
+                      marginBottom:16,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                    {agentGenLoading?(<><SaraswatiLogo size={18} animate={true} state="thinking" /> AI Generate kar raha hai...</>):<>✨ Generate with AI</>}
+                  </button>
+                )}
+
+                {/* Generated Preview */}
+                {agentGenData&&(
+                  <div style={{background:"var(--sf2)",borderRadius:16,padding:16,marginBottom:16,border:"1px solid var(--bd)"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,paddingBottom:12,borderBottom:"1px solid var(--bd)"}}>
+                      <div style={{width:52,height:52,borderRadius:14,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,overflow:"hidden"}}>
+                        {agentAvatarPreview?<img src={agentAvatarPreview} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />:(agentGenData.suggestedAvatar||"🤖")}
+                      </div>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:15,fontWeight:700,color:"var(--tx)"}}>{agentCreateForm.name}</div>
+                        <div style={{fontSize:11,color:"var(--accent)",fontWeight:600}}>{agentCreateForm.category}</div>
+                      </div>
+                      <div style={{padding:"3px 10px",borderRadius:20,background:"#22c55e20",color:"#22c55e",fontSize:10,fontWeight:700,border:"1px solid #22c55e40"}}>AI Generated ✓</div>
+                    </div>
+
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      {[
+                        {label:"Description",val:agentGenData.description},
+                        {label:"Instructions",val:agentGenData.instructions,mono:true},
+                        {label:"System Prompt",val:agentGenData.systemPrompt,mono:true},
+                        {label:"Welcome Message",val:agentGenData.welcomeMessage,italic:true},
+                        {label:"Expertise",val:agentGenData.expertise},
+                        {label:"Conversation Style",val:agentGenData.conversationStyle},
+                      ].filter(x=>x.val).map((item,i)=>(
+                        <div key={i}>
+                          <div style={{fontSize:10,fontWeight:700,color:"var(--mt)",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>{item.label}</div>
+                          <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.6,background:item.mono?"var(--sf)":"none",borderRadius:item.mono?8:0,padding:item.mono?"8px 10px":0,border:item.mono?"1px solid var(--bd)":"none",fontFamily:item.mono?"monospace":"inherit",fontStyle:item.italic?"italic":"normal"}}>{item.val}</div>
+                        </div>
+                      ))}
+                      <div style={{display:"flex",gap:10}}>
+                        <div style={{flex:1}}><div style={{fontSize:10,fontWeight:700,color:"var(--mt)",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>Personality</div><div style={{fontSize:12,color:"var(--tx)"}}>{agentGenData.personality}</div></div>
+                        <div style={{flex:1}}><div style={{fontSize:10,fontWeight:700,color:"var(--mt)",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>Language</div><div style={{fontSize:12,color:"var(--tx)"}}>{agentGenData.language}</div></div>
+                      </div>
+                      {agentGenData.skills&&agentGenData.skills.length>0&&(
+                        <div>
+                          <div style={{fontSize:10,fontWeight:700,color:"var(--mt)",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Skills</div>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                            {agentGenData.skills.map((sk,si)=>(
+                              <span key={si} style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:600,background:"var(--glow)",border:"1px solid var(--accent)",color:"var(--accent)"}}>{sk}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <button onClick={async()=>{setAgentGenData(null);setAgentGenLoading(true);const d=await generateAgentData(agentCreateForm.name,agentCreateForm.category);setAgentGenData(d);setAgentGenLoading(false);}}
+                      style={{marginTop:12,width:"100%",padding:"8px",borderRadius:10,border:"1px solid var(--bd)",background:"none",color:"var(--mt)",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                      🔄 Regenerate
+                    </button>
+                  </div>
+                )}
+
+                {/* Save + Cancel */}
+                {agentGenData&&(
+                  <>
+                    <button onClick={()=>saveNewAgent(agentCreateForm.name,agentCreateForm.category,agentGenData)} disabled={agentSaving}
+                      style={{width:"100%",padding:"14px",borderRadius:14,border:"none",background:"var(--grad)",color:"#fff",fontSize:15,fontWeight:700,cursor:agentSaving?"not-allowed":"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 4px 20px var(--glow)",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                      {agentSaving?(<><SaraswatiLogo size={18} animate={true} state="thinking" /> Saving...</>):(agentEditId?"✅ Update Agent":"✅ Create Agent")}
+                    </button>
+                    <button onClick={()=>{setAgentGenData(null);setAgentCreateForm({name:"",category:""});setAgentEditId(null);setAgentCatSearch("");setAgentAvatarFile(null);setAgentAvatarPreview(null);setAgentPdfFile(null);setAgentPdfName("");setAgentPdfText("");}}
+                      style={{width:"100%",padding:"11px",borderRadius:14,border:"1px solid var(--bd)",background:"none",color:"var(--mt)",fontSize:14,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                      Cancel
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════
+           MARKETPLACE PAGE
+      ══════════════════════════════════════════════════════════ */}
+      {page === "marketplace" && (() => {
+        const MK_TABS = [
+          {id:"trending",label:"🔥 Trending"},{id:"new",label:"✨ New"},
+          {id:"toprated",label:"⭐ Top Rated"},{id:"mostused",label:"👥 Most Used"},
+          {id:"free",label:"🆓 Free"},{id:"paid",label:"💎 Paid"},
+          {id:"recent",label:"🕐 Recent"},{id:"recommended",label:"💡 For You"},
+        ];
+        const displayAgents = getMkFiltered();
+        const allCats = ["All",...Array.from(new Set([...DEMO_AGENTS,...mkAgents].map(a=>a.category).filter(Boolean)))];
+        return (
+          <div className="page">
+            <div className="page-inner" style={{paddingTop:8}}>
+              {/* Search */}
+              <div style={{position:"relative",marginBottom:12}}>
+                <svg style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input placeholder="Search agents, categories..." value={mkSearch} onChange={e=>setMkSearch(e.target.value)}
+                  style={{width:"100%",padding:"11px 14px 11px 42px",borderRadius:16,border:"1.5px solid var(--bd)",background:"var(--sf)",color:"var(--tx)",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none",boxSizing:"border-box"}}
+                  onFocus={e=>e.target.style.borderColor="var(--accent)"} onBlur={e=>e.target.style.borderColor="var(--bd)"} />
+                {mkSearch&&<button onClick={()=>setMkSearch("")} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"var(--mt)",cursor:"pointer",fontSize:16,padding:4}}>✕</button>}
+              </div>
+
+              {/* Filters */}
+              <div style={{display:"flex",gap:8,marginBottom:10,overflowX:"auto",paddingBottom:4}}>
+                <select value={mkRatingFilter} onChange={e=>setMkRatingFilter(Number(e.target.value))}
+                  style={{padding:"7px 12px",borderRadius:20,border:"1.5px solid var(--bd)",background:"var(--sf2)",color:"var(--tx)",fontSize:12,fontFamily:"Inter,sans-serif",cursor:"pointer",outline:"none",flexShrink:0}}>
+                  <option value={0}>⭐ All Ratings</option>
+                  <option value={4}>⭐ 4+</option>
+                  <option value={4.5}>⭐ 4.5+</option>
+                  <option value={4.8}>⭐ 4.8+</option>
+                </select>
+                {["all","free","paid"].map(p=>(
+                  <button key={p} onClick={()=>setMkPriceFilter(p)}
+                    style={{flexShrink:0,padding:"7px 14px",borderRadius:20,border:"1.5px solid "+(mkPriceFilter===p?"var(--accent)":"var(--bd)"),
+                      background:mkPriceFilter===p?"var(--glow)":"var(--sf2)",color:mkPriceFilter===p?"var(--accent)":"var(--mt)",
+                      fontSize:12,fontWeight:mkPriceFilter===p?700:400,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                    {p==="all"?"🔘 All":p==="free"?"🆓 Free":"💎 Paid"}
+                  </button>
+                ))}
+              </div>
+
+              {/* Category pills */}
+              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:8,marginBottom:10}}>
+                {allCats.slice(0,15).map(cat=>(
+                  <button key={cat} onClick={()=>setMkCatFilter(cat)}
+                    style={{flexShrink:0,padding:"5px 12px",borderRadius:20,border:"1.5px solid "+(mkCatFilter===cat?"var(--accent)":"var(--bd)"),
+                      background:mkCatFilter===cat?"var(--glow)":"none",color:mkCatFilter===cat?"var(--accent)":"var(--mt)",
+                      fontSize:11,fontWeight:mkCatFilter===cat?700:400,cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap"}}>
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tabs */}
+              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:14}}>
+                {MK_TABS.map(tab=>(
+                  <button key={tab.id} onClick={()=>setMkTab(tab.id)}
+                    style={{flexShrink:0,padding:"8px 14px",borderRadius:20,
+                      background:mkTab===tab.id?"var(--grad)":"var(--sf2)",border:"none",
+                      color:mkTab===tab.id?"#fff":"var(--mt)",fontSize:12,fontWeight:mkTab===tab.id?700:400,
+                      cursor:"pointer",fontFamily:"Inter,sans-serif",
+                      boxShadow:mkTab===tab.id?"0 4px 14px var(--glow)":"none",transition:"all .2s"}}>
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Agent Cards */}
+              {mkLoading?(
+                <div style={{textAlign:"center",padding:40,color:"var(--mt)"}}>
+                  <SaraswatiLogo size={40} animate={true} state="thinking" />
+                  <div style={{marginTop:12,fontSize:14}}>Loading marketplace...</div>
+                </div>
+              ):displayAgents.length===0?(
+                <div style={{textAlign:"center",padding:40,color:"var(--mt)"}}>
+                  <div style={{fontSize:48,marginBottom:12}}>🔍</div>
+                  <div style={{fontSize:15,fontWeight:600,color:"var(--tx)",marginBottom:8}}>Koi agent nahi mila</div>
+                  <div style={{fontSize:13}}>Search ya filter change karo</div>
+                </div>
+              ):(
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  {displayAgents.map(agent=>(
+                    <div key={agent.id}
+                      style={{background:"var(--sf)",border:"1px solid "+(agent.featured?"var(--accent)":"var(--bd)"),borderRadius:20,padding:16,cursor:"pointer",transition:"border-color .2s,transform .15s",position:"relative"}}
+                      onClick={()=>{setMkDetail(agent);loadAgentReviews(agent.id);setMkReviewText("");setMkReviewRating(5);}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--accent)";e.currentTarget.style.transform="translateY(-1px)";}}
+                      onMouseLeave={e=>{e.currentTarget.style.borderColor=agent.featured?"var(--accent)":"var(--bd)";e.currentTarget.style.transform="translateY(0)";}}>
+                      {/* Featured badge */}
+                      {agent.featured&&<div style={{position:"absolute",top:10,left:10,padding:"2px 8px",borderRadius:20,background:"var(--grad)",color:"#fff",fontSize:9,fontWeight:700}}>⭐ FEATURED</div>}
+                      {/* Price badge */}
+                      <div style={{position:"absolute",top:14,right:14,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
+                        background:(!agent.price||agent.price===0)?"#22c55e20":"var(--glow)",
+                        color:(!agent.price||agent.price===0)?"#22c55e":"var(--accent)",
+                        border:"1px solid "+((!agent.price||agent.price===0)?"#22c55e40":"var(--accent)")}}>
+                        {(!agent.price||agent.price===0)?"FREE":"₹"+agent.price}
+                      </div>
+
+                      <div style={{display:"flex",gap:14,alignItems:"flex-start",marginTop:agent.featured?10:0}}>
+                        <div style={{width:58,height:58,borderRadius:18,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,flexShrink:0,boxShadow:"0 4px 16px var(--glow)",overflow:"hidden"}}>
+                          {agent.avatarImg?<img src={agent.avatarImg} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />:(agent.emoji||"🤖")}
+                        </div>
+                        <div style={{flex:1,minWidth:0,paddingRight:60}}>
+                          <div style={{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:2}}>{agent.name}</div>
+                          <div style={{fontSize:11,color:"var(--accent)",fontWeight:600,marginBottom:4}}>{agent.category}</div>
+                          <div style={{fontSize:12,color:"var(--mt)",lineHeight:1.5,marginBottom:8,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{agent.description}</div>
+                          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:4}}>
+                              <span style={{color:"#f59e0b",fontSize:13}}>★</span>
+                              <span style={{fontSize:12,fontWeight:700,color:"var(--tx)"}}>{(agent.avgRating||4.5).toFixed(1)}</span>
+                              <span style={{fontSize:11,color:"var(--mt)"}}>({agent.reviewCount||0})</span>
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:4}}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                              <span style={{fontSize:11,color:"var(--mt)"}}>{(agent.totalUsers||0).toLocaleString()} users</span>
+                            </div>
+                            <span style={{fontSize:11,color:"var(--mt)"}}>by {agent.creatorName||"Creator"}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {agent.skills&&agent.skills.length>0&&(
+                        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:10}}>
+                          {agent.skills.slice(0,4).map((sk,si)=>(
+                            <span key={si} style={{padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:600,background:"var(--sf2)",border:"1px solid var(--bd)",color:"var(--mt)"}}>{sk}</span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div style={{display:"flex",gap:6,marginTop:12}}>
+                        <button onClick={e=>{e.stopPropagation();setMkDetail(agent);loadAgentReviews(agent.id);setMkReviewText("");setMkReviewRating(5);}}
+                          style={{flex:1,padding:"8px",borderRadius:10,border:"1px solid var(--bd)",background:"var(--sf2)",color:"var(--tx)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                          👁 Details
+                        </button>
+                        {(!agent.price||agent.price===0)?(
+                          <button onClick={e=>{e.stopPropagation();useMarketplaceAgent(agent);}}
+                            style={{flex:1,padding:"8px",borderRadius:10,border:"none",background:"var(--grad)",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 3px 12px var(--glow)"}}>
+                            ▶ Use Free
+                          </button>
+                        ):(
+                          <button onClick={e=>{e.stopPropagation();buyMarketplaceAgent(agent);}}
+                            style={{flex:1,padding:"8px",borderRadius:10,border:"none",background:"var(--grad)",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 3px 12px var(--glow)"}}>
+                            🛒 Buy ₹{agent.price}
+                          </button>
+                        )}
+                        <button onClick={e=>{e.stopPropagation();shareAgent(agent);}}
+                          style={{padding:"8px 10px",borderRadius:10,border:"1px solid var(--bd)",background:"var(--sf2)",color:"var(--mt)",fontSize:14,cursor:"pointer"}}>
+                          🔗
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MARKETPLACE DETAIL MODAL */}
+      {mkDetail&&(
+        <div className="mbg" onClick={()=>setMkDetail(null)} style={{zIndex:999}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxHeight:"90vh",overflowY:"auto",textAlign:"left",maxWidth:480,padding:0,borderRadius:24,overflow:"hidden"}}>
+            <div style={{background:"var(--grad)",padding:"24px 20px 20px",textAlign:"center",position:"relative"}}>
+              <button onClick={()=>setMkDetail(null)} style={{position:"absolute",top:14,right:14,background:"#ffffff30",border:"none",borderRadius:"50%",width:32,height:32,color:"#fff",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              <div style={{width:72,height:72,borderRadius:22,background:"#ffffff30",display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,margin:"0 auto 10px",overflow:"hidden"}}>
+                {mkDetail.avatarImg?<img src={mkDetail.avatarImg} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />:(mkDetail.emoji||"🤖")}
+              </div>
+              <div style={{fontSize:20,fontWeight:800,color:"#fff",marginBottom:2}}>{mkDetail.name}</div>
+              <div style={{fontSize:12,color:"#ffffff80",marginBottom:12}}>{mkDetail.category} · by {mkDetail.creatorName||"Creator"}</div>
+              <div style={{display:"flex",gap:16,justifyContent:"center"}}>
+                <div style={{textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:"#fff"}}><span style={{color:"#fcd34d"}}>★</span> {(mkDetail.avgRating||4.5).toFixed(1)}</div><div style={{fontSize:10,color:"#ffffff70"}}>{mkDetail.reviewCount||0} reviews</div></div>
+                <div style={{width:1,height:30,background:"#ffffff30"}}/>
+                <div style={{textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:"#fff"}}>{(mkDetail.totalUsers||0).toLocaleString()}</div><div style={{fontSize:10,color:"#ffffff70"}}>users</div></div>
+                <div style={{width:1,height:30,background:"#ffffff30"}}/>
+                <div style={{textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:"#fff"}}>{(!mkDetail.price||mkDetail.price===0)?"FREE":"₹"+mkDetail.price}</div><div style={{fontSize:10,color:"#ffffff70"}}>price</div></div>
+              </div>
+            </div>
+            <div style={{padding:"18px"}}>
+              <div style={{fontSize:14,color:"var(--tx)",lineHeight:1.7,marginBottom:16}}>{mkDetail.description}</div>
+              {mkDetail.expertise&&<div style={{marginBottom:12}}><div style={{fontSize:10,fontWeight:700,color:"var(--mt)",marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Expertise</div><div style={{fontSize:13,color:"var(--tx)"}}>{mkDetail.expertise}</div></div>}
+              {mkDetail.conversationStyle&&<div style={{marginBottom:12}}><div style={{fontSize:10,fontWeight:700,color:"var(--mt)",marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Conversation Style</div><div style={{fontSize:13,color:"var(--tx)"}}>{mkDetail.conversationStyle}</div></div>}
+              {mkDetail.skills&&mkDetail.skills.length>0&&(
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"var(--mt)",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Skills</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                    {mkDetail.skills.map((sk,si)=><span key={si} style={{padding:"5px 14px",borderRadius:20,fontSize:12,fontWeight:600,background:"var(--glow)",border:"1px solid var(--accent)",color:"var(--accent)"}}>{sk}</span>)}
+                  </div>
+                </div>
+              )}
+              {mkDetail.welcomeMessage&&(
+                <div style={{background:"var(--sf2)",borderRadius:14,padding:"12px 16px",marginBottom:16,border:"1px solid var(--bd)"}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"var(--mt)",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Welcome Message</div>
+                  <div style={{fontSize:13,color:"var(--tx)",fontStyle:"italic",lineHeight:1.6}}>"{mkDetail.welcomeMessage}"</div>
+                </div>
+              )}
+              {/* Creator Profile */}
+              <div style={{background:"var(--sf2)",borderRadius:14,padding:"12px 16px",marginBottom:16,border:"1px solid var(--bd)"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"var(--mt)",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Creator Profile</div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:40,height:40,borderRadius:"50%",background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:16,flexShrink:0}}>
+                    {(mkDetail.creatorName||"C")[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:700,color:"var(--tx)"}}>{mkDetail.creatorName||"Creator"}</div>
+                    <div style={{fontSize:11,color:"var(--mt)"}}>⭐ {(mkDetail.avgRating||4.5).toFixed(1)} avg · {mkDetail.reviewCount||0} reviews · {mkDetail.totalUsers||0} users</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{display:"flex",gap:10,marginBottom:20}}>
+                {(!mkDetail.price||mkDetail.price===0)?(
+                  <button onClick={()=>useMarketplaceAgent(mkDetail)} style={{flex:1,padding:"14px",borderRadius:16,border:"none",background:"var(--grad)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 4px 20px var(--glow)"}}>▶ Use Free</button>
+                ):(
+                  <button onClick={()=>buyMarketplaceAgent(mkDetail)} style={{flex:1,padding:"14px",borderRadius:16,border:"none",background:"var(--grad)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 4px 20px var(--glow)"}}>🛒 Buy ₹{mkDetail.price}</button>
+                )}
+                <button onClick={()=>shareAgent(mkDetail)} style={{padding:"14px 16px",borderRadius:16,border:"1px solid var(--bd)",background:"var(--sf2)",color:"var(--mt)",fontSize:18,cursor:"pointer"}}>🔗</button>
+              </div>
+
+              {/* Reviews */}
+              <div style={{borderTop:"1px solid var(--bd)",paddingTop:16}}>
+                <div style={{fontSize:14,fontWeight:700,color:"var(--tx)",marginBottom:12}}>Reviews & Ratings</div>
+                <div style={{display:"flex",gap:14,alignItems:"center",marginBottom:16,background:"var(--sf2)",borderRadius:14,padding:"12px 14px"}}>
+                  <div style={{textAlign:"center",minWidth:56}}>
+                    <div style={{fontSize:34,fontWeight:800,color:"var(--tx)"}}>{(mkDetail.avgRating||4.5).toFixed(1)}</div>
+                    <div style={{display:"flex",gap:2,justifyContent:"center",marginTop:3}}>
+                      {[1,2,3,4,5].map(s=><span key={s} style={{color:s<=Math.round(mkDetail.avgRating||4.5)?"#f59e0b":"var(--bd)",fontSize:13}}>★</span>)}
+                    </div>
+                    <div style={{fontSize:10,color:"var(--mt)",marginTop:3}}>{mkDetail.reviewCount||0} reviews</div>
+                  </div>
+                  <div style={{flex:1}}>
+                    {[5,4,3,2,1].map(star=>{
+                      const pct=mkReviews.length>0?(mkReviews.filter(r=>Math.round(r.rating||5)===star).length/mkReviews.length)*100:star*18;
+                      return(<div key={star} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                        <span style={{fontSize:11,color:"var(--mt)",width:12}}>{star}</span>
+                        <div style={{flex:1,height:5,background:"var(--bd)",borderRadius:3,overflow:"hidden"}}>
+                          <div style={{width:pct+"%",height:"100%",background:"var(--grad)",borderRadius:3}}/>
+                        </div>
+                      </div>);
+                    })}
+                  </div>
+                </div>
+                {user&&(
+                  <div style={{background:"var(--sf2)",borderRadius:14,padding:14,marginBottom:16}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Write a Review</div>
+                    <div style={{display:"flex",gap:5,marginBottom:10,alignItems:"center"}}>
+                      <span style={{fontSize:12,color:"var(--mt)"}}>Rating:</span>
+                      {[1,2,3,4,5].map(s=><span key={s} onClick={()=>setMkReviewRating(s)} style={{fontSize:24,cursor:"pointer",color:s<=mkReviewRating?"#f59e0b":"var(--bd)",transition:"color .15s"}}>★</span>)}
+                      <span style={{fontSize:12,color:"var(--accent)",fontWeight:700}}>{mkReviewRating}/5</span>
+                    </div>
+                    <textarea className="inp iarea" rows={3} placeholder="Apna experience share karo..." value={mkReviewText} onChange={e=>setMkReviewText(e.target.value)} style={{width:"100%",resize:"none",marginBottom:8,fontSize:13}}/>
+                    <button onClick={()=>submitReview(mkDetail.id)} disabled={mkReviewLoading||!mkReviewText.trim()}
+                      style={{padding:"9px 20px",borderRadius:10,border:"none",background:"var(--grad)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",opacity:(!mkReviewText.trim()||mkReviewLoading)?0.5:1}}>
+                      {mkReviewLoading?"Submitting...":"Submit Review"}
+                    </button>
+                  </div>
+                )}
+                {mkReviews.length===0?<div style={{textAlign:"center",padding:"16px 0",color:"var(--mt)",fontSize:13}}>Abhi koi review nahi ✍️</div>:
+                  mkReviews.map(rev=>(
+                    <div key={rev.id} style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:12,padding:"10px 12px",marginBottom:8}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                        <div><div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>{rev.userName||"User"}</div>
+                        <div style={{display:"flex",gap:2,marginTop:2}}>{[1,2,3,4,5].map(s=><span key={s} style={{color:s<=(rev.rating||5)?"#f59e0b":"var(--bd)",fontSize:11}}>★</span>)}</div></div>
+                        <div style={{fontSize:10,color:"var(--mt)"}}>{fmtDate(rev.createdAt)}</div>
+                      </div>
+                      <div style={{fontSize:13,color:"var(--mt)",lineHeight:1.6}}>{rev.text}</div>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PUBLISH FEE MODAL */}
+      {showPublishFee&&(
+        <div className="mbg" onClick={()=>{setShowPublishFee(false);setPublishFeeDone(false);}} style={{zIndex:1000}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
+            {publishFeeDone?(
+              <>
+                <div className="mi">✅</div>
+                <h3>Payment Confirm karo</h3>
+                <p style={{fontSize:13,color:"var(--mt)",lineHeight:1.7}}>Payment ho gayi? "Confirm & Publish" click karo.</p>
+                <div style={{background:"var(--sf2)",borderRadius:14,padding:"12px 16px",marginBottom:16,border:"1px solid var(--bd)"}}>
+                  <div style={{fontSize:12,color:"var(--mt)",marginBottom:4}}>Publishing Fee</div>
+                  <div style={{fontSize:20,fontWeight:800,color:"var(--accent)"}}>₹{PUBLISH_FEE}</div>
+                  <div style={{fontSize:11,color:"var(--mt)",marginTop:4}}>Agent: {publishFeeAgent?.name}</div>
+                  {parseFloat(publishFeeAgent?.customPrice||0)>0&&<div style={{fontSize:11,color:"#22c55e",marginTop:2}}>Selling Price: ₹{publishFeeAgent?.customPrice}</div>}
+                </div>
+                <button className="btn btn-p" onClick={confirmPublish} disabled={publishFeeLoading} style={{width:"100%",marginBottom:8}}>
+                  {publishFeeLoading?"Publishing...":"✅ Confirm & Publish"}
+                </button>
+                <button className="btn btn-s" onClick={()=>{setShowPublishFee(false);setPublishFeeDone(false);}} style={{width:"100%"}}>Cancel</button>
+              </>
+            ):(
+              <>
+                <div className="mi">🚀</div>
+                <h3>Marketplace mein Publish karo</h3>
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>Selling Price set karo</div>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <span style={{fontSize:18,fontWeight:700,color:"var(--tx)"}}>₹</span>
+                    <input className="inp" type="number" min="0" placeholder="0 = FREE" value={agentPrice} onChange={e=>setAgentPrice(e.target.value)} style={{flex:1,fontSize:20,fontWeight:700,textAlign:"center"}}/>
+                  </div>
+                  {parseFloat(agentPrice)>0&&(
+                    <div style={{marginTop:8,padding:"8px 12px",background:"var(--glow)",borderRadius:10,border:"1px solid var(--accent)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                        <span style={{fontSize:12,color:"var(--mt)"}}>Tumhara (80%)</span>
+                        <span style={{fontSize:13,fontWeight:700,color:"#22c55e"}}>₹{Math.round(parseFloat(agentPrice)*0.80)}</span>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between"}}>
+                        <span style={{fontSize:12,color:"var(--mt)"}}>Platform (20%)</span>
+                        <span style={{fontSize:12,color:"var(--mt)"}}>₹{Math.round(parseFloat(agentPrice)*0.20)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div style={{background:"var(--sf2)",borderRadius:14,padding:"14px 16px",marginBottom:16,border:"1px solid var(--bd)"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <span style={{fontSize:13,fontWeight:600,color:"var(--tx)"}}>Publishing Fee</span>
+                    <span style={{fontSize:20,fontWeight:800,color:"var(--accent)"}}>₹{PUBLISH_FEE}</span>
+                  </div>
+                  <div style={{padding:"10px 12px",background:"#22c55e10",borderRadius:10,border:"1px solid #22c55e30"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:4}}>UPI se pay karo:</div>
+                    <div style={{fontSize:14,fontWeight:700,color:"var(--tx)"}}>{PLATFORM_UPI}@upi</div>
+                    <div style={{fontSize:11,color:"var(--mt)",marginTop:2}}>Amount: ₹{PUBLISH_FEE} · Note: Agent Publish Fee</div>
+                  </div>
+                </div>
+                <button className="btn btn-p" onClick={()=>{window.open("upi://pay?pa="+PLATFORM_UPI+"@upi&pn=SaraswatiAI&am="+PUBLISH_FEE+"&cu=INR&tn=AgentPublishFee","_blank");setTimeout(()=>setPublishFeeDone(true),1500);}} style={{width:"100%",marginBottom:8}}>
+                  Pay ₹{PUBLISH_FEE} & Publish →
+                </button>
+                <button className="btn btn-s" onClick={()=>setShowPublishFee(false)} style={{width:"100%"}}>Cancel</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* BUY AGENT MODAL */}
+      {showBuyModal&&buyModalAgent&&(
+        <div className="mbg" onClick={()=>{setShowBuyModal(false);setBuyPayDone(false);}} style={{zIndex:1000}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
+            {buyPayDone?(
+              <>
+                <div className="mi">🎉</div>
+                <h3>Payment Done!</h3>
+                <button className="btn btn-p" onClick={async()=>{await recordAgentSale(buyModalAgent);setShowBuyModal(false);setBuyPayDone(false);useMarketplaceAgent(buyModalAgent);}} style={{width:"100%",marginBottom:8}}>
+                  ✅ Confirm & Use Agent
+                </button>
+                <button className="btn btn-s" onClick={()=>{setShowBuyModal(false);setBuyPayDone(false);}} style={{width:"100%"}}>Cancel</button>
+              </>
+            ):(
+              <>
+                <div style={{textAlign:"center",marginBottom:14}}>
+                  <div style={{fontSize:48,marginBottom:6}}>{buyModalAgent.avatarImg?<img src={buyModalAgent.avatarImg} style={{width:56,height:56,borderRadius:16,objectFit:"cover"}} alt=""/>:(buyModalAgent.emoji||"🤖")}</div>
+                  <div style={{fontSize:17,fontWeight:700,color:"var(--tx)"}}>{buyModalAgent.name}</div>
+                  <div style={{fontSize:12,color:"var(--mt)"}}>{buyModalAgent.category}</div>
+                </div>
+                <div style={{background:"var(--sf2)",borderRadius:14,padding:"14px",marginBottom:14,border:"1px solid var(--bd)"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+                    <span style={{fontSize:14,fontWeight:600,color:"var(--tx)"}}>Price</span>
+                    <span style={{fontSize:24,fontWeight:800,color:"var(--accent)"}}>₹{buyModalAgent.price}</span>
+                  </div>
+                  <div style={{padding:"10px 12px",background:"#3b82f610",borderRadius:10,border:"1px solid #3b82f630"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#3b82f6",marginBottom:3}}>UPI se pay karo:</div>
+                    <div style={{fontSize:15,fontWeight:700,color:"var(--tx)"}}>{PLATFORM_UPI}@upi</div>
+                    <div style={{fontSize:11,color:"var(--mt)",marginTop:2}}>Amount: ₹{buyModalAgent.price} · Note: {buyModalAgent.name}</div>
+                  </div>
+                  <div style={{fontSize:11,color:"var(--mt)",marginTop:8}}>Creator ko ₹{Math.round(buyModalAgent.price*0.80)} milega (80%)</div>
+                </div>
+                <button className="btn btn-p" onClick={()=>{window.open("upi://pay?pa="+PLATFORM_UPI+"@upi&pn=SaraswatiAI&am="+buyModalAgent.price+"&cu=INR&tn="+encodeURIComponent(buyModalAgent.name),"_blank");setTimeout(()=>setBuyPayDone(true),1500);}} style={{width:"100%",marginBottom:8}}>
+                  Pay ₹{buyModalAgent.price} via UPI →
+                </button>
+                <button className="btn btn-s" onClick={()=>setShowBuyModal(false)} style={{width:"100%"}}>Cancel</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* CREATOR DASHBOARD MODAL */}
+      {showCreatorDash&&(
+        <div className="mbg" onClick={()=>setShowCreatorDash(false)} style={{zIndex:1000}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxHeight:"90vh",overflowY:"auto",textAlign:"left",maxWidth:480,padding:0,borderRadius:24,overflow:"hidden"}}>
+            <div style={{background:"var(--grad)",padding:"20px 20px 14px",position:"relative"}}>
+              <button onClick={()=>setShowCreatorDash(false)} style={{position:"absolute",top:14,right:14,background:"#ffffff30",border:"none",borderRadius:"50%",width:30,height:30,color:"#fff",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              <div style={{fontSize:12,color:"#ffffff80",marginBottom:2}}>Creator Dashboard</div>
+              <div style={{fontSize:20,fontWeight:800,color:"#fff"}}>{userData?.name||"Creator"}</div>
+            </div>
+            <div style={{display:"flex",gap:0,borderBottom:"1px solid var(--bd)",background:"var(--sf)",overflowX:"auto"}}>
+              {[{id:"overview",label:"📊 Overview"},{id:"wallet",label:"💰 Wallet"},{id:"analytics",label:"📈 Analytics"},{id:"withdraw",label:"🏦 Withdraw"}].map(t=>(
+                <button key={t.id} onClick={()=>setCreatorTab(t.id)}
+                  style={{flex:1,padding:"11px 6px",border:"none",borderBottom:creatorTab===t.id?"2.5px solid var(--accent)":"2.5px solid transparent",background:"none",
+                    color:creatorTab===t.id?"var(--accent)":"var(--mt)",fontSize:10,fontWeight:creatorTab===t.id?700:400,
+                    cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap"}}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div style={{padding:"16px"}}>
+              {creatorLoading?(<div style={{textAlign:"center",padding:30}}><SaraswatiLogo size={32} animate={true} state="thinking"/><div style={{marginTop:8,color:"var(--mt)",fontSize:13}}>Loading...</div></div>):(
+                <>
+                  {creatorTab==="overview"&&(
+                    <>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+                        {[
+                          {label:"Total Agents",value:creatorData?.totalAgents||0,icon:"🤖",color:"#3b82f6"},
+                          {label:"Published",value:creatorData?.publishedAgents||0,icon:"🌐",color:"#22c55e"},
+                          {label:"Total Sales",value:creatorData?.totalSales||0,icon:"🛒",color:"#f59e0b"},
+                          {label:"Total Revenue",value:"₹"+(creatorData?.totalRevenue||0),icon:"💰",color:"#8b5cf6"},
+                          {label:"Platform Commission",value:"₹"+(creatorData?.commission||0),icon:"🏦",color:"#ef4444"},
+                          {label:"Pending Balance",value:"₹"+(creatorData?.pendingBalance||0),icon:"⏳",color:"#f97316"},
+                        ].map((s,i)=>(
+                          <div key={i} style={{background:"var(--sf2)",borderRadius:14,padding:"12px",border:"1px solid var(--bd)"}}>
+                            <div style={{fontSize:20,marginBottom:4}}>{s.icon}</div>
+                            <div style={{fontSize:18,fontWeight:800,color:s.color}}>{s.value}</div>
+                            <div style={{fontSize:10,color:"var(--mt)",marginTop:2}}>{s.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{background:"var(--grad)",borderRadius:16,padding:"16px 18px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div><div style={{fontSize:11,color:"#ffffff80"}}>Available Balance</div><div style={{fontSize:28,fontWeight:900,color:"#fff"}}>₹{(creatorData?.walletBalance||0).toFixed(2)}</div></div>
+                        <button onClick={()=>setCreatorTab("withdraw")} style={{padding:"8px 16px",borderRadius:12,background:"#ffffff25",border:"1px solid #ffffff50",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>Withdraw →</button>
+                      </div>
+                      <div style={{background:"var(--sf2)",borderRadius:14,padding:"12px 14px",marginBottom:14,border:"1px solid var(--bd)"}}>
+                        <div style={{fontSize:10,fontWeight:700,color:"var(--mt)",marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>Your UPI ID</div>
+                        {creatorUpiEdit?(
+                          <div style={{display:"flex",gap:6}}>
+                            <input className="inp" value={creatorUpiVal} onChange={e=>setCreatorUpiVal(e.target.value)} placeholder="yourname@upi" style={{flex:1,fontSize:13}}/>
+                            <button className="btn btn-p" style={{width:"auto",padding:"0 12px",fontSize:12}} onClick={()=>saveCreatorUpi(creatorUpiVal)}>Save</button>
+                            <button className="btn btn-s" style={{width:"auto",padding:"0 10px",fontSize:12}} onClick={()=>setCreatorUpiEdit(false)}>✕</button>
+                          </div>
+                        ):(
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                            <span style={{fontSize:14,fontWeight:600,color:creatorData?.upiId?"var(--tx)":"var(--mt)"}}>{creatorData?.upiId||"UPI ID nahi diya"}</span>
+                            <button onClick={()=>{setCreatorUpiEdit(true);setCreatorUpiVal(creatorData?.upiId||"");}} style={{background:"none",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:12,fontWeight:600}}>{creatorData?.upiId?"Edit":"+ Add"}</button>
+                          </div>
+                        )}
+                      </div>
+                      {creatorSales.slice(0,4).map(s=>(
+                        <div key={s.id} style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:10,padding:"9px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div><div style={{fontSize:12,fontWeight:600,color:"var(--tx)"}}>{s.agentName}</div><div style={{fontSize:10,color:"var(--mt)"}}>{fmtDate(s.createdAt)}</div></div>
+                          <div style={{textAlign:"right"}}><div style={{fontSize:13,fontWeight:700,color:"#22c55e"}}>+₹{s.creatorEarning}</div><div style={{fontSize:9,color:"var(--mt)"}}>of ₹{s.totalAmount}</div></div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {creatorTab==="analytics"&&(
+                    <>
+                      <div style={{fontSize:13,color:"var(--mt)",marginBottom:12}}>Agent performance:</div>
+                      {creatorData?.agentsData?.filter(a=>a.published).map(agent=>{
+                        const agSales=creatorSales.filter(s=>s.agentId===agent.id);
+                        const agRev=agSales.reduce((s,x)=>s+(x.creatorEarning||0),0);
+                        return(
+                          <div key={agent.id} style={{background:"var(--sf2)",borderRadius:14,padding:"12px",marginBottom:8,border:"1px solid var(--bd)"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                              <div style={{width:36,height:36,borderRadius:10,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,overflow:"hidden"}}>
+                                {agent.avatarImg?<img src={agent.avatarImg} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>:(agent.emoji||"🤖")}
+                              </div>
+                              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>{agent.name}</div><div style={{fontSize:10,color:"var(--accent)"}}>{agent.category}</div></div>
+                            </div>
+                            <div style={{display:"flex",gap:10}}>
+                              {[{label:"Sales",val:agSales.length,color:"#f59e0b"},{label:"Revenue",val:"₹"+agRev,color:"#22c55e"},{label:"Users",val:agent.totalUsers||0,color:"#3b82f6"},{label:"Rating",val:agent.avgRating?agent.avgRating.toFixed(1):"—",color:"#8b5cf6"}].map((m,i)=>(
+                                <div key={i} style={{textAlign:"center",flex:1}}>
+                                  <div style={{fontSize:15,fontWeight:800,color:m.color}}>{m.val}</div>
+                                  <div style={{fontSize:9,color:"var(--mt)"}}>{m.label}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {(!creatorData?.agentsData?.filter(a=>a.published).length)&&<div style={{textAlign:"center",padding:"20px 0",color:"var(--mt)",fontSize:13}}>Koi published agent nahi</div>}
+                    </>
+                  )}
+                  {creatorTab==="wallet"&&(
+                    <>
+                      <div style={{background:"var(--grad)",borderRadius:18,padding:"18px",marginBottom:14,textAlign:"center"}}>
+                        <div style={{fontSize:11,color:"#ffffff80",marginBottom:4}}>Available Balance</div>
+                        <div style={{fontSize:36,fontWeight:900,color:"#fff"}}>₹{(creatorData?.walletBalance||0).toFixed(2)}</div>
+                      </div>
+                      <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Withdrawal History</div>
+                      {creatorWithdrawals.length===0?<div style={{textAlign:"center",padding:"14px 0",color:"var(--mt)",fontSize:13}}>Koi history nahi</div>:
+                        creatorWithdrawals.map(w=>(
+                          <div key={w.id} style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:10,padding:"9px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                            <div><div style={{fontSize:13,fontWeight:600,color:"var(--tx)"}}>₹{w.amount}</div><div style={{fontSize:10,color:"var(--mt)"}}>{w.upiId} · {fmtDate(w.createdAt)}</div></div>
+                            <div style={{padding:"2px 8px",borderRadius:20,fontSize:9,fontWeight:700,
+                              background:w.status==="paid"?"#22c55e20":w.status==="pending"?"#f59e0b20":"#ef444420",
+                              color:w.status==="paid"?"#22c55e":w.status==="pending"?"#f59e0b":"#ef4444",
+                              border:"1px solid "+(w.status==="paid"?"#22c55e40":w.status==="pending"?"#f59e0b40":"#ef444440")}}>
+                              {w.status==="paid"?"✅ Paid":w.status==="pending"?"⏳ Pending":"❌ Rejected"}
+                            </div>
+                          </div>
+                        ))
+                      }
+                    </>
+                  )}
+                  {creatorTab==="withdraw"&&(
+                    <>
+                      <div style={{background:"var(--grad)",borderRadius:16,padding:"14px 18px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div><div style={{fontSize:10,color:"#ffffff80"}}>Available</div><div style={{fontSize:26,fontWeight:900,color:"#fff"}}>₹{(creatorData?.walletBalance||0).toFixed(2)}</div></div>
+                        <div style={{fontSize:28}}>💰</div>
+                      </div>
+                      <div style={{marginBottom:12}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",marginBottom:5,textTransform:"uppercase",letterSpacing:".05em"}}>Amount</div>
+                        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                          <span style={{fontSize:16,fontWeight:700,color:"var(--tx)"}}>₹</span>
+                          <input className="inp" type="number" min="50" placeholder="Min ₹50" value={withdrawAmount} onChange={e=>setWithdrawAmount(e.target.value)} style={{flex:1,fontSize:16,fontWeight:700}}/>
+                        </div>
+                        <div style={{display:"flex",gap:6,marginTop:7}}>
+                          {[100,250,500].map(amt=>(
+                            <button key={amt} onClick={()=>setWithdrawAmount(String(Math.min(amt,creatorData?.walletBalance||0)))}
+                              style={{flex:1,padding:"6px",borderRadius:9,border:"1px solid var(--bd)",background:"var(--sf2)",color:"var(--mt)",fontSize:11,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>₹{amt}</button>
+                          ))}
+                          <button onClick={()=>setWithdrawAmount(String(creatorData?.walletBalance||0))}
+                            style={{flex:1,padding:"6px",borderRadius:9,border:"1px solid var(--accent)",background:"var(--glow)",color:"var(--accent)",fontSize:11,cursor:"pointer",fontFamily:"Inter,sans-serif",fontWeight:700}}>All</button>
+                        </div>
+                      </div>
+                      <div style={{marginBottom:16}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",marginBottom:5,textTransform:"uppercase",letterSpacing:".05em"}}>UPI ID</div>
+                        <input className="inp" placeholder="yourname@upi" value={withdrawUpi} onChange={e=>setWithdrawUpi(e.target.value)} style={{width:"100%"}}/>
+                        {creatorData?.upiId&&withdrawUpi!==creatorData.upiId&&<button onClick={()=>setWithdrawUpi(creatorData.upiId)} style={{marginTop:5,background:"none",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:12,padding:0}}>Use saved: {creatorData.upiId}</button>}
+                      </div>
+                      <button className="btn btn-p" onClick={requestWithdraw} disabled={withdrawLoading||!withdrawAmount||parseFloat(withdrawAmount)<50}
+                        style={{width:"100%",opacity:(!withdrawAmount||parseFloat(withdrawAmount)<50)?0.5:1}}>
+                        {withdrawLoading?"Processing...":"🏦 Request Withdrawal"}
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
