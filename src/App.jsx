@@ -297,7 +297,7 @@ function getMediaLinks(query) {
     icon: "▶",
     color: "#ff0000",
     url: `https://www.youtube.com/results?search_query=${ytQuery}`,
-    label: "YouTube pe search karo"
+    label: "Search on YouTube"
   });
   
   // Platform specific
@@ -568,7 +568,7 @@ async function getMandiRate(query) {
     const data = await res.json();
 
     if (!data.records?.length) {
-      return `${commodity} ke rates abhi available nahi hain${state ? ` ${state} mein` : ""}. Kripya Agmarknet.gov.in ya apni local mandi check karein.`;
+      return `${commodity} rates are currently unavailable${state ? ` ${state} in` : ""}. Kripya Agmarknet.gov.in ya apni local mandi check karein.`;
     }
 
     const records = data.records.slice(0, 6);
@@ -584,7 +584,7 @@ async function getWeather(query) {
   try {
     // Step 1: Geocode city name to lat/lon using Open-Meteo geocoding
     const cityRaw = query
-      .replace(/weather|mausam|temperature|temp|kitna|degree|bata|hai|kya|ka|ki|ke|mein|mere|gaon|village|sheher|city/gi, " ")
+      .replace(/weather|mausam|temperature|temp|kitna|degree|bata|hai|kya|ka|ki|ke|in|mere|gaon|village|sheher|city/gi, " ")
       .trim().split(/\s+/).filter(w => w.length > 1).join(" ");
     const city = cityRaw || query.trim();
     if (!city || city.length < 2) return null;
@@ -654,7 +654,7 @@ async function callAI(messages, imageB64, tone, memories, language, agentOrNote 
   // Agent override
   const agent = (agentOrNote && typeof agentOrNote === "object") ? agentOrNote : null;
   const extraNote = (agentOrNote && typeof agentOrNote === "string") ? agentOrNote : "";
-  const toneMap = { friendly: "Warm aur friendly raho.", professional: "Professional aur formal raho.", funny: "Funny raho, jokes bhi karo.", strict: "Strict raho, sirf topic pe raho." };
+  const toneMap = { friendly: "Be warm and friendly.", professional: "Be professional and formal.", funny: "Be funny and crack jokes.", strict: "Be strict, stay on topic only." };
   const agentSys = agent ? `You are ${agent.emoji} ${agent.name}.
 ${agent.instructions || "Be helpful."}
 Tone: ${toneMap[agent.tone] || "Friendly raho."}
@@ -747,13 +747,13 @@ const MEM_CATEGORY_LABELS = {
 // Detect explicit "remember that..." commands
 function isExplicitMemoryCommand(text) {
   const t = text.toLowerCase().trim();
-  return /^(remember (that|this|:)?|save (this|that|to memory)|note (that|this)|yaad rakho|yaad kar|memory mein daal|store (this|that))/.test(t);
+  return /^(remember (that|this|:)?|save (this|that|to memory)|note (that|this)|yaad rakho|yaad kar|memory in daal|store (this|that))/.test(t);
 }
 
 // Extract the fact from "remember that I am a developer" → "User is a developer"
 function extractExplicitFact(text) {
   return text
-    .replace(/^(remember (that|this|:)?|save (this|that|to memory)|note (that|this)|yaad rakho|yaad kar|memory mein daal|store (this|that))\s*/i, "")
+    .replace(/^(remember (that|this|:)?|save (this|that|to memory)|note (that|this)|yaad rakho|yaad kar|memory in daal|store (this|that))\s*/i, "")
     .trim();
 }
 
@@ -1664,7 +1664,7 @@ export default function App() {
   const [activeAgent, setActiveAgent] = useState(null);
   const [showAgentBuilder, setShowAgentBuilder] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
-  const [agentForm, setAgentForm] = useState({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" });
+  const [agentForm, setAgentForm] = useState({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "english" });
   // ── AGENTS PAGE (PART 1) ──────────────────────────────────────
   const [agentTab, setAgentTab] = useState("my");
   const [agentCatSearch, setAgentCatSearch] = useState("");
@@ -1709,6 +1709,8 @@ export default function App() {
   const [publishFeeAgent, setPublishFeeAgent] = useState(null);
   const [publishFeeDone, setPublishFeeDone] = useState(false);
   const [publishFeeLoading, setPublishFeeLoading] = useState(false);
+  const [publishPayStatus, setPublishPayStatus] = useState(null); // null | "success" | "fail"
+  const [publishedSuccess, setPublishedSuccess] = useState(false); // final "Agent Published" screen
   const [agentPrice, setAgentPrice] = useState("0");
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [buyModalAgent, setBuyModalAgent] = useState(null);
@@ -1827,6 +1829,9 @@ export default function App() {
   const [cmdReport, setCmdReport] = useState(null);   // daily business report
   const [cmdReportLoading, setCmdReportLoading] = useState(false);
   const [cmdReportDate, setCmdReportDate] = useState("");
+  const [showReportModal, setShowReportModal] = useState(false); // full report modal
+  const [scheduledReportEnabled, setScheduledReportEnabled] = useState(false);
+  const [userSearchResult, setUserSearchResult] = useState(null); // email search result
   // Agent Architecture Registry — scalable slots for future agent types
   const AGENT_REGISTRY = {
     voice:        { label:"Voice Agents",        icon:"🎙", status:"ready",   desc:"Real-time voice conversations, STT/TTS pipeline" },
@@ -2287,7 +2292,7 @@ export default function App() {
 
   async function toggleMic() {
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert("Is browser mein microphone support nahi hai.");
+      alert("Microphone is not supported in this browser.");
       return;
     }
 
@@ -2333,7 +2338,7 @@ export default function App() {
             setInput(p => (p.trim() + " " + text.trim()).trim());
           }
         } catch (err) {
-          alert("Voice transcribe nahi ho paya: " + (err?.message || "try again"));
+          alert("Voice transcription failed: " + (err?.message || "try again"));
         } finally {
           setMicBusy(false);
           setMicTranscript("");
@@ -2347,9 +2352,9 @@ export default function App() {
       recorder.start();
     } catch (err) {
       if (err?.name === "NotAllowedError") {
-        alert("Microphone permission required.\n\nSteps:\n1. Chrome address bar mein lock icon tap karo\n2. Microphone → Allow karo\n3. Page reload karo\n4. Phir mic try karo");
+        alert("Microphone permission required.\n\nSteps:\n1. Tap the lock icon in the address bar\n2. Set Microphone → Allow\n3. Reload the page\n4. Try mic again");
       } else {
-        alert("Mic start nahi ho saka: " + (err?.message || "unknown error"));
+        alert("Microphone could not start: " + (err?.message || "unknown error"));
       }
       micActiveRef.current = false;
       setMicActive(false);
@@ -2567,7 +2572,7 @@ export default function App() {
   function startListening(currentMsgs, currentTone, currentSid, currentUserData) {
     if (!voiceActiveRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert("Is browser mein microphone support nahi hai.");
+      alert("Microphone is not supported in this browser.");
       setVs("idle");
       return;
     }
@@ -2685,7 +2690,7 @@ export default function App() {
         voiceActiveRef.current = false;
         setVs("idle");
         setShowVoiceCall(false);
-        alert("Microphone permission required.\n\nSteps:\n1. Chrome address bar mein lock icon tap karo\n2. Microphone → Allow karo\n3. Page reload karo\n4. Phir voice call karo");
+        alert("Microphone permission required.\n\nSteps:\n1. Tap the lock icon in the address bar\n2. Set Microphone → Allow\n3. Reload the page\n4. Try voice call again");
       } else if (voiceActiveRef.current) {
         setTimeout(() => startListening(currentMsgs, currentTone, currentSid, currentUserData), 1000);
       }
@@ -2797,7 +2802,7 @@ export default function App() {
     if (vs === "think") return;
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert("Voice Call ke liye is browser mein microphone support nahi hai.");
+      alert("Microphone is not supported in this browser for Voice Call.");
       return;
     }
 
@@ -2812,14 +2817,14 @@ export default function App() {
     // Request mic permission upfront so the user sees the prompt immediately
     // when opening the call, instead of mid-conversation.
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert("Voice Call ke liye is browser mein microphone support nahi hai.");
+      alert("Microphone is not supported in this browser for Voice Call.");
       return;
     }
     try {
       const probeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       probeStream.getTracks().forEach(t => t.stop());
     } catch (e) {
-      alert("Microphone permission required.\n\nSteps:\n1. Chrome address bar mein lock icon tap karo\n2. Microphone → Allow karo\n3. Page reload karo\n4. Phir voice call karo");
+      alert("Microphone permission required.\n\nSteps:\n1. Tap the lock icon in the address bar\n2. Set Microphone → Allow\n3. Reload the page\n4. Try voice call again");
       return;
     }
     setShowVoiceCall(true);
@@ -2907,7 +2912,7 @@ export default function App() {
     if ((!txt && !imgB64 && !imgPrev && !attachments.length) || loading) return;
     const ud = userData || {};
     if (!ud?.premium && (ud?.usageCount || 0) >= FREE_LIMIT) { setShowLimit(true); return; }
-    const msgText = txt || (attachments.length ? "Is file ko padho aur samjhao." : "What is in this image?");
+    const msgText = txt || (attachments.length ? "Please read and explain this file." : "What is in this image?");
     setInput("");
     const b64 = imgB64, prev = imgPrev;
     const files = attachments.map(a => ({ name: a.name, ext: a.ext, error: a.error || null }));
@@ -3071,7 +3076,7 @@ export default function App() {
       await loadAgents(user.uid);
       setShowAgentBuilder(false);
       setEditingAgent(null);
-      setAgentForm({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "hindi" });
+      setAgentForm({ name: "", emoji: "🤖", instructions: "", tone: "friendly", lang: "english" });
     } catch (e) { alert("Save failed: " + e.message); }
   }
 
@@ -3122,6 +3127,62 @@ export default function App() {
     "Rural Development","Urban Planning","Smart Cities","School Education","College Education",
     "Teacher Assistant","Doctor AI","Lawyer AI","CA & Tax Expert","Immigration Consultant"
   ];
+
+  // ── Category → Auto Emoji Map (100+ categories) ────────────────
+  const CATEGORY_EMOJI = {
+    "Farming & Agriculture": "🌾", "UPSC Preparation": "📚", "NEET Preparation": "🩺",
+    "JEE Preparation": "🔢", "Coding & Programming": "💻", "Finance & Banking": "💰",
+    "Business & Startup": "🚀", "Marketing & SEO": "📈", "Healthcare & Medicine": "🏥",
+    "Legal & Law": "⚖️", "Fitness & Exercise": "💪", "Education & Tutoring": "🎓",
+    "Travel & Tourism": "✈️", "Cooking & Recipes": "🍳", "Spiritual & Meditation": "🧘",
+    "Real Estate": "🏠", "YouTube & Content": "🎥", "Instagram & Social Media": "📱",
+    "AI & Machine Learning": "🤖", "Technology": "⚙️", "Photography": "📸",
+    "Video Editing": "🎬", "Freelancing": "💼", "Mental Health & Therapy": "🧠",
+    "Nutrition & Diet": "🥗", "Yoga & Wellness": "🧘", "Veterinary & Animal Care": "🐾",
+    "Weather & Environment": "🌤️", "Mathematics": "🔢", "Science & Research": "🔬",
+    "History & Culture": "🏛️", "Language Learning": "🌍", "Literature & Writing": "✍️",
+    "Music & Arts": "🎵", "Tax & Accounting": "🧾", "Insurance": "🛡️",
+    "Web Development": "🌐", "Mobile Apps": "📲", "Cybersecurity": "🔒",
+    "Customer Support": "🎧", "HR & Recruitment": "👥", "Business Strategy": "♟️",
+    "E-commerce": "🛒", "Journalism & News": "📰", "Interior Design": "🛋️",
+    "Architecture": "🏗️", "Automobile & Vehicles": "🚗", "Electronics & Gadgets": "📡",
+    "Home Improvement": "🔨", "Gardening": "🌱", "Sustainability": "♻️",
+    "Sports & Cricket": "🏏", "Football & Sports": "⚽", "Chess & Games": "♟️",
+    "Astrology & Horoscope": "🔮", "Parenting & Child Care": "👶", "Relationships": "❤️",
+    "Senior Care": "👴", "Women Empowerment": "👩", "Government Schemes": "🏛️",
+    "RTI & Rights": "📋", "Railway & Travel": "🚂", "Job Search": "💼",
+    "Entrepreneurship": "🦁", "Graphic Design": "🎨", "Data Analysis": "📊",
+    "Research Assistant": "🔍", "Translation": "🌐", "Event Planning": "🎉",
+    "Wedding Planning": "💍", "Stock Market": "📈", "Cryptocurrency": "₿",
+    "Import & Export": "🚢", "Supply Chain": "🔗", "Pharmacy": "💊",
+    "Dental Care": "🦷", "Eye Care": "👁️", "Skin & Beauty": "✨",
+    "Hair & Grooming": "💇", "Police & Safety": "🚔", "NGO & Social Work": "🤝",
+    "Religious & Faith": "🕌", "Mythology": "📜", "Palmistry": "✋",
+    "Numerology": "🔢", "Pet Care": "🐶", "Bird Watching": "🐦",
+    "Hiking & Trekking": "🏔️", "Space & Astronomy": "🚀", "Geography": "🗺️",
+    "Economics": "📉", "Psychology": "🧠", "Philosophy": "💭",
+    "Motivational Coach": "🔥", "Life Coach": "⭐", "Career Counseling": "🎯",
+    "Study Planner": "📅", "Exam Preparation": "📝", "Hindi Literature": "📖",
+    "Urdu Poetry": "🖊️", "Sanskrit": "🕉️", "Sign Language": "🤟",
+    "Digital Literacy": "💡", "Tribal Culture": "🌿", "Rural Development": "🏡",
+    "Urban Planning": "🏙️", "Smart Cities": "🌆", "School Education": "🏫",
+    "College Education": "🎓", "Teacher Assistant": "👨‍🏫", "Doctor AI": "👨‍⚕️",
+    "Lawyer AI": "👨‍⚖️", "CA & Tax Expert": "🧮", "Immigration Consultant": "🛂",
+  };
+
+  function getCategoryEmoji(category) {
+    if (!category) return "🤖";
+    // Exact match
+    if (CATEGORY_EMOJI[category]) return CATEGORY_EMOJI[category];
+    // Partial match
+    const lower = category.toLowerCase();
+    for (const [key, emoji] of Object.entries(CATEGORY_EMOJI)) {
+      if (lower.includes(key.toLowerCase().split(" ")[0]) || key.toLowerCase().includes(lower.split(" ")[0])) {
+        return emoji;
+      }
+    }
+    return "🤖";
+  }
 
   // ── FIX: Image Avatar ─────────────────────────────────────────
   function handleAgentAvatar(e) {
@@ -3195,7 +3256,7 @@ Return ONLY valid JSON (no backticks, no markdown):
     try {
       const agentData = {
         name: name.trim(), category: category.trim(),
-        emoji: agentAvatarFile ? "" : (genData?.suggestedAvatar||"🤖"),
+        emoji: agentAvatarFile ? "" : (genData?.suggestedAvatar || getCategoryEmoji(category) || "🤖"),
         avatarImg: agentAvatarFile || null,
         pdfKnowledge: agentPdfText || null,
         pdfName: agentPdfName || null,
@@ -3235,7 +3296,7 @@ Return ONLY valid JSON (no backticks, no markdown):
   // ── Publish Fee Flow ──────────────────────────────────────────
   function initiatePublishFee(agent, customPrice) {
     setPublishFeeAgent({...agent, customPrice: parseFloat(customPrice)||0});
-    setPublishFeeDone(false); setShowPublishFee(true);
+    setPublishFeeDone(false); setPublishPayStatus(null); setPublishedSuccess(false); setShowPublishFee(true);
   }
 
   async function confirmPublish() {
@@ -3255,7 +3316,8 @@ Return ONLY valid JSON (no backticks, no markdown):
         agentName:publishFeeAgent.name, createdAt:serverTimestamp()
       });
       await loadAgents(user.uid);
-      setShowPublishFee(false); setPublishFeeAgent(null); setPublishFeeDone(false);
+      setPublishFeeDone(false);
+      setPublishedSuccess(true); // show final "Agent Published" screen
     } catch(e){ alert("Publish failed: "+e.message); }
     setPublishFeeLoading(false);
   }
@@ -3370,18 +3432,18 @@ Return ONLY valid JSON (no backticks, no markdown):
   }
 
   const DEMO_AGENTS = [
-    {id:"d1",name:"Doctor AI",emoji:"👨‍⚕️",category:"Healthcare & Medicine",description:"Health sawaalon ka jawaab, symptoms analysis aur medical guidance Hindi mein.",avgRating:4.8,reviewCount:234,totalUsers:1250,price:0,creatorName:"Kunal S",published:true,featured:true,skills:["Symptom Analysis","Medicine Info","Diet Advice","Health Tips","First Aid"]},
-    {id:"d2",name:"Kisan Mitra",emoji:"👨‍🌾",category:"Farming & Agriculture",description:"Khet, fasal, mausam aur kheti ke baare mein expert advice.",avgRating:4.9,reviewCount:567,totalUsers:3400,price:0,creatorName:"AgriTech India",published:true,featured:true,skills:["Crop Planning","Weather Tips","Pest Control","Market Rates","Soil Health"]},
-    {id:"d3",name:"Legal Eagle",emoji:"⚖️",category:"Legal & Law",description:"Indian law, RTI, consumer rights — simple language mein.",avgRating:4.6,reviewCount:189,totalUsers:890,price:49,creatorName:"LegalTech Pro",published:true,skills:["RTI Filing","Consumer Rights","Property Law","Contract Review","Court Procedure"]},
-    {id:"d4",name:"Finance Guru",emoji:"💰",category:"Finance & Banking",description:"Investment, SIP, tax saving — paisa badhao smart tarike se.",avgRating:4.7,reviewCount:312,totalUsers:2100,price:0,creatorName:"MoneyWise AI",published:true,skills:["SIP Planning","Tax Saving","Stock Tips","Budget","Loan Advice"]},
-    {id:"d5",name:"Code Master",emoji:"🧑‍💻",category:"Coding & Programming",description:"Python, JS, React, SQL — code likhna aur debug karna seekho.",avgRating:4.9,reviewCount:890,totalUsers:6700,price:99,creatorName:"DevBot Pro",published:true,featured:true,skills:["Code Review","Bug Fix","Python","JavaScript","System Design"]},
-    {id:"d6",name:"Study Planner",emoji:"📖",category:"UPSC Preparation",description:"UPSC, JEE, NEET — exam strategy aur study schedule.",avgRating:4.8,reviewCount:567,totalUsers:7800,price:0,creatorName:"StudyAI",published:true,skills:["Study Schedule","Mock Tests","Revision Tips","Exam Strategy","Subject Help"]},
-    {id:"d7",name:"Chef AI",emoji:"🧑‍🍳",category:"Cooking & Recipes",description:"Indian aur international recipes, nutrition tips.",avgRating:4.8,reviewCount:678,totalUsers:4200,price:0,creatorName:"FoodieBot",published:true,skills:["Recipes","Nutrition","Meal Planning","Cooking Tips","Diet Plans"]},
-    {id:"d8",name:"Fitness Pro",emoji:"💪",category:"Fitness & Exercise",description:"Workout plans, diet tips, weight loss guidance.",avgRating:4.6,reviewCount:345,totalUsers:2800,price:29,creatorName:"FitLife AI",published:true,skills:["Workout Plans","Diet Planning","Weight Loss","Muscle Building","Yoga"]},
-    {id:"d9",name:"Astro Guide",emoji:"🔮",category:"Astrology & Horoscope",description:"Kundali, rashifal, vastu — vedic astrology ka gyaan.",avgRating:4.4,reviewCount:234,totalUsers:1800,price:0,creatorName:"Jyotish AI",published:true,skills:["Kundali Reading","Daily Horoscope","Vastu Tips","Gemstone Advice","Career"]},
-    {id:"d10",name:"Travel Buddy",emoji:"✈️",category:"Travel & Tourism",description:"India aur duniya ke tours, budget travel tips.",avgRating:4.5,reviewCount:212,totalUsers:1560,price:0,creatorName:"TravelBot",published:true,skills:["Itinerary Planning","Budget Tips","Visa Help","Hotel Booking","Local Food"]},
-    {id:"d11",name:"Mental Coach",emoji:"🧠",category:"Mental Health & Therapy",description:"Stress, anxiety — emotional support aur coping strategies.",avgRating:4.7,reviewCount:156,totalUsers:930,price:0,creatorName:"MindCare AI",published:true,skills:["Stress Relief","Anxiety Help","Meditation","CBT Techniques","Sleep Tips"]},
-    {id:"d12",name:"Business Advisor",emoji:"🏢",category:"Business & Startup",description:"Startup ideas, business planning, marketing strategies.",avgRating:4.6,reviewCount:289,totalUsers:1670,price:79,creatorName:"BizAI Pro",published:true,skills:["Business Plan","Marketing","Funding","Team Building","Growth Hacks"]},
+    {id:"d1",name:"Doctor AI",emoji:"👨‍⚕️",category:"Healthcare & Medicine",description:"Health questions, symptom analysis, and medical guidance in English.",avgRating:4.8,reviewCount:234,totalUsers:1250,price:0,creatorName:"Kunal S",published:true,featured:true,skills:["Symptom Analysis","Medicine Info","Diet Advice","Health Tips","First Aid"]},
+    {id:"d2",name:"Kisan Mitra",emoji:"👨‍🌾",category:"Farming & Agriculture",description:"Expert advice on crops, farming, weather, and agricultural best practices.",avgRating:4.9,reviewCount:567,totalUsers:3400,price:0,creatorName:"AgriTech India",published:true,featured:true,skills:["Crop Planning","Weather Tips","Pest Control","Market Rates","Soil Health"]},
+    {id:"d3",name:"Legal Eagle",emoji:"⚖️",category:"Legal & Law",description:"Indian law, RTI, consumer rights — explained in simple language.",avgRating:4.6,reviewCount:189,totalUsers:890,price:49,creatorName:"LegalTech Pro",published:true,skills:["RTI Filing","Consumer Rights","Property Law","Contract Review","Court Procedure"]},
+    {id:"d4",name:"Finance Guru",emoji:"💰",category:"Finance & Banking",description:"Investment, SIP, tax saving — grow your money the smart way.",avgRating:4.7,reviewCount:312,totalUsers:2100,price:0,creatorName:"MoneyWise AI",published:true,skills:["SIP Planning","Tax Saving","Stock Tips","Budget","Loan Advice"]},
+    {id:"d5",name:"Code Master",emoji:"🧑‍💻",category:"Coding & Programming",description:"Learn to write and debug Python, JS, React, and SQL code.",avgRating:4.9,reviewCount:890,totalUsers:6700,price:99,creatorName:"DevBot Pro",published:true,featured:true,skills:["Code Review","Bug Fix","Python","JavaScript","System Design"]},
+    {id:"d6",name:"Study Planner",emoji:"📖",category:"UPSC Preparation",description:"UPSC, JEE, NEET — exam strategy and personalized study schedules.",avgRating:4.8,reviewCount:567,totalUsers:7800,price:0,creatorName:"StudyAI",published:true,skills:["Study Schedule","Mock Tests","Revision Tips","Exam Strategy","Subject Help"]},
+    {id:"d7",name:"Chef AI",emoji:"🧑‍🍳",category:"Cooking & Recipes",description:"Indian and international recipes, nutrition tips, and meal planning.",avgRating:4.8,reviewCount:678,totalUsers:4200,price:0,creatorName:"FoodieBot",published:true,skills:["Recipes","Nutrition","Meal Planning","Cooking Tips","Diet Plans"]},
+    {id:"d8",name:"Fitness Pro",emoji:"💪",category:"Fitness & Exercise",description:"Workout plans, diet tips, and weight loss guidance.",avgRating:4.6,reviewCount:345,totalUsers:2800,price:29,creatorName:"FitLife AI",published:true,skills:["Workout Plans","Diet Planning","Weight Loss","Muscle Building","Yoga"]},
+    {id:"d9",name:"Astro Guide",emoji:"🔮",category:"Astrology & Horoscope",description:"Kundali, horoscope, vastu — insights from Vedic astrology.",avgRating:4.4,reviewCount:234,totalUsers:1800,price:0,creatorName:"Jyotish AI",published:true,skills:["Kundali Reading","Daily Horoscope","Vastu Tips","Gemstone Advice","Career"]},
+    {id:"d10",name:"Travel Buddy",emoji:"✈️",category:"Travel & Tourism",description:"Tours across India and the world, with budget travel tips.",avgRating:4.5,reviewCount:212,totalUsers:1560,price:0,creatorName:"TravelBot",published:true,skills:["Itinerary Planning","Budget Tips","Visa Help","Hotel Booking","Local Food"]},
+    {id:"d11",name:"Mental Coach",emoji:"🧠",category:"Mental Health & Therapy",description:"Stress, anxiety — emotional support and practical coping strategies.",avgRating:4.7,reviewCount:156,totalUsers:930,price:0,creatorName:"MindCare AI",published:true,skills:["Stress Relief","Anxiety Help","Meditation","CBT Techniques","Sleep Tips"]},
+    {id:"d12",name:"Business Advisor",emoji:"🏢",category:"Business & Startup",description:"Startup ideas, business planning, and marketing strategies.",avgRating:4.6,reviewCount:289,totalUsers:1670,price:79,creatorName:"BizAI Pro",published:true,skills:["Business Plan","Marketing","Funding","Team Building","Growth Hacks"]},
   ];
 
   // ── Creator Dashboard ─────────────────────────────────────────
@@ -3456,7 +3518,7 @@ Return ONLY valid JSON (no backticks, no markdown):
       await setDoc(doc(db,"creators",user.uid),{walletBalance:Math.max(0,(creatorData?.walletBalance||0)-amt),updatedAt:serverTimestamp()},{merge:true});
       setCreatorData(p=>({...p,walletBalance:Math.max(0,(p?.walletBalance||0)-amt)}));
       setWithdrawAmount("");
-      alert("✅ Withdrawal request submit! 24-48 hours mein process hogi.");
+      alert("✅ Withdrawal request submit! 24-48 hours in process hogi.");
       await loadCreatorData();
     } catch(e){alert("Withdraw failed: "+e.message);}
     setWithdrawLoading(false);
@@ -3777,8 +3839,24 @@ Return ONLY valid JSON (no backticks, no markdown):
     setCmdLoading(true);
 
     try {
+      // Detect email search command
+      const emailMatch = userMsg.match(/search\s+user\s+(?:by\s+email\s+)?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/i)
+        || userMsg.match(/find\s+user\s+([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/i)
+        || userMsg.match(/user\s+([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/i);
+
       // Gather live data
       const snap = await gatherPlatformSnapshot();
+
+      // If email search, attach found user to snap
+      if (emailMatch) {
+        const foundUser = await searchUserByEmail(emailMatch[1]);
+        snap.foundUser = foundUser || null;
+        if (!foundUser) {
+          setCmdHistory(h => [...h, { role:"ai", text:`❌ User not found with email: ${emailMatch[1]}`, ts: Date.now() }]);
+          setCmdLoading(false);
+          return;
+        }
+      }
 
       // Build context for AI
       const systemPrompt = `You are Saraswati AI's Admin Command Center AI. You have LIVE access to the platform data below.
@@ -3799,6 +3877,8 @@ PLATFORM SNAPSHOT (as of ${snap.generatedAt}):
 PENDING WITHDRAWALS:
 ${snap.pendingWithdrawals.map(w => `ID:${w.id} | ${w.userName||"Creator"} | ₹${w.amount} | UPI:${w.upiId}`).join("\n") || "None"}
 
+${snap.foundUser ? `USER SEARCH RESULT:\nName: ${snap.foundUser.name} | Email: ${snap.foundUser.email} | Premium: ${snap.foundUser.premium?"Yes":"No"} | Messages: ${snap.foundUser.usageCount||0} | Joined: ${snap.foundUser.createdAt?.seconds?new Date(snap.foundUser.createdAt.seconds*1000).toLocaleDateString("en-IN"):"N/A"}` : ""}
+
 You can answer questions about platform data OR help admin take actions.
 
 For ACTIONS (approve withdraw, send email, etc.), format your response with:
@@ -3809,7 +3889,7 @@ CONFIRM: <user-friendly confirmation message>
 Action types: approve_withdraw, reject_withdraw, send_email, send_notification, suspend_agent, approve_agent
 
 For INFO queries, just answer clearly with the data.
-Keep responses concise, professional, in Hinglish or English based on user's language.`;
+Keep responses concise, professional, and in English.`;
 
       const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method:"POST",
@@ -3836,7 +3916,7 @@ Keep responses concise, professional, in Hinglish or English based on user's lan
         const action = actionMatch[1];
         let params = {};
         try { params = JSON.parse(paramsMatch?.[1] || "{}"); } catch {}
-        const confirmMsg = confirmMatch?.[1] || "Is action ko execute karna chahte ho?";
+        const confirmMsg = confirmMatch?.[1] || "Please confirm this action.";
         const cleanText = aiText.replace(/ACTION:[\s\S]*?(?=\n\n|\n[A-Z]|$)/i,"").replace(/PARAMS:[\s\S]*?(?=\n\n|\n[A-Z]|$)/i,"").replace(/CONFIRM:.*$/im,"").trim();
         setCmdHistory(h => [...h, { role:"ai", text: cleanText || aiText, ts: Date.now(), hasAction:true }]);
         setCmdPending({ action, params, confirmMsg });
@@ -3883,7 +3963,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
         body: JSON.stringify({ model: CHAT_MODEL, messages:[{ role:"user", content: prompt }], max_tokens:600, temperature:0.4 })
       });
       const d = await res.json();
-      const report = d.choices?.[0]?.message?.content || "Report generate nahi ho saki.";
+      const report = d.choices?.[0]?.message?.content || "Could not generate report.";
 
       // Save report to Firestore
       const dateKey = new Date().toISOString().split("T")[0];
@@ -3896,6 +3976,18 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
   }
 
   function newChat() { setSid(Date.now().toString()); setMsgs([]); setPage("chat"); setShowSb(false); setImgB64(null); setImgPrev(null); endVoice(); setReactions({}); setSessionTone(null); }
+
+  // ── Search User by Email ─────────────────────────────────────────
+  async function searchUserByEmail(email) {
+    if (!email.trim()) return null;
+    try {
+      const q = query(collection(db, "users"), where("email", "==", email.trim().toLowerCase()));
+      const snap = await getDocs(q);
+      if (snap.empty) return null;
+      const d = snap.docs[0];
+      return { id: d.id, ...d.data() };
+    } catch { return null; }
+  }
 
   // Long-press (mobile) / right-click-free long-press (desktop) on a sidebar
   // chat item opens the same Rename / Pin / Delete context menu used on the
@@ -4058,7 +4150,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
               <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>2. Prohibited Use</strong><br/>Do not use for generating harmful, illegal, or misleading content.</p>
               <p style={{ color: "var(--mt, #5a5a5a)", fontSize: 13, lineHeight: 1.7 }}><strong style={{ color: "var(--tx, #f0f0f0)" }}>3. Fair Use</strong><br/>Free tier is limited to {FREE_LIMIT} messages. Misuse may result in account suspension.</p>
             </>)}
-            <button className="btn btn-p" onClick={() => setLegalModal(null)} style={{ marginTop: 8 }}>Samajh Gaya ✓</button>
+            <button className="btn btn-p" onClick={() => setLegalModal(null)} style={{ marginTop: 8 }}>Got It ✓</button>
           </div>
         </div>
       )}
@@ -4178,15 +4270,47 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             </div>
             <div className="sb-nav">
               <div className="sb-section">Menu</div>
+              {/* Chat */}
+              <div className={"sb-item" + (page === "chat" ? " active" : "")} onClick={() => { setPage("chat"); setShowSb(false); }}>
+                <Ico.Chat /><span>Chat</span>
+              </div>
+
+              {/* Agents — with inline sub-items */}
+              <div className={"sb-item" + (page === "agents" ? " active" : "")} onClick={() => { setPage("agents"); setShowSb(false); setAgentTab("my"); }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="7" r="3"/><path d="M8 11v-1a4 4 0 0 1 8 0v1"/></svg>
+                <span>Agents</span>
+              </div>
+              {/* Sub-items under Agents */}
+              <div style={{ marginLeft: 0, borderLeft: "2px solid var(--accent)", marginLeft: 28, marginBottom: 4, borderRadius: "0 0 0 8px", overflow: "hidden" }}>
+                <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: page==="agents" && agentTab==="create" ? "var(--accent)" : "var(--mt)", fontWeight: page==="agents" && agentTab==="create" ? 700 : 500, fontSize: 13, transition: "all .15s" }}
+                  onClick={() => { setPage("agents"); setShowSb(false); setAgentTab("create"); setAgentCreateForm({name:"",category:""}); setAgentGenData(null); setAgentEditId(null); setAgentAvatarFile(null); setAgentAvatarPreview(null); setAgentPdfFile(null); setAgentPdfName(""); setAgentPdfText(""); }}
+                  onMouseEnter={e => e.currentTarget.style.color="var(--accent)"}
+                  onMouseLeave={e => e.currentTarget.style.color = page==="agents" && agentTab==="create" ? "var(--accent)" : "var(--mt)"}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                  Create Agent
+                </div>
+                <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: page==="agents" && agentTab==="my" ? "var(--accent)" : "var(--mt)", fontWeight: page==="agents" && agentTab==="my" ? 700 : 500, fontSize: 13, transition: "all .15s" }}
+                  onClick={() => { setPage("agents"); setShowSb(false); setAgentTab("my"); }}
+                  onMouseEnter={e => e.currentTarget.style.color="var(--accent)"}
+                  onMouseLeave={e => e.currentTarget.style.color = page==="agents" && agentTab==="my" ? "var(--accent)" : "var(--mt)"}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                  My Agents
+                </div>
+              </div>
+
+              {/* Marketplace */}
+              <div className={"sb-item" + (page === "marketplace" ? " active" : "")} onClick={() => { setPage("marketplace"); setShowSb(false); loadMarketplace(); }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+                <span>Marketplace</span>
+              </div>
+
+              {/* Rest of menu */}
               {[
-                { id: "chat", icon: <Ico.Chat />, label: "Chat" },
                 { id: "history", icon: <Ico.History />, label: "History" },
                 { id: "projects", icon: <Ico.Project />, label: "Projects" },
-                { id: "agents", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>, label: "Agents" },
-                { id: "marketplace", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>, label: "Marketplace" },
                 { id: "settings", icon: <Ico.Settings />, label: "Settings" },
               ].map(item => (
-                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); if(item.id==="marketplace") loadMarketplace(); if(item.id==="agents") { setAgentTab("my"); } }}>
+                <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
                   {item.icon}<span>{item.label}</span>
                 </div>
               ))}
@@ -4285,7 +4409,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
         <div className="mbg" onClick={() => setShowAgentBuilder(false)} style={{ zIndex: 999 }}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "85vh", overflowY: "auto", textAlign: "left", maxWidth: 460 }}>
             <div className="mi">{agentForm.emoji}</div>
-            <h3 style={{ textAlign: "center", marginBottom: 16 }}>{editingAgent ? "Agent Edit Karo" : "Naya Agent Banao"}</h3>
+            <h3 style={{ textAlign: "center", marginBottom: 16 }}>{editingAgent ? "Edit Agent" : "Create New Agent"}</h3>
 
             {/* Emoji picker */}
             <div style={{ marginBottom: 12 }}>
@@ -4308,7 +4432,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             {/* Instructions */}
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 12, color: "var(--mt)", marginBottom: 4, fontWeight: 600 }}>INSTRUCTIONS (YE AGENT KYA KAREGA?)</div>
-              <textarea className="inp iarea" rows={4} placeholder="Jaise: Tum ek doctor ho. Sirf health se related sawaalon ka jawab do. Hindi mein baat karo. Medical advice clearly do."
+              <textarea className="inp iarea" rows={4} placeholder="e.g. You are a doctor. Only answer health-related questions. Give clear medical advice in English."
                 value={agentForm.instructions} onChange={e => setAgentForm(f => ({...f, instructions: e.target.value}))}
                 style={{ width: "100%", resize: "none" }} />
             </div>
@@ -4386,7 +4510,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 <p><strong style={{ color: "var(--tx)" }}>📵 Misuse</strong><br/>Accounts found misusing the platform will be permanently suspended without refund.</p>
               </div>
             </>)}
-            <button className="btn btn-p" onClick={() => setLegalModal(null)} style={{ marginTop: 16 }}>Samajh Gaya ✓</button>
+            <button className="btn btn-p" onClick={() => setLegalModal(null)} style={{ marginTop: 16 }}>Got It ✓</button>
           </div>
         </div>
       )}
@@ -4399,27 +4523,27 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
               <>
                 <div className="mi">✅</div>
                 <h3 style={{ color: "#22c55e" }}>Payment Successful!</h3>
-                <p>Payment ho gayi! Screenshot bhejo WhatsApp pe — 30 min mein Premium activate ho jayega.</p>
+                <p>Payment done! Send the screenshot on WhatsApp — Premium will be activated within 30 minutes.</p>
                 <div style={{ background: "#22c55e15", border: "1px solid #22c55e40", borderRadius: 14, padding: "14px 16px", marginBottom: 4 }}>
-                  <div style={{ fontSize: 13, color: "#22c55e", fontWeight: 700, marginBottom: 6 }}>✅ Aage kya karna hai:</div>
+                  <div style={{ fontSize: 13, color: "#22c55e", fontWeight: 700, marginBottom: 6 }}>✅ Next Steps:</div>
                   <div style={{ fontSize: 12, color: "var(--mt)", lineHeight: 1.8 }}>
                     1. Payment screenshot lo<br/>
-                    2. WhatsApp pe bhejo<br/>
-                    3. 30 min mein Premium ON ho jayega
+                    2. Send it on WhatsApp<br/>
+                    3. Premium will be activated within 30 minutes
                   </div>
                 </div>
-                <button className="btn btn-p" onClick={() => window.open("https://wa.me/91" + UPI + "?text=Maine%20Saraswati%20AI%20Premium%20ke%20liye%20payment%20kiya%20hai.%20Screenshot%20attach%20kar%20raha%20hoon.", "_blank")}>📲 WhatsApp pe Screenshot Bhejo</button>
+                <button className="btn btn-p" onClick={() => window.open("https://wa.me/91" + UPI + "?text=Maine%20Saraswati%20AI%20Premium%20ke%20liye%20payment%20kiya%20hai.%20Screenshot%20attach%20kar%20raha%20hoon.", "_blank")}>📲 Send Screenshot on WhatsApp</button>
                 <button className="btn btn-s" onClick={() => { setShowUpgrade(false); setPayDone(false); setPayStatus(null); }}>Close</button>
               </>
             ) : payStatus === "fail" ? (
               <>
                 <div className="mi">❌</div>
                 <h3 style={{ color: "#ef4444" }}>Payment Failed</h3>
-                <p>Payment nahi ho payi. Koi baat nahi — dobara try karo ya doosra UPI app use karo.</p>
+                <p>Payment did not go through. No worries — try again or use a different UPI app.</p>
                 <div style={{ background: "#ef444415", border: "1px solid #ef444440", borderRadius: 14, padding: "14px 16px", marginBottom: 4 }}>
                   <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, marginBottom: 6 }}>⚠️ Possible reasons:</div>
                   <div style={{ fontSize: 12, color: "var(--mt)", lineHeight: 1.8 }}>
-                    • UPI app mein balance nahi<br/>
+                    • Insufficient UPI balance<br/>
                     • Internet issue tha<br/>
                     • Transaction timeout hua
                   </div>
@@ -4428,15 +4552,15 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   setPayStatus(null);
                   window.open("upi://pay?pa=" + UPI + "@upi&pn=SaraswatiAI&am=" + (upgradePlan === "monthly" ? "99" : "29") + "&cu=INR", "_blank");
                   setTimeout(() => setPayStatus("success"), 3000);
-                }}>🔄 Dobara Try Karo</button>
+                }}>🔄 Try Again</button>
                 <button className="btn btn-s" onClick={() => { setPayStatus(null); }}>Back</button>
               </>
             ) : payDone ? (
               <>
                 <div className="mi">✅</div>
                 <h3>Payment Sent!</h3>
-                <p>Screenshot bhejo WhatsApp pe — 30 min mein activate ho jayega!</p>
-                <button className="btn btn-p" onClick={() => window.open("https://wa.me/91" + UPI + "?text=Maine%20Saraswati%20AI%20Premium%20ke%20liye%20payment%20kiya%20hai", "_blank")}>📲 WhatsApp karo</button>
+                <p>Send the screenshot on WhatsApp — will be activated within 30 minutes!</p>
+                <button className="btn btn-p" onClick={() => window.open("https://wa.me/91" + UPI + "?text=Maine%20Saraswati%20AI%20Premium%20ke%20liye%20payment%20kiya%20hai", "_blank")}>📲 WhatsApp Us</button>
                 <button className="btn btn-s" onClick={() => { setShowUpgrade(false); setPayDone(false); setPayStatus(null); }}>Close</button>
               </>
             ) : (
@@ -4517,7 +4641,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="mi"></div>
             <h3>Delete Account</h3>
-            <p>Ye action permanent hai. Saara data delete ho jayega. Type <strong>DELETE</strong> to confirm.</p>
+            <p>This action is permanent. All your data will be deleted. Type <strong>DELETE</strong> to confirm.</p>
             <input className="inp" placeholder='Type "DELETE" to confirm' value={delConfirmText} onChange={e => setDelConfirmText(e.target.value)} />
             <button className="btn" style={{ background: "#ef4444", color: "#fff" }} onClick={deleteAccount} disabled={delLoading || delConfirmText.trim().toUpperCase() !== "DELETE"}>{delLoading ? "Deleting..." : "Delete My Account"}</button>
             <button className="btn btn-s" onClick={() => setShowDeleteAcc(false)}>Cancel</button>
@@ -4705,7 +4829,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             </div>
             {hSearch && (
               <div style={{ fontSize: 11, color: "var(--mt)", marginBottom: 8, paddingLeft: 4 }}>
-                {filtHists.length} result{filtHists.length !== 1 ? "s" : ""} — title aur messages dono mein search ho raha hai
+                {filtHists.length} result{filtHists.length !== 1 ? "s" : ""} — searching in titles and messages
               </div>
             )}
             <div className="opt-row" style={{ marginBottom: 12 }}>
@@ -4727,7 +4851,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   )}
                   {hSearch && h.searchIndex?.toLowerCase().includes(hSearch.toLowerCase()) && !(h.title || "").toLowerCase().includes(hSearch.toLowerCase()) && (
                     <div style={{ fontSize: 11, color: "var(--accent)", marginTop: 2 }}>
-                      Message mein milا: "...{(() => {
+                      Message in milا: "...{(() => {
                         const idx = h.searchIndex.toLowerCase().indexOf(hSearch.toLowerCase());
                         return h.searchIndex.slice(Math.max(0, idx - 20), idx + 40);
                       })()}..."
@@ -4834,7 +4958,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             ) : memories.length === 0 ? (
               <div style={{ textAlign: "center", padding: 40, color: "var(--mt)" }}>
                 <div style={{ opacity: 0.3, marginBottom: 12 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24A2.5 2.5 0 0 0 14.5 2z"/></svg></div>
-                <div style={{ fontSize: 14, marginBottom: 8 }}>Koi memory nahi hai abhi</div>
+                <div style={{ fontSize: 14, marginBottom: 8 }}>No memories saved yet</div>
                 <div style={{ fontSize: 12, lineHeight: 1.7 }}>
                   Start chatting, or type<br />
                   <span style={{ color: "var(--accent)" }}>"Remember that I am a developer"</span><br />
@@ -5063,12 +5187,12 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
               </div>
               <div className="srow" style={{ cursor:"pointer" }} onClick={()=>{ setPage("marketplace"); setShowSb(false); loadMarketplace(); }}>
                 <div className="sicon">🛍</div>
-                <div className="stxt"><div className="slbl">Marketplace</div><div className="sdesc">Browse aur buy agents</div></div>
+                <div className="stxt"><div className="slbl">Marketplace</div><div className="sdesc">Browse and buy agents</div></div>
                 <div className="sright"><Ico.ChevRight /></div>
               </div>
               <div className="srow" style={{ cursor:"pointer" }} onClick={()=>{ setPage("agents"); setShowSb(false); }}>
                 <div className="sicon">🤖</div>
-                <div className="stxt"><div className="slbl">My Agents</div><div className="sdesc">Create aur manage agents</div></div>
+                <div className="stxt"><div className="slbl">My Agents</div><div className="sdesc">Create and manage agents</div></div>
                 <div className="sright"><Ico.ChevRight /></div>
               </div>
             </div>
@@ -5148,10 +5272,10 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 {agents.length===0?(
                   <div style={{textAlign:"center",padding:"40px 20px",color:"var(--mt)"}}>
                     <div style={{fontSize:56,marginBottom:16}}>🤖</div>
-                    <div style={{fontSize:16,fontWeight:600,color:"var(--tx)",marginBottom:8}}>Koi Agent Nahi Hai</div>
+                    <div style={{fontSize:16,fontWeight:600,color:"var(--tx)",marginBottom:8}}>No Agents Yet</div>
                     <div style={{fontSize:13,lineHeight:1.7,marginBottom:20}}>
-                      Create Agent tab se apna pehla AI agent banao!<br/>
-                      <span style={{color:"var(--accent)"}}>Bas naam aur category — baaki AI karta hai ✨</span>
+                      Go to the Create Agent tab to build your first AI agent!<br/>
+                      <span style={{color:"var(--accent)"}}>Just name and category — AI does the rest ✨</span>
                     </div>
                     <button onClick={()=>setAgentTab("create")}
                       style={{background:"var(--grad)",color:"#fff",border:"none",borderRadius:14,padding:"12px 24px",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
@@ -5227,7 +5351,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                           style={{padding:"8px 12px",borderRadius:10,border:"1px solid "+(agent.published?"#22c55e50":"var(--bd)"),background:agent.published?"#22c55e15":"var(--sf2)",color:agent.published?"#22c55e":"var(--mt)",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
                           {agent.published?"📤 Unpublish":"🌐 Publish"}
                         </button>
-                        <button onClick={()=>askConfirm({title:"Delete Agent?",message:`"${agent.name}" permanently delete hoga.`,onConfirm:()=>deleteAgent(agent.id)})}
+                        <button onClick={()=>askConfirm({title:"Delete Agent?",message:`"${agent.name}" will be permanently deleted.`,onConfirm:()=>deleteAgent(agent.id)})}
                           style={{padding:"8px 10px",borderRadius:10,border:"1px solid #ef444430",background:"none",color:"#ef4444",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
                           🗑
                         </button>
@@ -5242,13 +5366,13 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             {agentTab==="create" && (
               <div>
                 <div style={{fontSize:13,color:"var(--mt)",marginBottom:16,lineHeight:1.6}}>
-                  {agentEditId?"Agent ko edit karo 👇":"Sirf naam aur category do — AI baaki sab generate karega! ✨"}
+                  {agentEditId?"Edit your agent 👇":"Just name and category — AI generates everything else! ✨"}
                 </div>
 
                 {/* Agent Name */}
                 <div style={{marginBottom:14}}>
                   <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:6,letterSpacing:".05em",textTransform:"uppercase"}}>Agent Name *</div>
-                  <input className="inp" placeholder="Jaise: Doctor AI, Kisan Mitra, Legal Expert..."
+                  <input className="inp" placeholder="e.g. Doctor AI, Legal Expert, Study Planner..."
                     value={agentCreateForm.name} onChange={e=>setAgentCreateForm(f=>({...f,name:e.target.value}))} style={{width:"100%"}} />
                 </div>
 
@@ -5263,13 +5387,23 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   )}
                   <div style={{position:"relative",marginBottom:8}}>
                     <svg style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    <input placeholder="Category search karo... (100+ options)"
+                    <input placeholder="Search category... (100+ options)"
                       value={agentCatSearch} onChange={e=>setAgentCatSearch(e.target.value)}
                       style={{width:"100%",padding:"9px 12px 9px 34px",borderRadius:12,border:"1.5px solid var(--bd)",background:"var(--sf2)",color:"var(--tx)",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none",boxSizing:"border-box"}} />
                   </div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:160,overflowY:"auto",padding:"4px 0"}}>
                     {ALL_CATEGORIES.filter(cat=>cat.toLowerCase().includes(agentCatSearch.toLowerCase())).map(cat=>(
-                      <button key={cat} onClick={()=>{setAgentCreateForm(f=>({...f,category:cat}));setAgentCatSearch("");}}
+                      <button key={cat} onClick={()=>{
+                        setAgentCreateForm(f=>({...f,category:cat}));
+                        setAgentCatSearch("");
+                        // Auto-set emoji avatar if user hasn't uploaded a photo
+                        if (!agentAvatarFile) {
+                          const autoEmoji = getCategoryEmoji(cat);
+                          setAgentAvatarPreview(null); // keep null so emoji shows
+                          // Store auto emoji in genData if exists, else set temporarily
+                          setAgentGenData(prev => prev ? {...prev, suggestedAvatar: autoEmoji} : { suggestedAvatar: autoEmoji });
+                        }
+                      }}
                         style={{padding:"5px 12px",borderRadius:20,border:"1.5px solid "+(agentCreateForm.category===cat?"var(--accent)":"var(--bd)"),
                           background:agentCreateForm.category===cat?"var(--glow)":"var(--sf2)",
                           color:agentCreateForm.category===cat?"var(--accent)":"var(--mt)",
@@ -5284,8 +5418,16 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 <div style={{marginBottom:14}}>
                   <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:6,letterSpacing:".05em",textTransform:"uppercase"}}>Avatar (Optional)</div>
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
-                    <div style={{width:56,height:56,borderRadius:16,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,overflow:"hidden",flexShrink:0}}>
-                      {agentAvatarPreview?<img src={agentAvatarPreview} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />:(agentGenData?.suggestedAvatar||"🤖")}
+                    {/* Avatar preview — shows: 1) uploaded photo, 2) AI emoji, 3) category emoji, 4) default */}
+                    <div style={{width:64,height:64,borderRadius:18,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,overflow:"hidden",flexShrink:0,boxShadow:"0 4px 16px var(--glow)",position:"relative"}}>
+                      {agentAvatarPreview
+                        ? <img src={agentAvatarPreview} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />
+                        : (agentGenData?.suggestedAvatar || getCategoryEmoji(agentCreateForm.category))
+                      }
+                      {/* Auto badge - shows when no manual upload */}
+                      {!agentAvatarPreview && agentCreateForm.category && (
+                        <div style={{position:"absolute",bottom:-4,right:-4,background:"var(--accent)",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff",border:"2px solid var(--bg)"}}>A</div>
+                      )}
                     </div>
                     <div style={{flex:1}}>
                       <label style={{display:"inline-block",padding:"8px 16px",borderRadius:10,border:"1.5px solid var(--bd)",background:"var(--sf2)",color:"var(--mt)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
@@ -5293,7 +5435,12 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                         <input type="file" accept="image/*" onChange={handleAgentAvatar} style={{display:"none"}} />
                       </label>
                       {agentAvatarPreview&&<button onClick={()=>{setAgentAvatarFile(null);setAgentAvatarPreview(null);}} style={{marginLeft:8,background:"none",border:"none",color:"#ef4444",fontSize:12,cursor:"pointer"}}>Remove</button>}
-                      <div style={{fontSize:10,color:"var(--mt)",marginTop:4}}>Ya AI se emoji avatar auto-generate hoga</div>
+                      {agentAvatarPreview
+                        ? <div style={{fontSize:10,color:"#22c55e",marginTop:4}}>✓ Custom photo set</div>
+                        : agentCreateForm.category
+                          ? <div style={{fontSize:10,color:"var(--accent)",marginTop:4}}>Auto: {getCategoryEmoji(agentCreateForm.category)} category se set hoga</div>
+                          : <div style={{fontSize:10,color:"var(--mt)",marginTop:4}}>Photo upload karo ya category se auto emoji lagega</div>
+                      }
                     </div>
                   </div>
                 </div>
@@ -5319,7 +5466,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 {!agentGenData&&(
                   <button onClick={async()=>{
                     if(!agentCreateForm.name.trim()){alert("Agent ka naam daalo!");return;}
-                    if(!agentCreateForm.category.trim()){alert("Category choose karo!");return;}
+                    if(!agentCreateForm.category.trim()){alert("Please select a category!");return;}
                     setAgentGenLoading(true);
                     const data=await generateAgentData(agentCreateForm.name,agentCreateForm.category);
                     setAgentGenData(data);
@@ -5340,7 +5487,9 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   <div style={{background:"var(--sf2)",borderRadius:16,padding:16,marginBottom:16,border:"1px solid var(--bd)"}}>
                     <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,paddingBottom:12,borderBottom:"1px solid var(--bd)"}}>
                       <div style={{width:52,height:52,borderRadius:14,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,overflow:"hidden"}}>
-                        {agentAvatarPreview?<img src={agentAvatarPreview} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />:(agentGenData.suggestedAvatar||"🤖")}
+                        {agentAvatarPreview
+                          ? <img src={agentAvatarPreview} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />
+                          : (agentGenData.suggestedAvatar || getCategoryEmoji(agentCreateForm.category) || "🤖")}
                       </div>
                       <div style={{flex:1}}>
                         <div style={{fontSize:15,fontWeight:700,color:"var(--tx)"}}>{agentCreateForm.name}</div>
@@ -5483,8 +5632,8 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
               ):displayAgents.length===0?(
                 <div style={{textAlign:"center",padding:40,color:"var(--mt)"}}>
                   <div style={{fontSize:48,marginBottom:12}}>🔍</div>
-                  <div style={{fontSize:15,fontWeight:600,color:"var(--tx)",marginBottom:8}}>Koi agent nahi mila</div>
-                  <div style={{fontSize:13}}>Search ya filter change karo</div>
+                  <div style={{fontSize:15,fontWeight:600,color:"var(--tx)",marginBottom:8}}>No agents found</div>
+                  <div style={{fontSize:13}}>Try a different search or filter</div>
                 </div>
               ):(
                 <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -5656,14 +5805,14 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                       {[1,2,3,4,5].map(s=><span key={s} onClick={()=>setMkReviewRating(s)} style={{fontSize:24,cursor:"pointer",color:s<=mkReviewRating?"#f59e0b":"var(--bd)",transition:"color .15s"}}>★</span>)}
                       <span style={{fontSize:12,color:"var(--accent)",fontWeight:700}}>{mkReviewRating}/5</span>
                     </div>
-                    <textarea className="inp iarea" rows={3} placeholder="Apna experience share karo..." value={mkReviewText} onChange={e=>setMkReviewText(e.target.value)} style={{width:"100%",resize:"none",marginBottom:8,fontSize:13}}/>
+                    <textarea className="inp iarea" rows={3} placeholder="Share your experience..." value={mkReviewText} onChange={e=>setMkReviewText(e.target.value)} style={{width:"100%",resize:"none",marginBottom:8,fontSize:13}}/>
                     <button onClick={()=>submitReview(mkDetail.id)} disabled={mkReviewLoading||!mkReviewText.trim()}
                       style={{padding:"9px 20px",borderRadius:10,border:"none",background:"var(--grad)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",opacity:(!mkReviewText.trim()||mkReviewLoading)?0.5:1}}>
                       {mkReviewLoading?"Submitting...":"Submit Review"}
                     </button>
                   </div>
                 )}
-                {mkReviews.length===0?<div style={{textAlign:"center",padding:"16px 0",color:"var(--mt)",fontSize:13}}>Abhi koi review nahi ✍️</div>:
+                {mkReviews.length===0?<div style={{textAlign:"center",padding:"16px 0",color:"var(--mt)",fontSize:13}}>No reviews yet ✍️</div>:
                   mkReviews.map(rev=>(
                     <div key={rev.id} style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:12,padding:"10px 12px",marginBottom:8}}>
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
@@ -5683,42 +5832,131 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
 
       {/* PUBLISH FEE MODAL */}
       {showPublishFee&&(
-        <div className="mbg" onClick={()=>{setShowPublishFee(false);setPublishFeeDone(false);}} style={{zIndex:1000}}>
+        <div className="mbg" onClick={()=>{ if(!publishFeeLoading){ setShowPublishFee(false);setPublishFeeDone(false);setPublishPayStatus(null);setPublishedSuccess(false);} }} style={{zIndex:1000}}>
           <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
-            {publishFeeDone?(
+
+            {/* ── STEP 4: AGENT PUBLISHED — FINAL SUCCESS SCREEN ── */}
+            {publishedSuccess ? (
+              <>
+                <div className="mi">🎉</div>
+                <h3 style={{color:"#22c55e"}}>Agent Published!</h3>
+                <p style={{fontSize:13,color:"var(--mt)",lineHeight:1.7}}>
+                  <strong style={{color:"var(--tx)"}}>{publishFeeAgent?.name}</strong> is now live on the Marketplace!
+                </p>
+                <div style={{background:"#22c55e15",border:"1px solid #22c55e40",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#22c55e",marginBottom:8}}>✅ Your agent can now be:</div>
+                  <div style={{fontSize:12,color:"var(--mt)",lineHeight:1.9}}>
+                    👁️ Viewed by anyone on the Marketplace<br/>
+                    🛒 Bought {parseFloat(publishFeeAgent?.customPrice||0)>0 ? `for ₹${publishFeeAgent?.customPrice}` : "for free"}<br/>
+                    💬 Used in chat instantly
+                  </div>
+                </div>
+                {parseFloat(publishFeeAgent?.customPrice||0)>0 && (
+                  <div style={{display:"flex",gap:8,marginBottom:16}}>
+                    <div style={{flex:1,background:"var(--sf2)",border:"1px solid var(--bd)",borderRadius:12,padding:"10px",textAlign:"center"}}>
+                      <div style={{fontSize:10,color:"var(--mt)"}}>You Earn</div>
+                      <div style={{fontSize:16,fontWeight:800,color:"#22c55e"}}>80%</div>
+                    </div>
+                    <div style={{flex:1,background:"var(--sf2)",border:"1px solid var(--bd)",borderRadius:12,padding:"10px",textAlign:"center"}}>
+                      <div style={{fontSize:10,color:"var(--mt)"}}>Saraswati AI</div>
+                      <div style={{fontSize:16,fontWeight:800,color:"#f97316"}}>20%</div>
+                    </div>
+                  </div>
+                )}
+                <button className="btn btn-p" onClick={()=>{ setShowPublishFee(false); setPublishFeeAgent(null); setPublishedSuccess(false); setPage("marketplace"); loadMarketplace(); }} style={{width:"100%",marginBottom:8}}>
+                  🛍 View in Marketplace
+                </button>
+                <button className="btn btn-s" onClick={()=>{ setShowPublishFee(false); setPublishFeeAgent(null); setPublishedSuccess(false); }} style={{width:"100%"}}>Close</button>
+              </>
+
+            /* ── STEP 3: PAYMENT RESULT — SUCCESS / FAIL ── */
+            ) : publishPayStatus === "success" ? (
               <>
                 <div className="mi">✅</div>
-                <h3>Payment Confirm karo</h3>
-                <p style={{fontSize:13,color:"var(--mt)",lineHeight:1.7}}>Payment ho gayi? "Confirm & Publish" click karo.</p>
+                <h3 style={{color:"#22c55e"}}>Payment Successful!</h3>
+                <p style={{fontSize:13,color:"var(--mt)",lineHeight:1.7}}>₹{PUBLISH_FEE} publishing fee received. Confirm below to publish your agent.</p>
+                <div style={{background:"var(--sf2)",borderRadius:14,padding:"12px 16px",marginBottom:16,border:"1px solid var(--bd)"}}>
+                  <div style={{fontSize:12,color:"var(--mt)",marginBottom:4}}>Publishing Fee Paid</div>
+                  <div style={{fontSize:20,fontWeight:800,color:"#22c55e"}}>₹{PUBLISH_FEE} ✓</div>
+                  <div style={{fontSize:11,color:"var(--mt)",marginTop:4}}>Agent: {publishFeeAgent?.name}</div>
+                  {parseFloat(publishFeeAgent?.customPrice||0)>0&&<div style={{fontSize:11,color:"#22c55e",marginTop:2}}>Selling Price: ₹{publishFeeAgent?.customPrice}</div>}
+                </div>
+                <button className="btn btn-p" onClick={confirmPublish} disabled={publishFeeLoading} style={{width:"100%",marginBottom:8}}>
+                  {publishFeeLoading?"Publishing...":"🚀 Confirm & Publish"}
+                </button>
+                <button className="btn btn-s" onClick={()=>{setShowPublishFee(false);setPublishPayStatus(null);}} style={{width:"100%"}}>Cancel</button>
+              </>
+            ) : publishPayStatus === "fail" ? (
+              <>
+                <div className="mi">❌</div>
+                <h3 style={{color:"#ef4444"}}>Payment Failed</h3>
+                <p style={{fontSize:13,color:"var(--mt)",lineHeight:1.7}}>The ₹{PUBLISH_FEE} payment did not go through. No worries — try again.</p>
+                <div style={{background:"#ef444415",border:"1px solid #ef444440",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#ef4444",marginBottom:6}}>⚠️ Possible reasons:</div>
+                  <div style={{fontSize:12,color:"var(--mt)",lineHeight:1.8}}>
+                    • Insufficient UPI balance<br/>
+                    • Internet issue during payment<br/>
+                    • Transaction timed out
+                  </div>
+                </div>
+                <button className="btn btn-p" onClick={()=>{
+                  setPublishPayStatus(null);
+                  window.open("upi://pay?pa="+PLATFORM_UPI+"@upi&pn=SaraswatiAI&am="+PUBLISH_FEE+"&cu=INR&tn=AgentPublishFee","_blank");
+                  setTimeout(()=>setPublishPayStatus("success"),3000);
+                }} style={{width:"100%",marginBottom:8}}>🔄 Try Again</button>
+                <button className="btn btn-s" onClick={()=>setPublishPayStatus(null)} style={{width:"100%"}}>Back</button>
+              </>
+
+            /* ── LEGACY MANUAL CONFIRM (kept as fallback path) ── */
+            ) : publishFeeDone?(
+              <>
+                <div className="mi">✅</div>
+                <h3>Confirm Payment</h3>
+                <p style={{fontSize:13,color:"var(--mt)",lineHeight:1.7}}>Payment done? Click "Confirm & Publish".</p>
                 <div style={{background:"var(--sf2)",borderRadius:14,padding:"12px 16px",marginBottom:16,border:"1px solid var(--bd)"}}>
                   <div style={{fontSize:12,color:"var(--mt)",marginBottom:4}}>Publishing Fee</div>
                   <div style={{fontSize:20,fontWeight:800,color:"var(--accent)"}}>₹{PUBLISH_FEE}</div>
                   <div style={{fontSize:11,color:"var(--mt)",marginTop:4}}>Agent: {publishFeeAgent?.name}</div>
                   {parseFloat(publishFeeAgent?.customPrice||0)>0&&<div style={{fontSize:11,color:"#22c55e",marginTop:2}}>Selling Price: ₹{publishFeeAgent?.customPrice}</div>}
                 </div>
+                <div style={{display:"flex",gap:6,marginBottom:8}}>
+                  <button className="btn btn-s" style={{flex:1,fontSize:12}} onClick={()=>setPublishPayStatus("fail")}>❌ Payment Failed?</button>
+                  <button className="btn btn-s" style={{flex:1,fontSize:12}} onClick={()=>setPublishPayStatus("success")}>✅ Payment Done?</button>
+                </div>
                 <button className="btn btn-p" onClick={confirmPublish} disabled={publishFeeLoading} style={{width:"100%",marginBottom:8}}>
                   {publishFeeLoading?"Publishing...":"✅ Confirm & Publish"}
                 </button>
                 <button className="btn btn-s" onClick={()=>{setShowPublishFee(false);setPublishFeeDone(false);}} style={{width:"100%"}}>Cancel</button>
               </>
+
+            /* ── STEP 1+2: SET PRICE + PAY ₹9 ── */
             ):(
               <>
                 <div className="mi">🚀</div>
-                <h3>Marketplace mein Publish karo</h3>
+                <h3>Publish to Marketplace</h3>
                 <div style={{marginBottom:14}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>Selling Price set karo</div>
+                  <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>Set Selling Price</div>
                   <div style={{display:"flex",gap:8,alignItems:"center"}}>
                     <span style={{fontSize:18,fontWeight:700,color:"var(--tx)"}}>₹</span>
                     <input className="inp" type="number" min="0" placeholder="0 = FREE" value={agentPrice} onChange={e=>setAgentPrice(e.target.value)} style={{flex:1,fontSize:20,fontWeight:700,textAlign:"center"}}/>
                   </div>
+                  {/* Quick price presets */}
+                  <div style={{display:"flex",gap:6,marginTop:8}}>
+                    {[49,99,199,499].map(p=>(
+                      <button key={p} onClick={()=>setAgentPrice(String(p))}
+                        style={{flex:1,padding:"7px",borderRadius:10,border:"1.5px solid "+(String(agentPrice)===String(p)?"var(--accent)":"var(--bd)"),background:String(agentPrice)===String(p)?"var(--glow)":"var(--sf2)",color:String(agentPrice)===String(p)?"var(--accent)":"var(--mt)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                        ₹{p}
+                      </button>
+                    ))}
+                  </div>
                   {parseFloat(agentPrice)>0&&(
                     <div style={{marginTop:8,padding:"8px 12px",background:"var(--glow)",borderRadius:10,border:"1px solid var(--accent)"}}>
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                        <span style={{fontSize:12,color:"var(--mt)"}}>Tumhara (80%)</span>
+                        <span style={{fontSize:12,color:"var(--mt)"}}>You Earn (80%)</span>
                         <span style={{fontSize:13,fontWeight:700,color:"#22c55e"}}>₹{Math.round(parseFloat(agentPrice)*0.80)}</span>
                       </div>
                       <div style={{display:"flex",justifyContent:"space-between"}}>
-                        <span style={{fontSize:12,color:"var(--mt)"}}>Platform (20%)</span>
+                        <span style={{fontSize:12,color:"var(--mt)"}}>Commission Tax (20%)</span>
                         <span style={{fontSize:12,color:"var(--mt)"}}>₹{Math.round(parseFloat(agentPrice)*0.20)}</span>
                       </div>
                     </div>
@@ -5730,12 +5968,16 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                     <span style={{fontSize:20,fontWeight:800,color:"var(--accent)"}}>₹{PUBLISH_FEE}</span>
                   </div>
                   <div style={{padding:"10px 12px",background:"#22c55e10",borderRadius:10,border:"1px solid #22c55e30"}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:4}}>UPI se pay karo:</div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:4}}>Pay via UPI:</div>
                     <div style={{fontSize:14,fontWeight:700,color:"var(--tx)"}}>{PLATFORM_UPI}@upi</div>
                     <div style={{fontSize:11,color:"var(--mt)",marginTop:2}}>Amount: ₹{PUBLISH_FEE} · Note: Agent Publish Fee</div>
                   </div>
                 </div>
-                <button className="btn btn-p" onClick={()=>{window.open("upi://pay?pa="+PLATFORM_UPI+"@upi&pn=SaraswatiAI&am="+PUBLISH_FEE+"&cu=INR&tn=AgentPublishFee","_blank");setTimeout(()=>setPublishFeeDone(true),1500);}} style={{width:"100%",marginBottom:8}}>
+                <button className="btn btn-p" onClick={()=>{
+                  setPublishFeeAgent(p=>({...p, customPrice: parseFloat(agentPrice)||0}));
+                  window.open("upi://pay?pa="+PLATFORM_UPI+"@upi&pn=SaraswatiAI&am="+PUBLISH_FEE+"&cu=INR&tn=AgentPublishFee","_blank");
+                  setTimeout(()=>setPublishPayStatus("success"),4000);
+                }} style={{width:"100%",marginBottom:8}}>
                   Pay ₹{PUBLISH_FEE} & Publish →
                 </button>
                 <button className="btn btn-s" onClick={()=>setShowPublishFee(false)} style={{width:"100%"}}>Cancel</button>
@@ -5771,11 +6013,11 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                     <span style={{fontSize:24,fontWeight:800,color:"var(--accent)"}}>₹{buyModalAgent.price}</span>
                   </div>
                   <div style={{padding:"10px 12px",background:"#3b82f610",borderRadius:10,border:"1px solid #3b82f630"}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#3b82f6",marginBottom:3}}>UPI se pay karo:</div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#3b82f6",marginBottom:3}}>Pay via UPI:</div>
                     <div style={{fontSize:15,fontWeight:700,color:"var(--tx)"}}>{PLATFORM_UPI}@upi</div>
                     <div style={{fontSize:11,color:"var(--mt)",marginTop:2}}>Amount: ₹{buyModalAgent.price} · Note: {buyModalAgent.name}</div>
                   </div>
-                  <div style={{fontSize:11,color:"var(--mt)",marginTop:8}}>Creator ko ₹{Math.round(buyModalAgent.price*0.80)} milega · Commission Tax: ₹{Math.round(buyModalAgent.price*0.20)} (20%)</div>
+                  <div style={{fontSize:11,color:"var(--mt)",marginTop:8}}>Creator earns ₹{Math.round(buyModalAgent.price*0.80)} · Commission Tax: ₹{Math.round(buyModalAgent.price*0.20)} (20%)</div>
                 </div>
                 <button className="btn btn-p" onClick={()=>{window.open("upi://pay?pa="+PLATFORM_UPI+"@upi&pn=SaraswatiAI&am="+buyModalAgent.price+"&cu=INR&tn="+encodeURIComponent(buyModalAgent.name),"_blank");setTimeout(()=>setBuyPayDone(true),1500);}} style={{width:"100%",marginBottom:8}}>
                   Pay ₹{buyModalAgent.price} via UPI →
@@ -5841,7 +6083,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                           </div>
                         ):(
                           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                            <span style={{fontSize:14,fontWeight:600,color:creatorData?.upiId?"var(--tx)":"var(--mt)"}}>{creatorData?.upiId||"UPI ID nahi diya"}</span>
+                            <span style={{fontSize:14,fontWeight:600,color:creatorData?.upiId?"var(--tx)":"var(--mt)"}}>{creatorData?.upiId||"UPI ID not added"}</span>
                             <button onClick={()=>{setCreatorUpiEdit(true);setCreatorUpiVal(creatorData?.upiId||"");}} style={{background:"none",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:12,fontWeight:600}}>{creatorData?.upiId?"Edit":"+ Add"}</button>
                           </div>
                         )}
@@ -5879,7 +6121,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                           </div>
                         );
                       })}
-                      {(!creatorData?.agentsData?.filter(a=>a.published).length)&&<div style={{textAlign:"center",padding:"20px 0",color:"var(--mt)",fontSize:13}}>Koi published agent nahi</div>}
+                      {(!creatorData?.agentsData?.filter(a=>a.published).length)&&<div style={{textAlign:"center",padding:"20px 0",color:"var(--mt)",fontSize:13}}>No published agents yet</div>}
                     </>
                   )}
                   {creatorTab==="wallet"&&(
@@ -5916,7 +6158,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                         </div>
                       )}
                       <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Withdrawal History</div>
-                      {creatorWithdrawals.length===0?<div style={{textAlign:"center",padding:"14px 0",color:"var(--mt)",fontSize:13}}>Koi history nahi</div>:
+                      {creatorWithdrawals.length===0?<div style={{textAlign:"center",padding:"14px 0",color:"var(--mt)",fontSize:13}}>No history yet</div>:
                         creatorWithdrawals.map(w=>(
                           <div key={w.id} style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:10,padding:"9px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                             <div><div style={{fontSize:13,fontWeight:600,color:"var(--tx)"}}>₹{w.amount}</div><div style={{fontSize:10,color:"var(--mt)"}}>{w.upiId} · {fmtDate(w.createdAt)}</div></div>
@@ -5938,7 +6180,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                           <span style={{fontSize:20}}>🚀</span>
                           <div>
                             <div style={{fontSize:12,fontWeight:700,color:"#22c55e"}}>Auto Payout Ready!</div>
-                            <div style={{fontSize:11,color:"var(--mt)"}}>Balance ₹500+ ho gayi — withdraw karo</div>
+                            <div style={{fontSize:11,color:"var(--mt)"}}>Balance reached ₹500+ — ready to withdraw</div>
                           </div>
                         </div>
                       )}
@@ -6031,64 +6273,87 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
       {/* ── AI COMMAND CENTER PAGE (PART 5) ── */}
       {page === "cmdcenter" && isAdmin && (() => {
         const QUICK_CMDS = [
-          "Show today's revenue",
-          "Show total users",
-          "Show pending withdrawals",
-          "Show top selling agents",
-          "Approve all pending withdrawals",
-          "Send notification to all users",
-          "Generate daily report",
+          { label: "💰 Today Revenue", cmd: "Show today's revenue" },
+          { label: "👥 Total Users", cmd: "Show total users" },
+          { label: "⏳ Pending W/D", cmd: "Show pending withdrawals" },
+          { label: "🏆 Top Agents", cmd: "Show top selling agents" },
+          { label: "📊 Platform Stats", cmd: "Show complete platform statistics" },
+          { label: "✅ Approve All W/D", cmd: "Approve all pending withdrawals" },
+          { label: "🔔 Notify Users", cmd: "Send notification to all users" },
         ];
         return (
           <div className="page" style={{ display:"flex", flexDirection:"column", height:"100%" }}>
 
-            {/* ── TOP: Daily Report Button ── */}
+            {/* ── TOP HEADER ── */}
             <div style={{ padding:"10px 14px 0", flexShrink:0 }}>
-              <div style={{ background:"var(--grad)", borderRadius:18, padding:"14px 16px", marginBottom:12, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ background:"var(--grad)", borderRadius:18, padding:"14px 16px", marginBottom:10, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                 <div>
                   <div style={{ fontSize:14, fontWeight:800, color:"#fff" }}>⚡ AI Command Center</div>
                   <div style={{ fontSize:11, color:"#ffffff80", marginTop:2 }}>Type commands — AI executes with your confirmation</div>
                 </div>
-                <button onClick={generateDailyReport} disabled={cmdReportLoading}
+                <button onClick={async () => { await generateDailyReport(); setShowReportModal(true); }} disabled={cmdReportLoading}
                   style={{ padding:"8px 14px", borderRadius:12, background:"#ffffff25", border:"1px solid #ffffff50", color:"#fff", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter,sans-serif", flexShrink:0 }}>
-                  {cmdReportLoading ? "..." : "📊 Report"}
+                  {cmdReportLoading ? "⏳ Loading..." : "📊 Full Report"}
                 </button>
               </div>
 
-              {/* Daily Report Card */}
-              {cmdReport && (
-                <div style={{ background:"var(--sf)", border:"1px solid var(--bd)", borderRadius:18, padding:"16px", marginBottom:12, maxHeight:260, overflowY:"auto" }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                    <div style={{ fontSize:13, fontWeight:700, color:"var(--tx)" }}>📊 Daily Report</div>
-                    <div style={{ fontSize:10, color:"var(--mt)" }}>{cmdReport.date}</div>
-                  </div>
-                  {/* Snap metrics row */}
-                  <div style={{ display:"flex", gap:8, overflowX:"auto", marginBottom:12 }}>
-                    {[
-                      { label:"Today Revenue", value:"₹"+cmdReport.snap.todayRevenue, color:"#22c55e" },
-                      { label:"Today Sales", value:cmdReport.snap.todaySales, color:"#3b82f6" },
-                      { label:"Total Users", value:cmdReport.snap.totalUsers, color:"#8b5cf6" },
-                      { label:"Pending W/D", value:cmdReport.snap.pendingWithdrawCount, color:"#f59e0b" },
-                    ].map((m,i) => (
-                      <div key={i} style={{ flexShrink:0, background:"var(--sf2)", border:"1px solid var(--bd)", borderRadius:12, padding:"8px 12px", textAlign:"center" }}>
-                        <div style={{ fontSize:16, fontWeight:800, color:m.color }}>{m.value}</div>
-                        <div style={{ fontSize:9, color:"var(--mt)", marginTop:2, whiteSpace:"nowrap" }}>{m.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                  {/* Report text */}
-                  <div style={{ fontSize:12, color:"var(--tx)", lineHeight:1.8, whiteSpace:"pre-wrap" }}>{cmdReport.text}</div>
-                </div>
-              )}
+              {/* ── Email Search Box ── */}
+              <div style={{ background:"var(--sf)", border:"1.5px solid var(--bd)", borderRadius:14, padding:"10px 14px", marginBottom:10, display:"flex", gap:8, alignItems:"center" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input
+                  placeholder="Search user by email... (e.g. user@gmail.com)"
+                  style={{ flex:1, background:"none", border:"none", outline:"none", color:"var(--tx)", fontSize:13, fontFamily:"Inter,sans-serif" }}
+                  onKeyDown={async e => {
+                    if (e.key === "Enter" && e.target.value.includes("@")) {
+                      const email = e.target.value.trim();
+                      setCmdLoading(true);
+                      const found = await searchUserByEmail(email);
+                      setCmdLoading(false);
+                      if (found) {
+                        setUserSearchResult(found);
+                        setCmdHistory(h => [...h, { role:"user", text:`Search user: ${email}`, ts: Date.now() }, {
+                          role:"ai",
+                          text:`👤 User Found!\n\nName: ${found.name||"—"}\nEmail: ${found.email}\nPremium: ${found.premium?"✅ Yes":"❌ No"}\nMessages Used: ${found.usageCount||0}\nJoined: ${found.createdAt?.seconds?new Date(found.createdAt.seconds*1000).toLocaleDateString("en-IN"):"N/A"}\nUID: ${found.id}`,
+                          ts: Date.now()
+                        }]);
+                        e.target.value = "";
+                      } else {
+                        setCmdHistory(h => [...h, { role:"user", text:`Search user: ${email}`, ts: Date.now() }, { role:"ai", text:`❌ No user found with email: ${email}`, ts: Date.now() }]);
+                        e.target.value = "";
+                      }
+                    }
+                  }}
+                />
+                <span style={{ fontSize:10, color:"var(--mt)" }}>↵ Enter</span>
+              </div>
 
-              {/* Quick Command Pills */}
-              <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:8, marginBottom:8 }}>
-                {QUICK_CMDS.map((cmd, i) => (
-                  <button key={i} onClick={() => { setCmdInput(cmd); }}
-                    style={{ flexShrink:0, padding:"6px 12px", borderRadius:20, border:"1.5px solid var(--bd)", background:"var(--sf2)", color:"var(--mt)", fontSize:11, fontWeight:500, cursor:"pointer", fontFamily:"Inter,sans-serif", whiteSpace:"nowrap", transition:"all .15s" }}
-                    onMouseEnter={e=>{e.target.style.borderColor="var(--accent)";e.target.style.color="var(--accent)";}}
-                    onMouseLeave={e=>{e.target.style.borderColor="var(--bd)";e.target.style.color="var(--mt)";}}>
-                    {cmd}
+              {/* ── Scheduled Report Toggle ── */}
+              <div style={{ background:"var(--sf)", border:"1px solid var(--bd)", borderRadius:14, padding:"10px 14px", marginBottom:10, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontSize:16 }}>🗓</span>
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:700, color:"var(--tx)" }}>Scheduled Daily Report</div>
+                    <div style={{ fontSize:10, color:"var(--mt)" }}>{scheduledReportEnabled ? "Auto-generates every day at 9 AM IST" : "Enable to auto-generate daily reports"}</div>
+                  </div>
+                </div>
+                <div className={"tgl" + (scheduledReportEnabled ? " on" : "")} onClick={async () => {
+                  const next = !scheduledReportEnabled;
+                  setScheduledReportEnabled(next);
+                  try { await setDoc(doc(db, "adminConfig", "settings"), { scheduledReport: next, updatedAt: serverTimestamp() }, { merge: true }); } catch {}
+                  if (next) {
+                    setCmdHistory(h => [...h, { role:"system", text:"✅ Scheduled Report enabled! Daily report will auto-generate at 9 AM IST.", ts: Date.now() }]);
+                  }
+                }}><div className="tk" /></div>
+              </div>
+
+              {/* ── Quick Command Pills — Click to RUN ── */}
+              <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:8, marginBottom:4 }}>
+                {QUICK_CMDS.map((item, i) => (
+                  <button key={i} onClick={() => processCommand(item.cmd)}
+                    style={{ flexShrink:0, padding:"7px 14px", borderRadius:20, border:"1.5px solid var(--bd)", background:"var(--sf2)", color:"var(--mt)", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"Inter,sans-serif", whiteSpace:"nowrap", transition:"all .15s" }}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--accent)";e.currentTarget.style.color="var(--accent)";e.currentTarget.style.background="var(--glow)";}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--bd)";e.currentTarget.style.color="var(--mt)";e.currentTarget.style.background="var(--sf2)";}}>
+                    {item.label}
                   </button>
                 ))}
               </div>
@@ -6101,18 +6366,17 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   <div style={{ fontSize:48, marginBottom:12 }}>⚡</div>
                   <div style={{ fontSize:15, fontWeight:700, color:"var(--tx)", marginBottom:6 }}>AI Command Center</div>
                   <div style={{ fontSize:13, lineHeight:1.7, marginBottom:16 }}>
-                    Platform ka poora data AI ke paas hai.<br/>
-                    Koi bhi command type karo — AI execute karega.
+                    Full platform data is available to the AI.<br/>
+                    Tap any quick pill or type a command below.
                   </div>
                   <div style={{ fontSize:12, color:"var(--accent)", fontWeight:600 }}>
-                    💡 Quick pills se try karo ↑
+                    ☝️ Tap any pill above — get instant answers!
                   </div>
                 </div>
               )}
 
               {cmdHistory.map((msg, i) => (
                 <div key={i} style={{ display:"flex", flexDirection:"column", alignItems: msg.role==="user" ? "flex-end" : "flex-start" }}>
-                  {/* Role label */}
                   <div style={{ fontSize:10, color:"var(--mt)", marginBottom:3, paddingLeft:4, paddingRight:4 }}>
                     {msg.role==="user" ? "You" : msg.role==="system" ? "⚙️ System" : "⚡ AI"}
                     <span style={{ marginLeft:6, opacity:.6 }}>{new Date(msg.ts).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</span>
@@ -6147,7 +6411,6 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 </div>
               )}
 
-              {/* Loading indicator */}
               {cmdLoading && (
                 <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px" }}>
                   <SaraswatiLogo size={20} animate={true} state="thinking" />
@@ -6163,7 +6426,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   value={cmdInput}
                   onChange={e => setCmdInput(e.target.value)}
                   onKeyDown={e => { if(e.key==="Enter"&&!e.shiftKey) { e.preventDefault(); processCommand(cmdInput); }}}
-                  placeholder="Type a command... (e.g. 'Show today revenue')"
+                  placeholder="Type a command or search user by email..."
                   style={{ flex:1, padding:"11px 16px", borderRadius:24, border:"1.5px solid var(--bd)", background:"var(--sf)", color:"var(--tx)", fontSize:14, fontFamily:"Inter,sans-serif", outline:"none", transition:"border-color .2s" }}
                   onFocus={e=>e.target.style.borderColor="var(--accent)"}
                   onBlur={e=>e.target.style.borderColor="var(--bd)"}
@@ -6175,27 +6438,87 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
               </div>
             </div>
 
-            {/* ── AGENT ARCHITECTURE REGISTRY ── */}
-            <div style={{ padding:"0 14px 20px", flexShrink:0 }}>
-              <div style={{ fontSize:11, fontWeight:700, color:"var(--mt)", marginBottom:8, textTransform:"uppercase", letterSpacing:".05em" }}>🏗 Agent Architecture — Scalable Modules</div>
-              <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:4 }}>
-                {Object.entries(AGENT_REGISTRY).map(([key, ag]) => (
-                  <div key={key}
-                    style={{ flexShrink:0, background:"var(--sf)", border:"1px solid "+(ag.status==="ready"?"var(--accent)":"var(--bd)"), borderRadius:14, padding:"10px 12px", minWidth:130, cursor:"default" }}>
-                    <div style={{ fontSize:22, marginBottom:5 }}>{ag.icon}</div>
-                    <div style={{ fontSize:11, fontWeight:700, color:"var(--tx)" }}>{ag.label}</div>
-                    <div style={{ fontSize:9, color: ag.status==="ready"?"var(--accent)":"var(--mt)", fontWeight:700, marginTop:2, marginBottom:4 }}>
-                      {ag.status==="ready" ? "✓ READY" : "◷ PLANNED"}
-                    </div>
-                    <div style={{ fontSize:9, color:"var(--mt)", lineHeight:1.5 }}>{ag.desc}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
           </div>
         );
       })()}
+
+      {/* ── FULL REPORT MODAL ── */}
+      {showReportModal && cmdReport && (
+        <div className="mbg" onClick={() => setShowReportModal(false)} style={{ zIndex: 300 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight:"90vh", overflowY:"auto", textAlign:"left", padding:0, borderRadius:24, overflow:"hidden" }}>
+            {/* Header */}
+            <div style={{ background:"var(--grad)", padding:"18px 20px 14px", position:"sticky", top:0, zIndex:1 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <div style={{ fontSize:16, fontWeight:800, color:"#fff" }}>📊 Daily Business Report</div>
+                  <div style={{ fontSize:11, color:"#ffffff80", marginTop:2 }}>{cmdReport.date}</div>
+                </div>
+                <button onClick={() => setShowReportModal(false)} style={{ background:"#ffffff25", border:"none", borderRadius:"50%", width:32, height:32, color:"#fff", cursor:"pointer", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+              </div>
+            </div>
+            {/* Metrics Grid */}
+            <div style={{ padding:"16px 16px 8px" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+                {[
+                  { label:"Today Revenue", value:"₹"+cmdReport.snap.todayRevenue, color:"#22c55e", icon:"💰" },
+                  { label:"Today Sales", value:cmdReport.snap.todaySales, color:"#3b82f6", icon:"🛒" },
+                  { label:"Total Users", value:cmdReport.snap.totalUsers, color:"#8b5cf6", icon:"👥" },
+                  { label:"Premium Users", value:cmdReport.snap.premiumUsers, color:"#f59e0b", icon:"⭐" },
+                  { label:"Total Revenue", value:"₹"+cmdReport.snap.totalRevenue, color:"#22c55e", icon:"📈" },
+                  { label:"Platform Commission", value:"₹"+cmdReport.snap.totalCommission, color:"#ef4444", icon:"🏛️" },
+                  { label:"Published Agents", value:cmdReport.snap.publishedAgents, color:"#3b82f6", icon:"🤖" },
+                  { label:"Pending W/D", value:cmdReport.snap.pendingWithdrawCount, color:"#f97316", icon:"⏳" },
+                ].map((m,i) => (
+                  <div key={i} style={{ background:"var(--sf2)", border:"1px solid var(--bd)", borderRadius:14, padding:"12px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                      <span style={{ fontSize:16 }}>{m.icon}</span>
+                    </div>
+                    <div style={{ fontSize:20, fontWeight:800, color:m.color }}>{m.value}</div>
+                    <div style={{ fontSize:10, color:"var(--mt)", marginTop:2 }}>{m.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Top Agents */}
+              {cmdReport.snap.topSellingAgents?.length > 0 && (
+                <>
+                  <div style={{ fontSize:11, fontWeight:700, color:"var(--mt)", marginBottom:8, textTransform:"uppercase", letterSpacing:".05em" }}>🏆 Top Selling Agents</div>
+                  {cmdReport.snap.topSellingAgents.map((a,i) => (
+                    <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"var(--sf)", border:"1px solid var(--bd)", borderRadius:10, padding:"9px 12px", marginBottom:6 }}>
+                      <span style={{ fontSize:13, fontWeight:600, color:"var(--tx)" }}>{i+1}. {a.name}</span>
+                      <span style={{ fontSize:13, fontWeight:800, color:"#22c55e" }}>₹{a.revenue}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Pending Withdrawals */}
+              {cmdReport.snap.pendingWithdrawals?.length > 0 && (
+                <>
+                  <div style={{ fontSize:11, fontWeight:700, color:"var(--mt)", margin:"14px 0 8px", textTransform:"uppercase", letterSpacing:".05em" }}>⏳ Pending Withdrawals</div>
+                  {cmdReport.snap.pendingWithdrawals.map((w,i) => (
+                    <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"#f59e0b15", border:"1px solid #f59e0b40", borderRadius:10, padding:"9px 12px", marginBottom:6 }}>
+                      <div>
+                        <div style={{ fontSize:12, fontWeight:600, color:"var(--tx)" }}>{w.userName||"Creator"}</div>
+                        <div style={{ fontSize:10, color:"var(--mt)" }}>{w.upiId}</div>
+                      </div>
+                      <span style={{ fontSize:15, fontWeight:800, color:"#f59e0b" }}>₹{w.amount}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* AI Report Text */}
+              <div style={{ fontSize:11, fontWeight:700, color:"var(--mt)", margin:"14px 0 8px", textTransform:"uppercase", letterSpacing:".05em" }}>📝 AI Analysis</div>
+              <div style={{ fontSize:13, color:"var(--tx)", lineHeight:1.8, whiteSpace:"pre-wrap", background:"var(--sf2)", border:"1px solid var(--bd)", borderRadius:14, padding:"14px", marginBottom:16 }}>
+                {cmdReport.text}
+              </div>
+
+              <button className="btn btn-p" onClick={() => setShowReportModal(false)} style={{ width:"100%", marginBottom:8 }}>Close Report</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── CHAT PAGE ── */}
       {page === "chat" && (
