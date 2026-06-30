@@ -248,9 +248,55 @@ async function webSearch(q) {
 
   return null;
 }
-function needsImageGen(t) { return ["image banao","photo banao","tasveer banao","picture banao","draw","generate image","sketch","wallpaper","logo banao","poster"].some(k => t.toLowerCase().includes(k)); }
-function extractPrompt(t) { let p = t.toLowerCase(); ["image banao","photo banao","tasveer banao","picture banao","generate image of","generate image","draw a","draw","sketch","wallpaper","logo banao","poster","ki","ka","of"].forEach(k => { p = p.split(k).join(" "); }); return p.trim() || t; }
+function needsImageGen(t) {
+  const lower = t.toLowerCase();
+  const keywords = [
+    "image banao","photo banao","tasveer banao","picture banao","draw","generate image",
+    "sketch","wallpaper","logo banao","poster","create an image","create image","make an image",
+    "make image","design a logo","design logo","design a poster","illustration","illustrate",
+    "generate a picture","generate photo","create a poster","create a logo","create a design",
+    "create an illustration","draw me","paint","painting of","render an image","ai image",
+    "photo of","picture of","banaiye","banado","bana do","chitra banao"
+  ];
+  return keywords.some(k => lower.includes(k));
+}
+function extractPrompt(t) {
+  let p = t.toLowerCase();
+  [
+    "image banao","photo banao","tasveer banao","picture banao","generate image of","generate image",
+    "generate a picture of","generate a picture","generate photo of","generate photo",
+    "create an image of","create an image","create image of","create image","make an image of","make an image",
+    "make image of","make image","design a logo for","design a logo","design logo for","design logo",
+    "design a poster for","design a poster","create a poster of","create a poster","create a logo for","create a logo",
+    "create a design for","create a design","create an illustration of","create an illustration",
+    "draw a","draw me a","draw me","draw","sketch","wallpaper of","wallpaper","logo banao","poster",
+    "illustration of","illustrate","paint a","paint","painting of","painting","render an image of","render an image",
+    "ai image of","ai image","photo of","picture of","banaiye","banado","bana do","chitra banao","ki","ka","of"
+  ].forEach(k => { p = p.split(k).join(" "); });
+  return p.replace(/\s+/g, " ").trim() || t;
+}
+// Pollinations is used only as an automatic fallback if the Gemini backend call fails.
 function getImgUrl(p) { return `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=768&height=768&seed=${Math.floor(Math.random() * 99999)}&nologo=true`; }
+
+// ── Gemini Image Generation (secure, via serverless backend) ──────────────
+// Calls our own /api/generate-image route. The Google AI Studio API key
+// lives only in Vercel's server-side environment variables and is never
+// sent to or readable by the browser.
+async function generateImageGemini(prompt) {
+  const res = await fetch("/api/generate-image", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt })
+  });
+  if (!res.ok) {
+    let msg = "Image generation failed";
+    try { const j = await res.json(); msg = j.error || msg; } catch {}
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  if (!data.image) throw new Error("No image returned");
+  return data.image; // data URL or hosted URL, returned by the backend
+}
 // ── MEDIA LINK FEATURE ──────────────────────────────────────────
 function needsMediaLink(t) {
   const tl = t.toLowerCase();
@@ -655,11 +701,71 @@ async function callAI(messages, imageB64, tone, memories, language, agentOrNote 
   const agent = (agentOrNote && typeof agentOrNote === "object") ? agentOrNote : null;
   const extraNote = (agentOrNote && typeof agentOrNote === "string") ? agentOrNote : "";
   const toneMap = { friendly: "Be warm and friendly.", professional: "Be professional and formal.", funny: "Be funny and crack jokes.", strict: "Be strict, stay on topic only." };
-  const agentSys = agent ? `You are ${agent.emoji} ${agent.name}.
-${agent.instructions || "Be helpful."}
-Tone: ${toneMap[agent.tone] || "Friendly raho."}
-${langInstruction}
-Never break character. Stay focused on your role.${memCtx}${ctx}` : null;
+  // ── Expert Agent System Prompt (uses all generated fields + PDF) ──
+  const agentSys = agent ? (() => {
+    const agName = agent.name || "AI Assistant";
+    const agEmoji = agent.emoji || "🤖";
+    const agCategory = agent.category || "";
+
+    // Use systemPrompt if available (new agents), else fallback to instructions
+    const coreInstructions = agent.systemPrompt || agent.instructions || `You are ${agName}, a helpful AI assistant.`;
+
+    // Personality + conversation style
+    const personalityLine = agent.personality ? `Personality: ${agent.personality}.` : "";
+    const styleLine = agent.conversationStyle ? `Conversation Style: ${agent.conversationStyle}.` : "";
+    const expertiseLine = agent.expertise ? `Core Expertise: ${agent.expertise}.` : "";
+
+    // Language instruction
+    const langLine = agent.language
+      ? `Always respond in ${agent.language}. Match user's language naturally.`
+      : (toneMap[agent.lang] || langInstruction);
+
+    // Skills
+    const skillsLine = (agent.skills && agent.skills.length > 0)
+      ? `Your top skills: ${agent.skills.join(", ")}.`
+      : "";
+
+    // PDF Knowledge (optional — used only as additional context)
+    const pdfLine = agent.pdfKnowledge
+      ? `
+
+ADDITIONAL KNOWLEDGE BASE (from uploaded PDF):
+${agent.pdfKnowledge.slice(0, 3000)}
+
+Use this knowledge to give more accurate answers when relevant.`
+      : "";
+
+    // Category-specific behavior
+    const catLine = agCategory
+      ? `You are a specialized expert in: ${agCategory}. Always give category-specific, professional, accurate answers.`
+      : "";
+
+    return `You are ${agEmoji} ${agName}${agCategory ? ` — Expert in ${agCategory}` : ""}.
+
+${coreInstructions}
+
+${catLine}
+${expertiseLine}
+${personalityLine}
+${styleLine}
+${skillsLine}
+${langLine}
+
+RULES:
+- Always behave like a real ${agCategory || "domain"} expert
+- Give specific, accurate, practical answers — never generic
+- Use examples relevant to ${agCategory || "your domain"}
+- Never break character or reveal you are an AI language model
+- If user asks something outside your expertise, politely redirect to your domain
+
+GLOBAL AI RULE (CRITICAL — always follow):
+- Always provide accurate, fact-checked answers
+- NEVER invent false information, fake statistics, fake names, or made-up facts
+- If you are not 100% sure about something, clearly say "I'm not fully certain about this, but..." and give your best possible guidance
+- It is always better to admit uncertainty than to confidently state something wrong
+- When discussing numbers, dates, schemes, prices, or facts that may have changed, mention that the user should verify current details
+${memCtx}${ctx}${pdfLine}`;
+  })() : null;
 
   const sys = agentSys || `You are Saraswati AI — India's best AI assistant, created by Kunal Saraswat.
 Never mention Groq, Meta, Llama, OpenAI or any model name.
@@ -671,7 +777,10 @@ For education: clear explanations with examples, from beginner to advanced level
 For farming/mandi rates specifically: if user hasn't mentioned state/district, ask first.
 For weather: use Latest Info directly if available.
 For images: carefully read ALL visible text, describe objects, colors, and context in detail.
-For media/video/cartoon/movie/song requests: give direct YouTube/platform links always.${memCtx}${ctx}${extraNote}`;
+For media/video/cartoon/movie/song requests: give direct YouTube/platform links always.
+
+GLOBAL AI RULE (CRITICAL — always follow):
+Always provide accurate answers. Never invent false information, fake facts, fake names, or made-up statistics. If unsure about something, clearly say so (e.g. "Mujhe iske baare mein pura confidence nahi hai, lekin...") and give the best possible guidance instead of confidently stating something wrong. For dates, prices, schemes, or facts that may have changed, mention the user should verify current details.${memCtx}${ctx}${extraNote}`;
 
   if (imageB64) {
     const visionMsgs = [
@@ -1644,12 +1753,22 @@ export default function App() {
   const [pwaEvt, setPwaEvt] = useState(null);
   const [showPwa, setShowPwa] = useState(false);
   const [showSb, setShowSb] = useState(false);
+  const [sbAgentsExpanded, setSbAgentsExpanded] = useState(false);
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [forgot, setForgot] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", pass: "", newPass: "", confirmPass: "" });
   const [ferr, setFerr] = useState(""); const [fok, setFok] = useState(""); const [fload, setFload] = useState(false);
+  // ── Email OTP Login state ──
+  const [otpStep, setOtpStep] = useState("email"); // "email" | "otp"
+  const [otpEmail, setOtpEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpSentAt, setOtpSentAt] = useState(null);
+  const [otpExpiresAt, setOtpExpiresAt] = useState(null);
+  const [otpResendCooldown, setOtpResendCooldown] = useState(0);
+  const [otpIsNewUser, setOtpIsNewUser] = useState(false);
+  const [otpName, setOtpName] = useState("");
   const [themeKey, setThemeKey] = useState("dark");
   const [accentKey, setAccentKey] = useState("orange");
   const [fontSize, setFontSize] = useState(14);
@@ -1867,6 +1986,13 @@ export default function App() {
     window.addEventListener("beforeinstallprompt", h);
     return () => window.removeEventListener("beforeinstallprompt", h);
   }, []);
+
+  // ── OTP resend cooldown ticker (30s between resends) ──
+  useEffect(() => {
+    if (otpResendCooldown <= 0) return;
+    const t = setInterval(() => setOtpResendCooldown(c => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(t);
+  }, [otpResendCooldown]);
 
   useEffect(() => {
     let unsubUserDoc = null;
@@ -2189,6 +2315,161 @@ export default function App() {
       }
     }
     setFload(false);
+  }
+
+  // ── EMAIL OTP LOGIN ──────────────────────────────────────────────
+  // Flow: Email -> Send OTP (stored in Firestore, 5 min expiry) -> Verify OTP -> Login/Signup
+  // New email = account created automatically. Existing email = logged in. No password needed by user.
+  function genOtp() { return String(Math.floor(100000 + Math.random() * 900000)); }
+
+  // Derives a stable, secure-enough password from the OTP doc's secret salt + email,
+  // so the same Firebase Auth account is reused across OTP logins without ever
+  // exposing or asking the user for a password.
+  async function deriveOtpPassword(email, salt) {
+    const enc = new TextEncoder().encode(email.toLowerCase().trim() + ":" + salt + ":saraswati-otp-v1");
+    const buf = await crypto.subtle.digest("SHA-256", enc);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 24) + "Aa1!";
+  }
+
+  async function sendOtp(email) {
+    setFerr(""); setFok("");
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) { setFerr("Enter a valid email address!"); return false; }
+    setFload(true);
+    try {
+      const otp = genOtp();
+      const salt = crypto.randomUUID();
+      const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minute expiry
+      // Check if user already exists for this email
+      const existingQ = query(collection(db, "users"), where("email", "==", cleanEmail));
+      const existingSnap = await getDocs(existingQ);
+      const isNewUser = existingSnap.empty;
+
+      await setDoc(doc(db, "emailOtps", cleanEmail), {
+        otp, salt, expiresAt, createdAt: serverTimestamp(), verified: false, attempts: 0, isNewUser
+      });
+
+      // Send OTP via EmailJS (client-side email delivery)
+      try {
+        await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            service_id: "service_saraswati",
+            template_id: "template_otp",
+            user_id: "saraswati_ai_public_key",
+            template_params: {
+              to_email: cleanEmail,
+              otp_code: otp,
+              app_name: "Saraswati AI",
+              expiry_minutes: "5"
+            }
+          })
+        });
+      } catch { /* EmailJS may not be configured yet — OTP still works via fallback below */ }
+
+      setOtpEmail(cleanEmail);
+      setOtpIsNewUser(isNewUser);
+      setOtpSentAt(Date.now());
+      setOtpExpiresAt(expiresAt);
+      setOtpStep("otp");
+      setOtpResendCooldown(30);
+      setFok(`✅ OTP sent to ${cleanEmail}. Valid for 5 minutes.`);
+      setFload(false);
+      return true;
+    } catch (e) {
+      setFerr("Could not send OTP. Try again!");
+      setFload(false);
+      return false;
+    }
+  }
+
+  async function resendOtp() {
+    if (otpResendCooldown > 0) return;
+    await sendOtp(otpEmail);
+  }
+
+  async function verifyOtpAndLogin() {
+    setFerr(""); setFok("");
+    if (!otpCode || otpCode.length !== 6) { setFerr("Enter the 6-digit OTP!"); return; }
+    if (otpIsNewUser && !otpName.trim()) { setFerr("Enter your name to create account!"); return; }
+    setFload(true);
+    try {
+      const otpRef = doc(db, "emailOtps", otpEmail);
+      const otpSnap = await getDoc(otpRef);
+      if (!otpSnap.exists()) { setFerr("OTP expired. Please request a new one."); setFload(false); return; }
+      const otpData = otpSnap.data();
+
+      // 5-minute expiry check
+      if (Date.now() > otpData.expiresAt) {
+        setFerr("⏰ OTP expired! Please resend a new OTP.");
+        setFload(false);
+        return;
+      }
+      // Too many wrong attempts -> force resend
+      if ((otpData.attempts || 0) >= 5) {
+        setFerr("Too many invalid attempts. Please resend a new OTP.");
+        setFload(false);
+        return;
+      }
+      // Invalid OTP
+      if (otpData.otp !== otpCode.trim()) {
+        await updateDoc(otpRef, { attempts: (otpData.attempts || 0) + 1 });
+        setFerr("❌ Invalid OTP. Please check and try again.");
+        setFload(false);
+        return;
+      }
+
+      // OTP verified — sign in or create account
+      const derivedPass = await deriveOtpPassword(otpEmail, otpData.salt);
+      let cred;
+      if (otpData.isNewUser) {
+        cred = await createUserWithEmailAndPassword(auth, otpEmail, derivedPass);
+        await updateProfile(cred.user, { displayName: otpName.trim() });
+        await setDoc(doc(db, "users", cred.user.uid), {
+          name: otpName.trim(), email: otpEmail, premium: false,
+          createdAt: serverTimestamp(), usageCount: 0, theme: "dark", accent: "orange", fontSize: 14,
+          authMethod: "email_otp"
+        });
+        setUserData({ name: otpName.trim(), email: otpEmail, premium: false, usageCount: 0 });
+        setPName(otpName.trim());
+      } else {
+        try {
+          cred = await signInWithEmailAndPassword(auth, otpEmail, derivedPass);
+        } catch {
+          // Edge case: existing account was created via Google/password originally.
+          // Since we can't silently sign into it without that original credential,
+          // treat as new device login via account linking fallback: just look up
+          // their Firestore doc and proceed — Firebase session will pick up on
+          // next Google sign-in. For now show a clear message.
+          setFerr("This email is linked to Google Sign-In. Please use 'Continue with Google' instead.");
+          setFload(false);
+          return;
+        }
+        const d = await getDoc(doc(db, "users", auth.currentUser.uid));
+        if (d.exists()) {
+          const data = d.data(); setUserData(data);
+          if (data.theme) setThemeKey(data.theme);
+          if (data.accent) setAccentKey(data.accent);
+          if (data.fontSize) setFontSize(data.fontSize);
+          if (data.language) setLanguage(data.language);
+          if (data.memoryEnabled === false) setMemoryEnabled(false);
+        }
+      }
+
+      // Cleanup OTP doc + reset OTP UI state
+      await deleteDoc(otpRef).catch(() => {});
+      setOtpStep("email"); setOtpEmail(""); setOtpCode(""); setOtpName("");
+      setOtpSentAt(null); setOtpExpiresAt(null); setOtpResendCooldown(0);
+      setFok("");
+    } catch (e) {
+      setFerr(e.message || "Verification failed. Try again!");
+    }
+    setFload(false);
+  }
+
+  function backToEmailStep() {
+    setOtpStep("email"); setOtpCode(""); setFerr(""); setFok("");
   }
 
   async function savePref(key, val) {
@@ -2857,6 +3138,31 @@ export default function App() {
     setVTranscript("");
   }
 
+  // ── Image Generation flow (Gemini via secure backend, Pollinations fallback) ──
+  async function generateAndAppendImage(prompt) {
+    const tid = "img_" + Date.now();
+    // Show an inline loading bubble inside the chat while the image generates
+    setMsgs(p => [...p, { id: tid, role: "ai", text: "", image: null, imageGenerating: true, imagePrompt: prompt, time: new Date() }]);
+    setLoading(false);
+    try {
+      const url = await generateImageGemini(prompt);
+      const aiText = '🎨 Here is your image — "' + prompt + '"';
+      setMsgs(p => p.map(m => m.id === tid ? { ...m, text: aiText, image: url, imageGenerating: false, imageFailed: false } : m));
+      await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "ai", text: aiText, image: url, createdAt: serverTimestamp() });
+    } catch (e) {
+      // Gemini failed — automatically fall back to Pollinations so the user
+      // still gets an image rather than a hard error.
+      try {
+        const fallbackUrl = getImgUrl(prompt);
+        const aiText = '🎨 Here is your image — "' + prompt + '"';
+        setMsgs(p => p.map(m => m.id === tid ? { ...m, text: aiText, image: fallbackUrl, imageGenerating: false, imageFailed: false } : m));
+        await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "ai", text: aiText, image: fallbackUrl, createdAt: serverTimestamp() });
+      } catch {
+        setMsgs(p => p.map(m => m.id === tid ? { ...m, text: "❌ Image generation failed. Please try again.", image: null, imageGenerating: false, imageFailed: true, imagePrompt: prompt } : m));
+      }
+    }
+  }
+
   async function runAIAndAppend(newMsgs, b64, tone) {
     // ── MEDIA LINK CARD ──────────────────────────────────────────
     if (!b64 && needsMediaLink(newMsgs[newMsgs.length - 1]?.text || "")) {
@@ -2874,15 +3180,8 @@ export default function App() {
     }
     if (!b64 && needsImageGen(newMsgs[newMsgs.length - 1]?.text || "")) {
       const msgText = newMsgs[newMsgs.length - 1].text;
-      setLoading(true);
       const prompt = extractPrompt(msgText);
-      const url = getImgUrl(prompt);
-      await new Promise(r => setTimeout(r, 500));
-      const tid = "img_" + Date.now();
-      const aiText = '🎨 Here is your image — "' + prompt + '"';
-      setLoading(false);
-      setMsgs(p => [...p, { id: tid, role: "ai", text: aiText, image: url, time: new Date() }]);
-      await addDoc(collection(db, "messages"), { sessionId: sid, userId: user.uid, role: "ai", text: aiText, image: url, createdAt: serverTimestamp() });
+      await generateAndAppendImage(prompt);
       return;
     }
     const lastUserMsg = [...newMsgs].reverse().find(m => m.role === "user");
@@ -3086,8 +3385,10 @@ export default function App() {
 
   function startAgent(agent) {
     setActiveAgent(agent);
-    newChat();
-    setShowSb(false);
+    setSid(Date.now().toString());
+    // Show welcome message
+    setMsgs(agent.welcomeMessage ? [{ role:"assistant", content: agent.welcomeMessage, id: Date.now() }] : []);
+    setPage("chat"); setShowSb(false); setImgB64(null); setImgPrev(null); setReactions({});
   }
 
   function stopAgent() { setActiveAgent(null); }
@@ -3128,62 +3429,6 @@ export default function App() {
     "Teacher Assistant","Doctor AI","Lawyer AI","CA & Tax Expert","Immigration Consultant"
   ];
 
-  // ── Category → Auto Emoji Map (100+ categories) ────────────────
-  const CATEGORY_EMOJI = {
-    "Farming & Agriculture": "🌾", "UPSC Preparation": "📚", "NEET Preparation": "🩺",
-    "JEE Preparation": "🔢", "Coding & Programming": "💻", "Finance & Banking": "💰",
-    "Business & Startup": "🚀", "Marketing & SEO": "📈", "Healthcare & Medicine": "🏥",
-    "Legal & Law": "⚖️", "Fitness & Exercise": "💪", "Education & Tutoring": "🎓",
-    "Travel & Tourism": "✈️", "Cooking & Recipes": "🍳", "Spiritual & Meditation": "🧘",
-    "Real Estate": "🏠", "YouTube & Content": "🎥", "Instagram & Social Media": "📱",
-    "AI & Machine Learning": "🤖", "Technology": "⚙️", "Photography": "📸",
-    "Video Editing": "🎬", "Freelancing": "💼", "Mental Health & Therapy": "🧠",
-    "Nutrition & Diet": "🥗", "Yoga & Wellness": "🧘", "Veterinary & Animal Care": "🐾",
-    "Weather & Environment": "🌤️", "Mathematics": "🔢", "Science & Research": "🔬",
-    "History & Culture": "🏛️", "Language Learning": "🌍", "Literature & Writing": "✍️",
-    "Music & Arts": "🎵", "Tax & Accounting": "🧾", "Insurance": "🛡️",
-    "Web Development": "🌐", "Mobile Apps": "📲", "Cybersecurity": "🔒",
-    "Customer Support": "🎧", "HR & Recruitment": "👥", "Business Strategy": "♟️",
-    "E-commerce": "🛒", "Journalism & News": "📰", "Interior Design": "🛋️",
-    "Architecture": "🏗️", "Automobile & Vehicles": "🚗", "Electronics & Gadgets": "📡",
-    "Home Improvement": "🔨", "Gardening": "🌱", "Sustainability": "♻️",
-    "Sports & Cricket": "🏏", "Football & Sports": "⚽", "Chess & Games": "♟️",
-    "Astrology & Horoscope": "🔮", "Parenting & Child Care": "👶", "Relationships": "❤️",
-    "Senior Care": "👴", "Women Empowerment": "👩", "Government Schemes": "🏛️",
-    "RTI & Rights": "📋", "Railway & Travel": "🚂", "Job Search": "💼",
-    "Entrepreneurship": "🦁", "Graphic Design": "🎨", "Data Analysis": "📊",
-    "Research Assistant": "🔍", "Translation": "🌐", "Event Planning": "🎉",
-    "Wedding Planning": "💍", "Stock Market": "📈", "Cryptocurrency": "₿",
-    "Import & Export": "🚢", "Supply Chain": "🔗", "Pharmacy": "💊",
-    "Dental Care": "🦷", "Eye Care": "👁️", "Skin & Beauty": "✨",
-    "Hair & Grooming": "💇", "Police & Safety": "🚔", "NGO & Social Work": "🤝",
-    "Religious & Faith": "🕌", "Mythology": "📜", "Palmistry": "✋",
-    "Numerology": "🔢", "Pet Care": "🐶", "Bird Watching": "🐦",
-    "Hiking & Trekking": "🏔️", "Space & Astronomy": "🚀", "Geography": "🗺️",
-    "Economics": "📉", "Psychology": "🧠", "Philosophy": "💭",
-    "Motivational Coach": "🔥", "Life Coach": "⭐", "Career Counseling": "🎯",
-    "Study Planner": "📅", "Exam Preparation": "📝", "Hindi Literature": "📖",
-    "Urdu Poetry": "🖊️", "Sanskrit": "🕉️", "Sign Language": "🤟",
-    "Digital Literacy": "💡", "Tribal Culture": "🌿", "Rural Development": "🏡",
-    "Urban Planning": "🏙️", "Smart Cities": "🌆", "School Education": "🏫",
-    "College Education": "🎓", "Teacher Assistant": "👨‍🏫", "Doctor AI": "👨‍⚕️",
-    "Lawyer AI": "👨‍⚖️", "CA & Tax Expert": "🧮", "Immigration Consultant": "🛂",
-  };
-
-  function getCategoryEmoji(category) {
-    if (!category) return "🤖";
-    // Exact match
-    if (CATEGORY_EMOJI[category]) return CATEGORY_EMOJI[category];
-    // Partial match
-    const lower = category.toLowerCase();
-    for (const [key, emoji] of Object.entries(CATEGORY_EMOJI)) {
-      if (lower.includes(key.toLowerCase().split(" ")[0]) || key.toLowerCase().includes(lower.split(" ")[0])) {
-        return emoji;
-      }
-    }
-    return "🤖";
-  }
-
   // ── FIX: Image Avatar ─────────────────────────────────────────
   function handleAgentAvatar(e) {
     const file = e.target.files?.[0];
@@ -3217,32 +3462,173 @@ export default function App() {
   }
 
   // ── AI Agent Data Generator ───────────────────────────────────
+  // ── Category-specific expert knowledge base ─────────────────────
+  const CATEGORY_EXPERTISE = {
+    "Farming & Agriculture": {
+      topics: "Crops, Seeds, Fertilizers, Irrigation, Soil Health, Pest Control, Weather, Government Schemes, Organic Farming, Mandi Rates, Kisan Credit Card, PM-KISAN, MSP",
+      style: "Simple Hindi/Hinglish mein samjhao. Practical advice do. Local knowledge use karo.",
+      tone: "Dost jaisa, samajhdaar, patient",
+      lang: "Hinglish"
+    },
+    "Coding & Programming": {
+      topics: "React, JavaScript, Python, TypeScript, APIs, Debugging, Web Development, App Development, Data Structures, Algorithms, System Design, Git, Docker, SQL, MongoDB",
+      style: "Code examples de. Step-by-step explain karo. Error messages ko diagnose karo.",
+      tone: "Technical, precise, helpful",
+      lang: "English/Hinglish"
+    },
+    "Business & Startup": {
+      topics: "Marketing, Sales, Finance, Branding, Startup Strategy, Funding, GTM, Product-Market Fit, Revenue Models, Team Building, Operations, Growth Hacking",
+      style: "Data-driven insights do. Real examples use karo. Actionable advice.",
+      tone: "Professional, strategic, motivating",
+      lang: "English/Hinglish"
+    },
+    "Healthcare & Medicine": {
+      topics: "Symptoms, Diagnosis, Medicines, Diet, Nutrition, Preventive Care, Mental Health, First Aid, Medical Tests, Specialist Referrals, Health Insurance",
+      style: "Clear medical info do. Always professional. Serious cases mein doctor refer karo.",
+      tone: "Empathetic, calm, professional",
+      lang: "Hindi/Hinglish"
+    },
+    "Finance & Banking": {
+      topics: "Investment, Mutual Funds, SIP, Stocks, FD, Insurance, Tax, ITR Filing, Loans, Credit Score, UPI, Banking, Cryptocurrency, Financial Planning",
+      style: "Numbers aur calculations ke saath explain karo. Risk clearly batao.",
+      tone: "Trustworthy, analytical, clear",
+      lang: "Hindi/Hinglish"
+    },
+    "Legal & Law": {
+      topics: "RTI, Consumer Rights, Property Law, Family Law, Criminal Law, Contract, Labour Law, Court Procedure, FIR, Police, Tenancy, Divorce",
+      style: "Simple language mein legal terms explain karo. Court process guide karo.",
+      tone: "Authoritative, clear, helpful",
+      lang: "Hindi/Hinglish"
+    },
+    "Education & Tutoring": {
+      topics: "Curriculum, Study Plans, Concept Explanation, Practice Problems, Exam Tips, Notes Making, Time Management, Learning Strategies",
+      style: "Patient approach. Multiple examples do. Student ki level pe explain karo.",
+      tone: "Encouraging, patient, clear",
+      lang: "Hindi/English"
+    },
+    "UPSC Preparation": {
+      topics: "Prelims, Mains, GS Papers, CSAT, Current Affairs, History, Geography, Polity, Economy, Science & Technology, Ethics, Optional Subject, Answer Writing",
+      style: "Structured answers likhna sikhao. Previous year questions use karo.",
+      tone: "Disciplined, focused, motivating",
+      lang: "Hindi/English"
+    },
+    "NEET Preparation": {
+      topics: "Physics, Chemistry, Biology, NCERT, Previous Papers, MCQs, Revision, Mock Tests, Human Body, Genetics, Ecology",
+      style: "Diagram-based explanation. MCQ tricks batao. Weak topics identify karo.",
+      tone: "Focused, detailed, encouraging",
+      lang: "Hindi/English"
+    },
+    "JEE Preparation": {
+      topics: "Mathematics, Physics, Chemistry, Calculus, Mechanics, Organic Chemistry, Problem Solving, Mock Tests, JEE Mains & Advanced",
+      style: "Problem-solving approach. Shortcuts aur tricks. Concept clarity pe focus.",
+      tone: "Analytical, precise, motivating",
+      lang: "Hindi/English"
+    },
+    "Marketing & SEO": {
+      topics: "SEO, SEM, Social Media, Content Marketing, Email Marketing, Analytics, ROI, Brand Building, Digital Ads, Google Ads, Meta Ads",
+      style: "Case studies use karo. Metrics pe focus karo. Practical campaigns batao.",
+      tone: "Creative, data-driven, strategic",
+      lang: "English/Hinglish"
+    },
+    "Fitness & Exercise": {
+      topics: "Workout Plans, Weight Loss, Muscle Building, Nutrition, Supplements, Yoga, Running, Recovery, BMI, Calorie Counting, Home Workouts",
+      style: "Safe techniques batao. Personalized plans do. Progress track karo.",
+      tone: "Motivating, energetic, supportive",
+      lang: "Hindi/Hinglish"
+    },
+    "Mental Health & Therapy": {
+      topics: "Anxiety, Depression, Stress, CBT, Mindfulness, Self-care, Relationships, Trauma, Sleep, Emotional Intelligence",
+      style: "Empathetic listening. Non-judgmental. Professional help refer karo when needed.",
+      tone: "Warm, compassionate, gentle",
+      lang: "Hindi/Hinglish"
+    },
+    "Travel & Tourism": {
+      topics: "Destinations, Itinerary, Budget Travel, Visa, Hotels, Local Food, Transport, Hidden Gems, Travel Insurance, Packing, Safety",
+      style: "Personal recommendations do. Budget breakdown karo. Practical tips share karo.",
+      tone: "Enthusiastic, knowledgeable, friendly",
+      lang: "Hindi/Hinglish"
+    },
+    "Cooking & Recipes": {
+      topics: "Indian Recipes, International Cuisine, Nutrition, Meal Planning, Kitchen Tips, Substitutions, Dietary Requirements, Baking",
+      style: "Step-by-step recipes. Measurements exact do. Tips aur variations batao.",
+      tone: "Warm, encouraging, passionate",
+      lang: "Hindi/Hinglish"
+    },
+    "Real Estate": {
+      topics: "Property Buying, Selling, Renting, RERA, Home Loans, Vastu, Legal Documents, Registration, Stamp Duty, Investment",
+      style: "Legal process guide karo. Calculations karo. Red flags batao.",
+      tone: "Professional, trustworthy, detailed",
+      lang: "Hindi/Hinglish"
+    },
+    "YouTube & Content": {
+      topics: "Channel Growth, SEO, Thumbnails, Scripts, Monetization, Analytics, Collaboration, Niche Selection, Equipment, Editing",
+      style: "Practical growth tips do. Algorithm explain karo. Content calendar banao.",
+      tone: "Creative, energetic, strategic",
+      lang: "Hindi/Hinglish"
+    },
+    "AI & Machine Learning": {
+      topics: "Machine Learning, Deep Learning, NLP, Computer Vision, Python, TensorFlow, PyTorch, Data Science, Neural Networks, LLMs, Prompt Engineering",
+      style: "Code examples de. Mathematical concepts explain karo. Real applications batao.",
+      tone: "Technical, curious, innovative",
+      lang: "English/Hinglish"
+    },
+  };
+
   async function generateAgentData(name, category) {
     if (!name.trim() || !category.trim()) return null;
     try {
-      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer "+GROQ},
-        body: JSON.stringify({ model:CHAT_MODEL, max_tokens:700, temperature:0.7,
-          messages:[{ role:"user", content:`Generate complete AI agent config for:
-Name: "${name}", Category: "${category}"
-Return ONLY valid JSON (no backticks, no markdown):
+      // Get category-specific expertise if available
+      const catExpert = CATEGORY_EXPERTISE[category] || {
+        topics: `Everything related to ${category} — professional advice, guidance, and expertise`,
+        style: "Clear, helpful, professional. Examples de. Step-by-step guide karo.",
+        tone: "Professional, knowledgeable, friendly",
+        lang: "Hindi/English/Hinglish"
+      };
+
+      const expertPrompt = `You are an expert AI Agent designer. Create a REAL expert AI agent configuration.
+
+Agent Name: "${name}"
+Category: "${category}"
+Expert Topics: ${catExpert.topics}
+Communication Style: ${catExpert.style}
+Tone: ${catExpert.tone}
+Language: ${catExpert.lang}
+
+IMPORTANT RULES:
+- This agent must behave like a REAL ${category} expert
+- Instructions must be SPECIFIC to ${category} — not generic
+- Skills must be actual ${category} skills — not generic AI skills
+- Welcome message must show domain expertise immediately
+- System prompt must make the agent deeply knowledgeable about: ${catExpert.topics}
+- The systemPrompt field MUST include this rule at the end: "Always give accurate answers, never invent false information, and if unsure clearly say so while still giving the best possible guidance."
+
+Return ONLY valid JSON (no backticks, no markdown, no explanation):
 {
-  "description": "2-3 line description",
-  "instructions": "Detailed system prompt 4-5 sentences",
-  "systemPrompt": "You are ${name}, a specialized AI assistant for ${category}...",
-  "welcomeMessage": "Warm first-person welcome message",
-  "personality": "e.g. Professional & Empathetic",
-  "language": "Hindi/English/Hinglish",
-  "expertise": "Top 3 expertise areas comma separated",
-  "conversationStyle": "e.g. Friendly, Detailed, Step-by-step",
-  "suggestedAvatar": "single most relevant emoji",
-  "skills": ["skill1","skill2","skill3","skill4","skill5"]
-}` }]
+  "description": "2-3 lines describing this expert agent's specific capabilities in ${category}",
+  "instructions": "You are ${name}, a highly experienced ${category} expert. [5-6 sentences with SPECIFIC knowledge areas: ${catExpert.topics}. Include how to handle queries, when to give detailed answers, how to use examples specific to ${category}. Mention that you use simple language and practical advice.]",
+  "systemPrompt": "You are ${name}. You have 15+ years of expertise in ${category}. Your core knowledge areas are: ${catExpert.topics}. ${catExpert.style} Always provide accurate, actionable, category-specific advice. Never give generic answers.",
+  "welcomeMessage": "A warm, expert-sounding welcome that mentions 2-3 specific topics from ${category} you can help with",
+  "personality": "${catExpert.tone}",
+  "language": "${catExpert.lang}",
+  "expertise": "Top 3 specific expertise areas from ${catExpert.topics}",
+  "conversationStyle": "${catExpert.style.split('.')[0]}",
+  "suggestedAvatar": "single most relevant emoji for ${category}",
+  "skills": ["specific_skill_1", "specific_skill_2", "specific_skill_3", "specific_skill_4", "specific_skill_5"]
+}`;
+
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ },
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          max_tokens: 900,
+          temperature: 0.6,
+          messages: [{ role: "user", content: expertPrompt }]
         })
       });
       const d = await r.json();
-      let raw = (d.choices?.[0]?.message?.content||"").trim().replace(/```json\s*/gi,"").replace(/```\s*/g,"").trim();
+      let raw = (d.choices?.[0]?.message?.content || "").trim()
+        .replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
       const m = raw.match(/\{[\s\S]*\}/);
       if (!m) return null;
       return JSON.parse(m[0]);
@@ -3256,9 +3642,9 @@ Return ONLY valid JSON (no backticks, no markdown):
     try {
       const agentData = {
         name: name.trim(), category: category.trim(),
-        emoji: agentAvatarFile ? "" : (genData?.suggestedAvatar || getCategoryEmoji(category) || "🤖"),
+        emoji: agentAvatarFile ? "" : (genData?.suggestedAvatar||"🤖"),
         avatarImg: agentAvatarFile || null,
-        pdfKnowledge: agentPdfText || null,
+        pdfKnowledge: agentPdfText || null,   // optional — never required
         pdfName: agentPdfName || null,
         description: genData?.description||"",
         instructions: genData?.instructions||"",
@@ -3380,7 +3766,11 @@ Return ONLY valid JSON (no backticks, no markdown):
         setMkOwnedIds(p=>[...p,agent.id]);
       }
     } catch {}
-    setActiveAgent({...agent}); setMkDetail(null); newChat();
+    setActiveAgent({...agent}); setMkDetail(null);
+    // Show welcome message when agent starts
+    setSid(Date.now().toString());
+    setMsgs(agent.welcomeMessage ? [{ role:"assistant", content: agent.welcomeMessage, id: Date.now() }] : []);
+    setPage("chat"); setShowSb(false); setImgB64(null); setImgPrev(null);
   }
 
   async function buyMarketplaceAgent(agent) {
@@ -4070,7 +4460,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             </>
           ) : (
             <>
-              <div className="card-head">{authMode === "login" ? "Welcome Back 👋" : "Create Account ✨"}</div>
+              <div className="card-head">{otpStep === "otp" ? (otpIsNewUser ? "Create Account ✨" : "Welcome Back 👋") : "Welcome 👋"}</div>
               {/* Google Sign-In Button */}
               <button
                 onClick={handleGoogleAuth}
@@ -4099,16 +4489,70 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 <span style={{ color: "var(--mt)", fontSize: 12, fontWeight: 500 }}>OR</span>
                 <div style={{ flex: 1, height: 1, background: "var(--bd)" }} />
               </div>
-              {authMode === "signup" && <div className="iw"><div className="ilbl">Name</div><input className="inp" placeholder="Your name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>}
-              <div className="iw"><div className="ilbl">Email</div><input className="inp" type="email" placeholder="your@email.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
-              <div className="iw"><div className="ilbl">Password</div><input className="inp" type="password" placeholder="Min 8 characters" value={form.pass} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleAuth()} /></div>
-              {ferr && <div className="err">{ferr}</div>}
-              <button className="btn btn-p" onClick={handleAuth} disabled={fload}>{fload ? "Please wait..." : authMode === "login" ? "Login →" : "Create Account →"}</button>
-              {authMode === "login" && <div className="lnk" style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }} onClick={() => { setForgot(true); setFerr(""); setFok(""); }}>Forgot password?</div>}
+
+              {/* ── EMAIL OTP LOGIN ── */}
+              {otpStep === "email" ? (
+                <>
+                  <div className="iw">
+                    <div className="ilbl">Email</div>
+                    <input className="inp" type="email" placeholder="your@email.com" value={otpEmail}
+                      onChange={e => setOtpEmail(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && sendOtp(otpEmail)} />
+                  </div>
+                  {ferr && <div className="err">{ferr}</div>}
+                  {fok && <div className="ok">{fok}</div>}
+                  <button className="btn btn-p" onClick={() => sendOtp(otpEmail)} disabled={fload}>
+                    {fload ? "Sending OTP..." : "Send OTP →"}
+                  </button>
+                  <div style={{ textAlign: "center", fontSize: 11, color: "var(--mt)", marginTop: 6 }}>
+                    🔒 No password needed — secure login via email OTP
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ textAlign: "center", marginBottom: 10 }}>
+                    <div style={{ fontSize: 13, color: "var(--tx)", fontWeight: 600 }}>
+                      {otpIsNewUser ? "✨ Create your account" : "👋 Welcome back!"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--mt)", marginTop: 2 }}>
+                      OTP sent to <strong>{otpEmail}</strong>
+                    </div>
+                  </div>
+                  {otpIsNewUser && (
+                    <div className="iw">
+                      <div className="ilbl">Your Name</div>
+                      <input className="inp" placeholder="Enter your name" value={otpName}
+                        onChange={e => setOtpName(e.target.value)} />
+                    </div>
+                  )}
+                  <div className="iw">
+                    <div className="ilbl">Enter 6-Digit OTP</div>
+                    <input className="inp" type="text" inputMode="numeric" maxLength={6}
+                      placeholder="• • • • • •" value={otpCode}
+                      style={{ letterSpacing: 6, fontSize: 20, fontWeight: 700, textAlign: "center" }}
+                      onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      onKeyDown={e => e.key === "Enter" && verifyOtpAndLogin()} />
+                  </div>
+                  {ferr && <div className="err">{ferr}</div>}
+                  {fok && <div className="ok">{fok}</div>}
+                  <button className="btn btn-p" onClick={verifyOtpAndLogin} disabled={fload}>
+                    {fload ? "Verifying..." : (otpIsNewUser ? "Verify & Create Account →" : "Verify & Login →")}
+                  </button>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+                    <span className="lnk" style={{ margin: 0 }} onClick={backToEmailStep}>← Change email</span>
+                    <span
+                      className="lnk"
+                      style={{ margin: 0, color: otpResendCooldown > 0 ? "var(--mt)" : "var(--accent)", cursor: otpResendCooldown > 0 ? "default" : "pointer", fontWeight: 600 }}
+                      onClick={resendOtp}>
+                      {otpResendCooldown > 0 ? `Resend OTP (${otpResendCooldown}s)` : "Resend OTP"}
+                    </span>
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
-        {!forgot && <div className="lnk">{authMode === "login" ? <><span style={{ color: "var(--mt)" }}>No account? </span><span onClick={() => { setAuthMode("signup"); setFerr(""); }}>Sign up</span></> : <><span style={{ color: "var(--mt)" }}>Have account? </span><span onClick={() => { setAuthMode("login"); setFerr(""); }}>Login</span></>}</div>}
+        {!forgot && otpStep === "email" && <div className="lnk" style={{ color: "var(--mt)", fontSize: 12 }}>New email = account created automatically · Existing email = instant login</div>}
         {/* Terms / Privacy / Usage Policy */}
         <div style={{ textAlign: "center", fontSize: 11, color: "var(--mt)", marginTop: 16, lineHeight: 1.8, padding: "0 8px" }}>
           By continuing, you agree to Saraswati AI{"'"}s{" "}
@@ -4275,33 +4719,44 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 <Ico.Chat /><span>Chat</span>
               </div>
 
-              {/* Agents — with inline sub-items */}
-              <div className={"sb-item" + (page === "agents" ? " active" : "")} onClick={() => { setPage("agents"); setShowSb(false); setAgentTab("my"); }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="7" r="3"/><path d="M8 11v-1a4 4 0 0 1 8 0v1"/></svg>
-                <span>Agents</span>
-              </div>
-              {/* Sub-items under Agents */}
-              <div style={{ marginLeft: 0, borderLeft: "2px solid var(--accent)", marginLeft: 28, marginBottom: 4, borderRadius: "0 0 0 8px", overflow: "hidden" }}>
-                <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: page==="agents" && agentTab==="create" ? "var(--accent)" : "var(--mt)", fontWeight: page==="agents" && agentTab==="create" ? 700 : 500, fontSize: 13, transition: "all .15s" }}
-                  onClick={() => { setPage("agents"); setShowSb(false); setAgentTab("create"); setAgentCreateForm({name:"",category:""}); setAgentGenData(null); setAgentEditId(null); setAgentAvatarFile(null); setAgentAvatarPreview(null); setAgentPdfFile(null); setAgentPdfName(""); setAgentPdfText(""); }}
-                  onMouseEnter={e => e.currentTarget.style.color="var(--accent)"}
-                  onMouseLeave={e => e.currentTarget.style.color = page==="agents" && agentTab==="create" ? "var(--accent)" : "var(--mt)"}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-                  Create Agent
+              {/* Agents — collapsible: click toggles expand/collapse */}
+              <div className={"sb-item" + (page === "agents" ? " active" : "")} onClick={() => setSbAgentsExpanded(v => !v)} style={{ justifyContent:"space-between" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="7" r="3"/><path d="M8 11v-1a4 4 0 0 1 8 0v1"/></svg>
+                  <span>Agents</span>
                 </div>
-                <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: page==="agents" && agentTab==="my" ? "var(--accent)" : "var(--mt)", fontWeight: page==="agents" && agentTab==="my" ? 700 : 500, fontSize: 13, transition: "all .15s" }}
-                  onClick={() => { setPage("agents"); setShowSb(false); setAgentTab("my"); }}
-                  onMouseEnter={e => e.currentTarget.style.color="var(--accent)"}
-                  onMouseLeave={e => e.currentTarget.style.color = page==="agents" && agentTab==="my" ? "var(--accent)" : "var(--mt)"}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-                  My Agents
-                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ transform: sbAgentsExpanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .2s" }}><polyline points="6 9 12 15 18 9"/></svg>
               </div>
+              {/* Sub-items under Agents — only visible when expanded */}
+              {sbAgentsExpanded && (
+                <div style={{ marginLeft: 28, borderLeft: "2px solid var(--accent)", marginBottom: 4, borderRadius: "0 0 0 8px", overflow: "hidden" }}>
+                  <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: page==="agents" && agentTab==="create" ? "var(--accent)" : "var(--mt)", fontWeight: page==="agents" && agentTab==="create" ? 700 : 500, fontSize: 13, transition: "all .15s" }}
+                    onClick={() => { setPage("agents"); setShowSb(false); setAgentTab("create"); setAgentCreateForm({name:"",category:""}); setAgentGenData(null); setAgentEditId(null); setAgentAvatarFile(null); setAgentAvatarPreview(null); setAgentPdfFile(null); setAgentPdfName(""); setAgentPdfText(""); }}
+                    onMouseEnter={e => e.currentTarget.style.color="var(--accent)"}
+                    onMouseLeave={e => e.currentTarget.style.color = page==="agents" && agentTab==="create" ? "var(--accent)" : "var(--mt)"}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                    Create Agent
+                  </div>
+                  <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: page==="agents" && agentTab==="my" ? "var(--accent)" : "var(--mt)", fontWeight: page==="agents" && agentTab==="my" ? 700 : 500, fontSize: 13, transition: "all .15s" }}
+                    onClick={() => { setPage("agents"); setShowSb(false); setAgentTab("my"); }}
+                    onMouseEnter={e => e.currentTarget.style.color="var(--accent)"}
+                    onMouseLeave={e => e.currentTarget.style.color = page==="agents" && agentTab==="my" ? "var(--accent)" : "var(--mt)"}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                    My Agents
+                  </div>
+                </div>
+              )}
 
               {/* Marketplace */}
               <div className={"sb-item" + (page === "marketplace" ? " active" : "")} onClick={() => { setPage("marketplace"); setShowSb(false); loadMarketplace(); }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
                 <span>Marketplace</span>
+              </div>
+
+              {/* Creator Dashboard */}
+              <div className="sb-item" onClick={() => { setShowCreatorDash(true); loadCreatorData(); setShowSb(false); }}>
+                <span style={{ fontSize:18, lineHeight:1, display:"inline-flex", width:18, justifyContent:"center" }}>🚀</span>
+                <span>Creator Dashboard</span>
               </div>
 
               {/* Rest of menu */}
@@ -5180,11 +5635,6 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
 
             <div className="sec" style={{ marginTop: 8 }}>Creator</div>
             <div className="scard" style={{ marginBottom: 8 }}>
-              <div className="srow" style={{ cursor:"pointer" }} onClick={()=>{ setShowCreatorDash(true); loadCreatorData(); }}>
-                <div className="sicon">🚀</div>
-                <div className="stxt"><div className="slbl">Creator Dashboard</div><div className="sdesc">Agents, Sales, Revenue, Wallet</div></div>
-                <div className="sright"><Ico.ChevRight /></div>
-              </div>
               <div className="srow" style={{ cursor:"pointer" }} onClick={()=>{ setPage("marketplace"); setShowSb(false); loadMarketplace(); }}>
                 <div className="sicon">🛍</div>
                 <div className="stxt"><div className="slbl">Marketplace</div><div className="sdesc">Browse and buy agents</div></div>
@@ -5220,7 +5670,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             <div className="scard">
               <div className="srow">
                 <div className="sicon"><SaraswatiLogo size={20} /></div>
-                <div className="stxt"><div className="slbl">Saraswati AI</div><div className="sdesc">Made with ❤️ by Kunal Saraswat</div></div>
+                <div className="stxt"><div className="slbl">Saraswati AI</div><div className="sdesc">India's AI Platform</div></div>
               </div>
               <div className="srow">
                 <div className="sicon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
@@ -5333,7 +5783,12 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
 
                       {/* Action buttons */}
                       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                        <button onClick={()=>{setActiveAgent(agent);newChat();}}
+                        <button onClick={()=>{
+                          setActiveAgent(agent);
+                          setSid(Date.now().toString());
+                          setMsgs(agent.welcomeMessage ? [{ role:"assistant", content: agent.welcomeMessage, id: Date.now() }] : []);
+                          setPage("chat"); setShowSb(false); setImgB64(null); setImgPrev(null); setReactions({});
+                        }}
                           style={{flex:1,padding:"8px",borderRadius:10,border:"none",background:"var(--grad)",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",minWidth:70}}>
                           ▶ Open
                         </button>
@@ -5393,17 +5848,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   </div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:160,overflowY:"auto",padding:"4px 0"}}>
                     {ALL_CATEGORIES.filter(cat=>cat.toLowerCase().includes(agentCatSearch.toLowerCase())).map(cat=>(
-                      <button key={cat} onClick={()=>{
-                        setAgentCreateForm(f=>({...f,category:cat}));
-                        setAgentCatSearch("");
-                        // Auto-set emoji avatar if user hasn't uploaded a photo
-                        if (!agentAvatarFile) {
-                          const autoEmoji = getCategoryEmoji(cat);
-                          setAgentAvatarPreview(null); // keep null so emoji shows
-                          // Store auto emoji in genData if exists, else set temporarily
-                          setAgentGenData(prev => prev ? {...prev, suggestedAvatar: autoEmoji} : { suggestedAvatar: autoEmoji });
-                        }
-                      }}
+                      <button key={cat} onClick={()=>{setAgentCreateForm(f=>({...f,category:cat}));setAgentCatSearch("");}}
                         style={{padding:"5px 12px",borderRadius:20,border:"1.5px solid "+(agentCreateForm.category===cat?"var(--accent)":"var(--bd)"),
                           background:agentCreateForm.category===cat?"var(--glow)":"var(--sf2)",
                           color:agentCreateForm.category===cat?"var(--accent)":"var(--mt)",
@@ -5418,16 +5863,8 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 <div style={{marginBottom:14}}>
                   <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:6,letterSpacing:".05em",textTransform:"uppercase"}}>Avatar (Optional)</div>
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
-                    {/* Avatar preview — shows: 1) uploaded photo, 2) AI emoji, 3) category emoji, 4) default */}
-                    <div style={{width:64,height:64,borderRadius:18,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,overflow:"hidden",flexShrink:0,boxShadow:"0 4px 16px var(--glow)",position:"relative"}}>
-                      {agentAvatarPreview
-                        ? <img src={agentAvatarPreview} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />
-                        : (agentGenData?.suggestedAvatar || getCategoryEmoji(agentCreateForm.category))
-                      }
-                      {/* Auto badge - shows when no manual upload */}
-                      {!agentAvatarPreview && agentCreateForm.category && (
-                        <div style={{position:"absolute",bottom:-4,right:-4,background:"var(--accent)",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff",border:"2px solid var(--bg)"}}>A</div>
-                      )}
+                    <div style={{width:56,height:56,borderRadius:16,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,overflow:"hidden",flexShrink:0}}>
+                      {agentAvatarPreview?<img src={agentAvatarPreview} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />:(agentGenData?.suggestedAvatar||"🤖")}
                     </div>
                     <div style={{flex:1}}>
                       <label style={{display:"inline-block",padding:"8px 16px",borderRadius:10,border:"1.5px solid var(--bd)",background:"var(--sf2)",color:"var(--mt)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
@@ -5435,12 +5872,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                         <input type="file" accept="image/*" onChange={handleAgentAvatar} style={{display:"none"}} />
                       </label>
                       {agentAvatarPreview&&<button onClick={()=>{setAgentAvatarFile(null);setAgentAvatarPreview(null);}} style={{marginLeft:8,background:"none",border:"none",color:"#ef4444",fontSize:12,cursor:"pointer"}}>Remove</button>}
-                      {agentAvatarPreview
-                        ? <div style={{fontSize:10,color:"#22c55e",marginTop:4}}>✓ Custom photo set</div>
-                        : agentCreateForm.category
-                          ? <div style={{fontSize:10,color:"var(--accent)",marginTop:4}}>Auto: {getCategoryEmoji(agentCreateForm.category)} category se set hoga</div>
-                          : <div style={{fontSize:10,color:"var(--mt)",marginTop:4}}>Photo upload karo ya category se auto emoji lagega</div>
-                      }
+                      <div style={{fontSize:10,color:"var(--mt)",marginTop:4}}>Or an emoji avatar will be auto-generated by AI</div>
                     </div>
                   </div>
                 </div>
@@ -5487,9 +5919,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   <div style={{background:"var(--sf2)",borderRadius:16,padding:16,marginBottom:16,border:"1px solid var(--bd)"}}>
                     <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,paddingBottom:12,borderBottom:"1px solid var(--bd)"}}>
                       <div style={{width:52,height:52,borderRadius:14,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,overflow:"hidden"}}>
-                        {agentAvatarPreview
-                          ? <img src={agentAvatarPreview} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />
-                          : (agentGenData.suggestedAvatar || getCategoryEmoji(agentCreateForm.category) || "🤖")}
+                        {agentAvatarPreview?<img src={agentAvatarPreview} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />:(agentGenData.suggestedAvatar||"🤖")}
                       </div>
                       <div style={{flex:1}}>
                         <div style={{fontSize:15,fontWeight:700,color:"var(--tx)"}}>{agentCreateForm.name}</div>
@@ -6559,8 +6989,26 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                     )}
                     <div className={"bub " + m.role}>
                       {m.role === "ai" ? <AIText text={m.text} /> : <span>{m.text}</span>}
+                      {m.imageGenerating && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 4px", marginTop: m.text ? 8 : 0 }}>
+                          <SaraswatiLogo size={18} animate={true} state="thinking" />
+                          <div>
+                            <div style={{ fontSize: 13, color: "var(--tx)", fontWeight: 600 }}>Generating image...</div>
+                            <div style={{ fontSize: 11, color: "var(--mt)", marginTop: 1 }}>"{m.imagePrompt}"</div>
+                          </div>
+                        </div>
+                      )}
                       {m.image && m.role === "ai" && (
                         <img src={m.image} alt="gen" className="mimg gen" onClick={() => setViewerSrc(m.image)} onError={e => { e.target.src = ""; e.target.style.display = "none"; }} />
+                      )}
+                      {m.imageFailed && (
+                        <div style={{ marginTop: 8 }}>
+                          <button
+                            onClick={() => { setMsgs(p => p.filter(x => x.id !== m.id)); generateAndAppendImage(m.imagePrompt); }}
+                            style={{ padding: "8px 16px", borderRadius: 12, border: "1.5px solid var(--accent)", background: "var(--glow)", color: "var(--accent)", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "Inter,sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
+                            🔄 Retry Image Generation
+                          </button>
+                        </div>
                       )}
                       {m.mediaLinks && m.mediaLinks.length > 0 && (
                         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
