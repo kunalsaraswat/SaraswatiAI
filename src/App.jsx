@@ -3683,25 +3683,39 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
     if (!publishFeeAgent) return;
     setPublishFeeLoading(true);
     try {
+      // Payment done → mark fee paid, set status = pending_approval (NOT published yet)
+      // Admin will approve within 30 min → then it goes live on Marketplace
       await updateDoc(doc(db,"agents",publishFeeAgent.id), {
-        published:true,
-        status:"published",
+        published: false,               // stays false until admin approves
+        status: "pending_approval",     // admin sees this in panel
         price: parseFloat(publishFeeAgent.customPrice)||0,
-        publishedAt:serverTimestamp(),
+        publishingFeePaid: true,
+        publishingFeePaidAt: serverTimestamp(),
         creatorName: userData?.name||user?.displayName||"Creator",
-        creatorId: user.uid, featured:false,
-        publishingFeePaid:true,
+        creatorId: user.uid,
+        featured: false,
+        updatedAt: serverTimestamp(),
       });
+      // Log platform earning
       await addDoc(collection(db,"platformEarnings"), {
         type:"publish_fee", amount:PUBLISH_FEE,
         userId:user.uid, agentId:publishFeeAgent.id,
         agentName:publishFeeAgent.name, createdAt:serverTimestamp()
       });
-      // Notify creator
+      // Notify CREATOR — payment received, awaiting approval
       await addDoc(collection(db,"notifications"),{
-        userId:user.uid,title:"🚀 Agent Published!",
-        body:`"${publishFeeAgent.name}" is now live on the Marketplace.`,
-        read:false,createdAt:serverTimestamp(),type:"admin"
+        userId:user.uid,
+        title:"✅ Payment Received — Under Review",
+        body:`₹${PUBLISH_FEE} paid for "${publishFeeAgent.name}". Admin will approve within 30 minutes.`,
+        read:false, createdAt:serverTimestamp(), type:"payment"
+      });
+      // Notify ADMIN — new agent pending approval
+      const adminUid = "Jm5yPbOtGEeqq4UKMUaroLHJ4Wg1"; // admin UID
+      await addDoc(collection(db,"notifications"),{
+        userId: adminUid,
+        title:"🆕 Agent Pending Approval",
+        body:`"${publishFeeAgent.name}" by ${userData?.name||"Creator"} — ₹${PUBLISH_FEE} fee paid. Review in Admin panel.`,
+        read:false, createdAt:serverTimestamp(), type:"admin"
       });
       await loadAgents(user.uid);
       setPublishFeeDone(false);
@@ -3976,7 +3990,15 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
     await updateDoc(doc(db,"agents",id),{status:"approved",published:true,approvedAt:serverTimestamp()});
     setAdminAllAgents(p=>p.map(a=>a.id===id?{...a,status:"approved",published:true}:a));
     const ag=adminAllAgents.find(a=>a.id===id);
-    if(ag?.userId) await addDoc(collection(db,"notifications"),{userId:ag.userId,title:"✅ Agent Approved",body:`"${ag.name}" is now live!`,read:false,createdAt:serverTimestamp(),type:"admin"});
+    if(ag?.userId){
+      // Notify creator: agent approved and live
+      await addDoc(collection(db,"notifications"),{
+        userId:ag.userId,
+        title:"✅ Agent Approved & Live!",
+        body:`"${ag.name}" is now live on the Marketplace! Users can view, buy and use it.`,
+        read:false,createdAt:serverTimestamp(),type:"admin"
+      });
+    }
   }
   async function adminRejectAgent(id){
     await updateDoc(doc(db,"agents",id),{status:"rejected",published:false});
@@ -4161,19 +4183,42 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
     const snap = {};
     try {
       const uSnap = await getDocs(collection(db, "users"));
-      const users = uSnap.docs.map(d => d.data());
+      const users = uSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       snap.totalUsers    = users.length;
       snap.premiumUsers  = users.filter(u => u.premium).length;
       snap.totalMsgs     = users.reduce((s, u) => s + (u.usageCount || 0), 0);
-    } catch { snap.totalUsers = 0; snap.premiumUsers = 0; snap.totalMsgs = 0; }
+      // Full user list with emails — for admin commands
+      snap.allUsers = users.map(u => ({
+        id: u.id,
+        name: u.name || u.displayName || "User",
+        email: u.email || "",
+        premium: u.premium || false,
+        usageCount: u.usageCount || 0,
+        createdAt: u.createdAt?.seconds ? new Date(u.createdAt.seconds*1000).toLocaleDateString("en-IN") : "N/A"
+      }));
+    } catch { snap.totalUsers = 0; snap.premiumUsers = 0; snap.totalMsgs = 0; snap.allUsers = []; }
 
     try {
       const aSnap = await getDocs(collection(db, "agents"));
-      const agents = aSnap.docs.map(d => d.data());
-      snap.totalAgents     = agents.length;
-      snap.publishedAgents = agents.filter(a => a.published).length;
-      snap.topAgents       = [...agents].sort((a, b) => (b.totalUsers||0)-(a.totalUsers||0)).slice(0, 5).map(a => ({ name: a.name, users: a.totalUsers||0, revenue: 0, rating: a.avgRating||0 }));
-    } catch { snap.totalAgents = 0; snap.publishedAgents = 0; snap.topAgents = []; }
+      const agentsList = aSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      snap.totalAgents     = agentsList.length;
+      snap.publishedAgents = agentsList.filter(a => a.published).length;
+      snap.topAgents       = [...agentsList].sort((a, b) => (b.totalUsers||0)-(a.totalUsers||0)).slice(0, 5).map(a => ({ name: a.name, users: a.totalUsers||0, revenue: 0, rating: a.avgRating||0 }));
+      // Full agents list for admin commands (delete, approve, suspend)
+      snap.allAgents = agentsList.map(a => ({
+        id: a.id,
+        name: a.name,
+        category: a.category || "",
+        status: a.status || "draft",
+        published: a.published || false,
+        creatorName: a.creatorName || "",
+        userId: a.userId || "",
+        price: a.price || 0,
+      }));
+      snap.pendingAgents = agentsList.filter(a => a.status === "pending_approval").map(a => ({
+        id: a.id, name: a.name, creatorName: a.creatorName || "", userId: a.userId || ""
+      }));
+    } catch { snap.totalAgents = 0; snap.publishedAgents = 0; snap.topAgents = []; snap.allAgents = []; snap.pendingAgents = []; }
 
     try {
       const pSnap = await getDocs(collection(db, "agentSales"));
@@ -4182,12 +4227,10 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
       snap.totalRevenue    = sales.reduce((s, p) => s + (p.totalAmount||0), 0);
       snap.totalCommission = sales.reduce((s, p) => s + (p.platformEarning||0), 0);
       snap.totalCreatorPay = sales.reduce((s, p) => s + (p.creatorEarning||0), 0);
-      // Today's revenue
       const today = new Date(); today.setHours(0,0,0,0);
       const todaySales = sales.filter(s => s.createdAt?.seconds && s.createdAt.seconds * 1000 >= today.getTime());
       snap.todayRevenue = todaySales.reduce((s, p) => s + (p.totalAmount||0), 0);
       snap.todaySales   = todaySales.length;
-      // Top selling agents by revenue
       const agentRevMap = {};
       sales.forEach(s => { agentRevMap[s.agentName] = (agentRevMap[s.agentName]||0) + (s.totalAmount||0); });
       snap.topSellingAgents = Object.entries(agentRevMap).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([name,rev])=>({name,revenue:rev}));
@@ -4290,16 +4333,26 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
 👥 Sent to: ${batch.length} ${notifUsers} users`;
           break;
         }
-        case "suspend_agent": {
-          if (!params.agentId) { resultMsg = "❌ Agent ID required."; break; }
-          await updateDoc(doc(db, "agents", params.agentId), { status:"suspended", published:false });
-          resultMsg = `⚠️ Agent suspended successfully.`;
+        case "delete_agent": {
+          if (!params.agentId) { resultMsg = "❌ Agent ID nahi mila. Konsa agent delete karna hai?"; break; }
+          await deleteDoc(doc(db, "agents", params.agentId));
+          resultMsg = `🗑️ Agent "${params.agentName || params.agentId}" permanently delete kar diya gaya!`;
           break;
         }
         case "approve_agent": {
           if (!params.agentId) { resultMsg = "❌ Agent ID required."; break; }
           await updateDoc(doc(db, "agents", params.agentId), { status:"approved", published:true, approvedAt: serverTimestamp() });
-          resultMsg = `✅ Agent approved and published to Marketplace!`;
+          // Notify creator
+          if (params.creatorId) {
+            await addDoc(collection(db,"notifications"),{ userId:params.creatorId, title:"✅ Agent Approved & Live!", body:`"${params.agentName||"Your agent"}" ab Marketplace pe live hai!`, read:false, createdAt:serverTimestamp(), type:"admin" });
+          }
+          resultMsg = `✅ Agent "${params.agentName||params.agentId}" approve karke Marketplace pe publish kar diya!`;
+          break;
+        }
+        case "suspend_agent": {
+          if (!params.agentId) { resultMsg = "❌ Agent ID required."; break; }
+          await updateDoc(doc(db, "agents", params.agentId), { status:"suspended", published:false });
+          resultMsg = `⚠️ Agent "${params.agentName||params.agentId}" suspend kar diya gaya.`;
           break;
         }
         default:
@@ -4340,48 +4393,66 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
       }
 
       // Build context for AI
-      const systemPrompt = `You are Saraswati AI's Admin Command Center AI. You have LIVE access to the platform data below.
+      const systemPrompt = `Tu Saraswati AI ka Personal Admin AI hai — Pankaj Saraswat ka sabse khaas business assistant.
 
-PLATFORM SNAPSHOT (as of ${snap.generatedAt}):
-- Total Users: ${snap.totalUsers} (Premium: ${snap.premiumUsers})
-- Total Messages Sent: ${snap.totalMsgs}
-- Total Agents: ${snap.totalAgents} (Published: ${snap.publishedAgents})
-- Total Sales: ${snap.totalSales}
-- Total Revenue: ₹${snap.totalRevenue} (Today: ₹${snap.todayRevenue})
-- Platform Commission Earned: ₹${snap.totalCommission}
-- Creator Payouts: ₹${snap.totalCreatorPay}
-- Publish Fees Collected: ₹${snap.publishFeesCollected}
-- Pending Withdrawals: ${snap.pendingWithdrawCount} (Total: ₹${snap.pendingWithdrawTotal})
-- Top Selling Agents: ${JSON.stringify(snap.topSellingAgents)}
-- Top Agents by Users: ${JSON.stringify(snap.topAgents)}
+Tu unka BHAI jaisa hai. Seedha baat karta hai, dil se help karta hai, business ko aage badhane ke liye sach bolta hai. Formal nahi — Hinglish mein baat kar, jaise ek dost karta hai jo bahut smart bhi ho.
+
+LIVE PLATFORM DATA (abhi ka):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👥 Total Users: ${snap.totalUsers} (Premium: ${snap.premiumUsers})
+💬 Total Messages: ${snap.totalMsgs}
+🤖 Total Agents: ${snap.totalAgents} (Live: ${snap.publishedAgents})
+💰 Today Revenue: ₹${snap.todayRevenue} (${snap.todaySales} sales)
+💰 Total Revenue: ₹${snap.totalRevenue}
+🏛️ Platform Commission: ₹${snap.totalCommission}
+⏳ Pending Withdrawals: ${snap.pendingWithdrawCount} (₹${snap.pendingWithdrawTotal})
+🔖 Publish Fees Collected: ₹${snap.publishFeesCollected}
+
+ALL USERS LIST (${snap.allUsers?.length || 0} users):
+${(snap.allUsers||[]).map((u,i) => `${i+1}. ${u.name} | ${u.email} | ${u.premium?"⭐ Premium":"Free"} | ${u.usageCount} msgs`).join("\n") || "Koi user nahi abhi"}
+
+ALL AGENTS (${snap.allAgents?.length || 0} total):
+${(snap.allAgents||[]).map((a,i) => `${i+1}. [${a.id}] "${a.name}" | ${a.category} | Status: ${a.status} | Creator: ${a.creatorName}`).join("\n") || "Koi agent nahi"}
+
+PENDING APPROVAL AGENTS:
+${(snap.pendingAgents||[]).map(a => `[${a.id}] "${a.name}" by ${a.creatorName}`).join("\n") || "Koi pending nahi"}
 
 PENDING WITHDRAWALS:
-${snap.pendingWithdrawals.map(w => `ID:${w.id} | ${w.userName||"Creator"} | ₹${w.amount} | UPI:${w.upiId}`).join("\n") || "None"}
+${snap.pendingWithdrawals.map(w => `[${w.id}] ${w.userName||"Creator"} | ₹${w.amount} | UPI: ${w.upiId}`).join("\n") || "Koi pending nahi"}
 
-${snap.foundUser ? `USER SEARCH RESULT:\nName: ${snap.foundUser.name} | Email: ${snap.foundUser.email} | Premium: ${snap.foundUser.premium?"Yes":"No"} | Messages: ${snap.foundUser.usageCount||0} | Joined: ${snap.foundUser.createdAt?.seconds?new Date(snap.foundUser.createdAt.seconds*1000).toLocaleDateString("en-IN"):"N/A"}` : ""}
+TOP SELLING AGENTS: ${JSON.stringify(snap.topSellingAgents)}
 
-You can answer questions about platform data OR help admin take actions.
+${snap.foundUser ? `🔍 USER FOUND:\nNaam: ${snap.foundUser.name}\nEmail: ${snap.foundUser.email}\nPremium: ${snap.foundUser.premium?"Haan":"Nahi"}\nMessages: ${snap.foundUser.usageCount}\nJoined: ${snap.foundUser.createdAt?.seconds?new Date(snap.foundUser.createdAt.seconds*1000).toLocaleDateString("en-IN"):"N/A"}\nUID: ${snap.foundUser.id}` : ""}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-For ACTIONS (approve withdraw, send email, etc.), format your response with:
+TU KYA KAR SAKTA HAI:
+1. INFO de sakta hai — users ki emails, revenue, stats, koi bhi data
+2. ACTIONS execute kar sakta hai (confirmation ke baad)
+3. BUSINESS ADVICE de sakta hai — agent sales kaise badhayein, marketing, growth hacks, kya karna chahiye aage
+
+ACTIONS ke liye ye format use kar:
 ACTION: <action_type>
-PARAMS: <json params>
-CONFIRM: <user-friendly confirmation message>
+PARAMS: <json>
+CONFIRM: <confirmation message Hinglish mein>
 
-Action types: approve_withdraw, reject_withdraw, send_email, send_notification, suspend_agent, approve_agent
+Available actions:
+- approve_withdraw: {"withdrawId":"id","amount":0,"userId":"uid"}
+- reject_withdraw: {"withdrawId":"id"}
+- send_email: {"subject":"text","body":"text"}
+- send_notification: {"users":"all/premium/creators","title":"emoji title","body":"message","type":"announcement"}
+- delete_agent: {"agentId":"id","agentName":"naam"}
+- approve_agent: {"agentId":"id","agentName":"naam","creatorId":"uid"}
+- suspend_agent: {"agentId":"id","agentName":"naam"}
 
-NOTIFICATION FORMAT (critical — always use this exact structure for send_notification):
-ACTION: send_notification
-PARAMS: {"users":"all","title":"emoji + short title here","body":"detailed message body here","type":"announcement"}
+PERSONALITY RULES:
+- Bhai jaisa bol — "Bhai ye dekh", "sun yaar", "teri baat sahi hai", "chal kar deta hoon"
+- Jab business advice maange to ASLI tips de — copied gyaan nahi, practical steps
+- Agar koi problem bata to solutions bhi suggest kar khud se
+- Data share karne mein koi hesitation nahi — ye tera hi platform hai
+- Har kaam mein support kar, negative mat bol
+- Short aur to-the-point reh — lambe lectures nahi`;
 
-Example — if user says "notify users about marketplace":
-ACTION: send_notification
-PARAMS: {"users":"all","title":"🛍 Marketplace is Live!","body":"Browse, buy and use AI Agents on Saraswati AI Marketplace. Check it out now!","type":"announcement"}
 
-Always auto-generate a relevant title AND body based on the notification topic.
-Never send just a "message" field — always use "title" + "body" separately.
-
-For INFO queries, just answer clearly with the data.
-Keep responses concise, professional, and in English.`;
 
       const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method:"POST",
@@ -4393,7 +4464,7 @@ Keep responses concise, professional, and in English.`;
             ...cmdHistory.filter(h=>h.role!=="system").slice(-6).map(h=>({ role:h.role==="ai"?"assistant":"user", content:h.text })),
             { role:"user", content: userMsg }
           ],
-          max_tokens:600, temperature:0.3
+          max_tokens:900, temperature:0.5
         })
       });
       const data = await aiRes.json();
@@ -5974,11 +6045,11 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                           {agent.description&&<div style={{fontSize:12,color:"var(--mt)",lineHeight:1.5,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{agent.description}</div>}
                         </div>
                         {/* Status badge */}
-                        <div style={{padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700,
-                          background:agent.published?"#22c55e20":agent.status==="draft"?"#f59e0b15":"var(--sf2)",
-                          color:agent.published?"#22c55e":agent.status==="draft"?"#f59e0b":"var(--mt)",
-                          border:"1px solid "+(agent.published?"#22c55e50":agent.status==="draft"?"#f59e0b40":"var(--bd)"),whiteSpace:"nowrap"}}>
-                          {agent.published ? "🌐 Live" : "📝 Draft"}
+                        <div style={{padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700,whiteSpace:"nowrap",
+                          background:agent.published?"#22c55e20":agent.status==="pending_approval"?"#3b82f620":agent.status==="rejected"?"#ef444420":"#f59e0b15",
+                          color:agent.published?"#22c55e":agent.status==="pending_approval"?"#3b82f6":agent.status==="rejected"?"#ef4444":"#f59e0b",
+                          border:"1px solid "+(agent.published?"#22c55e50":agent.status==="pending_approval"?"#3b82f650":agent.status==="rejected"?"#ef444450":"#f59e0b40")}}>
+                          {agent.published ? "🌐 Live" : agent.status==="pending_approval" ? "⏳ Under Review" : agent.status==="rejected" ? "❌ Rejected" : "📝 Draft"}
                         </div>
                       </div>
 
@@ -6025,9 +6096,12 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                           style={{padding:"8px 12px",borderRadius:10,border:"1px solid var(--bd)",background:"var(--sf2)",color:"var(--tx)",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
                           ✏️ Edit
                         </button>
-                        <button onClick={()=>toggleAgentPublish(agent.id,agent.published)}
-                          style={{padding:"8px 12px",borderRadius:10,border:"1px solid "+(agent.published?"#22c55e50":"var(--accent)"),background:agent.published?"#22c55e15":"var(--glow)",color:agent.published?"#22c55e":"var(--accent)",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif",fontWeight:600}}>
-                          {agent.published ? "📤 Unpublish" : agent.publishingFeePaid ? "🚀 Re-publish" : "🌐 Publish ₹9"}
+                        <button onClick={()=>{ if(agent.status==="pending_approval") return; toggleAgentPublish(agent.id,agent.published); }}
+                          style={{padding:"8px 12px",borderRadius:10,fontWeight:600,fontSize:12,cursor:agent.status==="pending_approval"?"not-allowed":"pointer",fontFamily:"Inter,sans-serif",
+                            border:"1px solid "+(agent.published?"#22c55e50":agent.status==="pending_approval"?"#3b82f650":"var(--accent)"),
+                            background:agent.published?"#22c55e15":agent.status==="pending_approval"?"#3b82f615":"var(--glow)",
+                            color:agent.published?"#22c55e":agent.status==="pending_approval"?"#3b82f6":"var(--accent)"}}>
+                          {agent.published ? "📤 Unpublish" : agent.status==="pending_approval" ? "⏳ Reviewing..." : agent.publishingFeePaid ? "🚀 Re-publish" : "🚀 Publish ₹9"}
                         </button>
                         <button onClick={()=>askConfirm({title:"Delete Agent?",message:`"${agent.name}" will be permanently deleted.`,onConfirm:()=>deleteAgent(agent.id)})}
                           style={{padding:"8px 10px",borderRadius:10,border:"1px solid #ef444430",background:"none",color:"#ef4444",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
@@ -6188,16 +6262,68 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   </div>
                 )}
 
-                {/* Save + Cancel */}
+                {/* Publish Agent button — shown after AI generates data */}
                 {agentGenData&&(
                   <>
-                    <button onClick={()=>saveNewAgent(agentCreateForm.name,agentCreateForm.category,agentGenData)} disabled={agentSaving}
+                    <button onClick={async()=>{
+                      if(agentSaving) return;
+                      if(!agentCreateForm.name.trim()||!agentCreateForm.category.trim()) return;
+                      setAgentSaving(true);
+                      try {
+                        // 1. Save agent to Firestore as pending_approval
+                        const agentData = {
+                          name: agentCreateForm.name.trim(),
+                          category: agentCreateForm.category.trim(),
+                          emoji: agentAvatarFile ? "" : (agentGenData?.suggestedAvatar||"🤖"),
+                          avatarImg: agentAvatarFile || null,
+                          pdfKnowledge: agentPdfText || null,
+                          pdfName: agentPdfName || null,
+                          description: agentGenData?.description||"",
+                          instructions: agentGenData?.instructions||"",
+                          systemPrompt: agentGenData?.systemPrompt||"",
+                          welcomeMessage: agentGenData?.welcomeMessage||"",
+                          personality: agentGenData?.personality||"Friendly",
+                          language: agentGenData?.language||"Hinglish",
+                          expertise: agentGenData?.expertise||"",
+                          conversationStyle: agentGenData?.conversationStyle||"",
+                          skills: agentGenData?.skills||[],
+                          status: "pending_payment",
+                          published: false,
+                          publishingFeePaid: false,
+                          userId: user.uid,
+                          creatorName: userData?.name||user?.displayName||"Creator",
+                          createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+                          tone:"friendly", lang:"hindi",
+                          totalChats:0, totalUsers:0, avgRating:0, reviewCount:0,
+                        };
+                        let savedId = agentEditId;
+                        if(agentEditId) {
+                          const {status,published,publishingFeePaid,createdAt,...editData}=agentData;
+                          await updateDoc(doc(db,"agents",agentEditId),{...editData,updatedAt:serverTimestamp()});
+                        } else {
+                          const ref = await addDoc(collection(db,"agents"), agentData);
+                          savedId = ref.id;
+                        }
+                        await loadAgents(user.uid);
+                        // 2. Open ₹9 publish payment immediately
+                        const ag = {...agentData, id: savedId};
+                        setAgentCreateForm({name:"",category:""});
+                        setAgentGenData(null); setAgentCatSearch("");
+                        setAgentAvatarFile(null); setAgentAvatarPreview(null);
+                        setAgentPdfFile(null); setAgentPdfName(""); setAgentPdfText("");
+                        setAgentPrice("0"); setAgentEditId(null);
+                        setAgentTab("my");
+                        // Open payment modal
+                        initiatePublishFee(ag, ag.price||0);
+                      } catch(e){ alert("Save failed: "+e.message); }
+                      setAgentSaving(false);
+                    }} disabled={agentSaving}
                       style={{width:"100%",padding:"14px",borderRadius:14,border:"none",background:"var(--grad)",color:"#fff",fontSize:15,fontWeight:700,cursor:agentSaving?"not-allowed":"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 4px 20px var(--glow)",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                      {agentSaving?(<><SaraswatiLogo size={18} animate={true} state="thinking" /> Saving...</>):(agentEditId?"✅ Update Agent":"💾 Save as Draft")}
+                      {agentSaving?(<><SaraswatiLogo size={18} animate={true} state="thinking" /> Saving...</>):(agentEditId?"✅ Update Agent":"🚀 Publish Agent")}
                     </button>
                     {!agentEditId && (
                       <div style={{textAlign:"center",fontSize:11,color:"var(--mt)",marginBottom:8,lineHeight:1.6}}>
-                        📝 Agent saves as <strong>Draft</strong> — go to My Agents → tap <strong>Publish ₹9</strong> to go live on Marketplace
+                        ₹9 publishing fee → Admin approval → Agent goes live on Marketplace
                       </div>
                     )}
                     <button onClick={()=>{setAgentGenData(null);setAgentCreateForm({name:"",category:""});setAgentEditId(null);setAgentCatSearch("");setAgentAvatarFile(null);setAgentAvatarPreview(null);setAgentPdfFile(null);setAgentPdfName("");setAgentPdfText("");}}
@@ -6497,32 +6623,24 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             {publishedSuccess ? (
               <>
                 <div className="mi">🎉</div>
-                <h3 style={{color:"#22c55e"}}>Agent Published!</h3>
+                <h3 style={{color:"#22c55e"}}>Payment Successful!</h3>
                 <p style={{fontSize:13,color:"var(--mt)",lineHeight:1.7}}>
-                  <strong style={{color:"var(--tx)"}}>{publishFeeAgent?.name}</strong> is now live on the Marketplace!
+                  <strong style={{color:"var(--tx)"}}>{publishFeeAgent?.name}</strong> has been submitted for review.
                 </p>
                 <div style={{background:"#22c55e15",border:"1px solid #22c55e40",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#22c55e",marginBottom:8}}>✅ Your agent can now be:</div>
-                  <div style={{fontSize:12,color:"var(--mt)",lineHeight:1.9}}>
-                    👁️ Viewed by anyone on the Marketplace<br/>
-                    🛒 Bought {parseFloat(publishFeeAgent?.customPrice||0)>0 ? `for ₹${publishFeeAgent?.customPrice}` : "for free"}<br/>
-                    💬 Used in chat instantly
+                  <div style={{fontSize:12,fontWeight:700,color:"#22c55e",marginBottom:8}}>⏳ What happens next:</div>
+                  <div style={{fontSize:12,color:"var(--mt)",lineHeight:2}}>
+                    1. ₹{PUBLISH_FEE} publishing fee received ✅<br/>
+                    2. Admin will review your agent<br/>
+                    3. <strong style={{color:"var(--tx)"}}>Approved within 30 minutes</strong><br/>
+                    4. Agent appears in My Agents + Marketplace 🚀
                   </div>
                 </div>
-                {parseFloat(publishFeeAgent?.customPrice||0)>0 && (
-                  <div style={{display:"flex",gap:8,marginBottom:16}}>
-                    <div style={{flex:1,background:"var(--sf2)",border:"1px solid var(--bd)",borderRadius:12,padding:"10px",textAlign:"center"}}>
-                      <div style={{fontSize:10,color:"var(--mt)"}}>You Earn</div>
-                      <div style={{fontSize:16,fontWeight:800,color:"#22c55e"}}>80%</div>
-                    </div>
-                    <div style={{flex:1,background:"var(--sf2)",border:"1px solid var(--bd)",borderRadius:12,padding:"10px",textAlign:"center"}}>
-                      <div style={{fontSize:10,color:"var(--mt)"}}>Saraswati AI</div>
-                      <div style={{fontSize:16,fontWeight:800,color:"#f97316"}}>20%</div>
-                    </div>
-                  </div>
-                )}
-                <button className="btn btn-p" onClick={()=>{ setShowPublishFee(false); setPublishFeeAgent(null); setPublishedSuccess(false); setPage("marketplace"); loadMarketplace(); }} style={{width:"100%",marginBottom:8}}>
-                  🛍 View in Marketplace
+                <div style={{background:"var(--sf2)",border:"1px solid var(--bd)",borderRadius:12,padding:"10px 14px",marginBottom:16}}>
+                  <div style={{fontSize:11,color:"var(--mt)"}}>You'll get a notification when approved!</div>
+                </div>
+                <button className="btn btn-p" onClick={()=>{ setShowPublishFee(false); setPublishFeeAgent(null); setPublishedSuccess(false); setPage("agents"); setAgentTab("my"); }} style={{width:"100%",marginBottom:8}}>
+                  📋 View My Agents
                 </button>
                 <button className="btn btn-s" onClick={()=>{ setShowPublishFee(false); setPublishFeeAgent(null); setPublishedSuccess(false); }} style={{width:"100%"}}>Close</button>
               </>
