@@ -1879,6 +1879,16 @@ export default function App() {
   const [showNotifCenter, setShowNotifCenter] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notifsLoaded, setNotifsLoaded] = useState(false);
+  // ── Support / Customer Care ──
+  const [showSupportModal, setShowSupportModal] = useState(false);
+  const [supportStep, setSupportStep] = useState("form"); // "form" | "success"
+  const [supportFeature, setSupportFeature] = useState("");
+  const [supportProblem, setSupportProblem] = useState("");
+  const [supportScreenshot, setSupportScreenshot] = useState(null); // base64
+  const [supportScreenshotName, setSupportScreenshotName] = useState("");
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [adminTickets, setAdminTickets] = useState([]);
+  const [adminTicketsLoaded, setAdminTicketsLoaded] = useState(false);
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
   const [sid, setSid] = useState(() => Date.now().toString());
@@ -4249,6 +4259,28 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
     } catch { snap.publishFeesCollected = 0; }
 
     snap.generatedAt = new Date().toLocaleString("en-IN", { timeZone:"Asia/Kolkata" });
+
+    // Support Tickets
+    try {
+      const tSnap = await getDocs(collection(db, "supportTickets"));
+      const tickets = tSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+      const today = new Date(); today.setHours(0,0,0,0);
+      snap.allTickets = tickets.map(t => ({
+        id: t.id,
+        userName: t.userName||"User",
+        userEmail: t.userEmail||"",
+        feature: t.feature||"",
+        problem: (t.problem||"").slice(0, 120),
+        status: t.status||"open",
+        time: t.createdAt?.seconds ? new Date(t.createdAt.seconds*1000).toLocaleString("en-IN") : "N/A",
+        hasScreenshot: !!t.screenshot,
+      }));
+      snap.openTickets = snap.allTickets.filter(t => t.status === "open").length;
+      snap.resolvedTickets = snap.allTickets.filter(t => t.status === "resolved").length;
+      snap.todayTickets = tickets.filter(t => t.createdAt?.seconds && t.createdAt.seconds*1000 >= today.getTime()).length;
+    } catch { snap.allTickets = []; snap.openTickets = 0; snap.resolvedTickets = 0; snap.todayTickets = 0; }
+
     return snap;
   }
 
@@ -4425,6 +4457,11 @@ TOP SELLING AGENTS: ${JSON.stringify(snap.topSellingAgents)}
 ${snap.foundUser ? `🔍 USER FOUND:\nNaam: ${snap.foundUser.name}\nEmail: ${snap.foundUser.email}\nPremium: ${snap.foundUser.premium?"Haan":"Nahi"}\nMessages: ${snap.foundUser.usageCount}\nJoined: ${snap.foundUser.createdAt?.seconds?new Date(snap.foundUser.createdAt.seconds*1000).toLocaleDateString("en-IN"):"N/A"}\nUID: ${snap.foundUser.id}` : ""}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+🎫 SUPPORT TICKETS (${snap.allTickets?.length||0} total | ${snap.openTickets||0} open | ${snap.todayTickets||0} today):
+${(snap.allTickets||[]).slice(0,20).map((t,i)=>
+  `${i+1}. [${t.status==="open"?"🔴 OPEN":"✅ DONE"}] ${t.userName} | ${t.userEmail} | ${t.feature} | ${t.problem.slice(0,60)} | ${t.time}${t.hasScreenshot?" 📸":""}`
+).join("\n") || "Koi ticket nahi"}
+
 TU KYA KAR SAKTA HAI:
 1. INFO de sakta hai — users ki emails, revenue, stats, koi bhi data
 2. ACTIONS execute kar sakta hai (confirmation ke baad)
@@ -4573,6 +4610,90 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
   async function markOneRead(id) {
     setNotifications(p => p.map(n => n.id === id ? { ...n, read: true } : n));
     try { await updateDoc(doc(db, "notifications", id), { read: true }); } catch {}
+  }
+
+  // ── Support Ticket Functions ─────────────────────────────────────
+  const SUPPORT_FEATURES = ["Chat / AI Response","Agent Marketplace","Agent Creation","Payments & Billing","Withdrawal / Wallet","Login / Account","Notifications","Image Generation","Voice Call","Other"];
+
+  async function submitSupportTicket() {
+    if (!supportFeature || !supportProblem.trim()) return;
+    setSupportLoading(true);
+    try {
+      const ticketData = {
+        userId: user.uid,
+        userName: userData?.name || user?.displayName || "User",
+        userEmail: userData?.email || user?.email || "",
+        feature: supportFeature,
+        problem: supportProblem.trim(),
+        screenshot: supportScreenshot || null,
+        screenshotName: supportScreenshotName || null,
+        status: "open",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        resolvedAt: null,
+        adminNote: "",
+      };
+      const ref = await addDoc(collection(db, "supportTickets"), ticketData);
+      // In-app notification to user
+      await addDoc(collection(db, "notifications"), {
+        userId: user.uid,
+        title: "🎫 Support Ticket Received",
+        body: `Your issue about "${supportFeature}" has been received. We'll resolve it within 1 hour.`,
+        read: false, createdAt: serverTimestamp(), type: "support",
+      });
+      // Notify admin
+      const adminUid = "Jm5yPbOtGEeqq4UKMUaroLHJ4Wg1";
+      await addDoc(collection(db, "notifications"), {
+        userId: adminUid,
+        title: "🆘 New Support Ticket",
+        body: `${ticketData.userName} (${ticketData.userEmail}) reported: "${supportFeature}" — ${supportProblem.trim().slice(0,80)}`,
+        read: false, createdAt: serverTimestamp(), type: "support",
+        ticketId: ref.id,
+      });
+      // Queue email to admin (same pattern as broadcast)
+      await addDoc(collection(db, "emailBroadcasts"), {
+        subject: `🆘 New Support Ticket — ${supportFeature}`,
+        body: `User: ${ticketData.userName}\nEmail: ${ticketData.userEmail}\nFeature: ${supportFeature}\nProblem: ${supportProblem}\nTicket ID: ${ref.id}`,
+        target: "admin", sentBy: user.uid,
+        createdAt: serverTimestamp(), status: "queued",
+        recipientEmail: "saraswatpankaj259@gmail.com",
+      });
+      setSupportStep("success");
+    } catch(e) { alert("Failed to submit: " + e.message); }
+    setSupportLoading(false);
+  }
+
+  async function loadAdminTickets() {
+    try {
+      const snap = await getDocs(query(collection(db, "supportTickets")));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+      setAdminTickets(list);
+      setAdminTicketsLoaded(true);
+    } catch {}
+  }
+
+  async function resolveTicket(ticketId, userId, userName, userEmail, feature) {
+    try {
+      await updateDoc(doc(db, "supportTickets", ticketId), {
+        status: "resolved", resolvedAt: serverTimestamp(), updatedAt: serverTimestamp()
+      });
+      setAdminTickets(p => p.map(t => t.id === ticketId ? { ...t, status: "resolved" } : t));
+      // Notify user in-app
+      await addDoc(collection(db, "notifications"), {
+        userId, title: "✅ Issue Resolved",
+        body: `Your "${feature}" issue has been resolved by our team. Thank you for your patience!`,
+        read: false, createdAt: serverTimestamp(), type: "support",
+      });
+      // Queue email to user
+      await addDoc(collection(db, "emailBroadcasts"), {
+        subject: "✅ Your issue has been resolved — Saraswati AI",
+        body: `Hi ${userName},\n\nYour support request about "${feature}" has been resolved.\n\nIf you face any other issues, feel free to contact us again.\n\n— Saraswati AI Support Team`,
+        target: "single", sentBy: "admin",
+        createdAt: serverTimestamp(), status: "queued",
+        recipientEmail: userEmail,
+      });
+    } catch(e) { alert("Resolve failed: " + e.message); }
   }
 
   // ── Search User by Email ─────────────────────────────────────────
@@ -4964,12 +5085,19 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
               {[
                 { id: "history", icon: <Ico.History />, label: "History" },
                 { id: "projects", icon: <Ico.Project />, label: "Projects" },
-                { id: "settings", icon: <Ico.Settings />, label: "Settings" },
               ].map(item => (
                 <div key={item.id} className={"sb-item" + (page === item.id ? " active" : "")} onClick={() => { setPage(item.id); setShowSb(false); }}>
                   {item.icon}<span>{item.label}</span>
                 </div>
               ))}
+              {/* Support */}
+              <div className="sb-item" onClick={() => { setShowSupportModal(true); setSupportStep("form"); setSupportFeature(""); setSupportProblem(""); setSupportScreenshot(null); setSupportScreenshotName(""); setShowSb(false); }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span>Help & Support</span>
+              </div>
+              <div className={"sb-item" + (page === "settings" ? " active" : "")} onClick={() => { setPage("settings"); setShowSb(false); }}>
+                <Ico.Settings /><span>Settings</span>
+              </div>
               {isAdmin && (
                 <>
                 <div className={"sb-item" + (page === "admin" ? " active" : "")} onClick={() => { setPage("admin"); setShowSb(false); }}>
@@ -5497,6 +5625,82 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
           </div>
         </div>
       )}
+
+      {/* ── SUPPORT TICKET MODAL ── */}
+      {showSupportModal && (
+        <div className="mbg" onClick={()=>{if(!supportLoading){setShowSupportModal(false);setSupportStep("form");}}} style={{zIndex:200}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
+            {supportStep==="success" ? (
+              <>
+                <div className="mi">🎫</div>
+                <h3 style={{color:"#22c55e"}}>Request Received!</h3>
+                <div style={{background:"#22c55e15",border:"1px solid #22c55e40",borderRadius:14,padding:"14px 16px",marginBottom:16,textAlign:"left"}}>
+                  <div style={{fontSize:13,color:"var(--tx)",lineHeight:2.2}}>
+                    ✅ Your support request has been received successfully.<br/>
+                    🔔 Our team has been notified.<br/>
+                    ⏱️ We will resolve your issue within 1 hour.<br/>
+                    📬 You will receive a notification once resolved.
+                  </div>
+                </div>
+                <button className="btn btn-p" onClick={()=>{setShowSupportModal(false);setSupportStep("form");setSupportFeature("");setSupportProblem("");setSupportScreenshot(null);setSupportScreenshotName("");}} style={{width:"100%"}}>Done ✓</button>
+              </>
+            ) : (
+              <>
+                <div className="mi">🆘</div>
+                <h3>Report a Problem</h3>
+                <p style={{fontSize:12,color:"var(--mt)",marginBottom:10}}>
+                  Submitting as <strong style={{color:"var(--tx)"}}>{userData?.name||user?.displayName}</strong><br/>
+                  <span style={{fontSize:11}}>{userData?.email||user?.email}</span>
+                </p>
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>Feature / Area *</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                    {SUPPORT_FEATURES.map(f=>(
+                      <button key={f} onClick={()=>setSupportFeature(f)}
+                        style={{padding:"6px 12px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif",
+                          border:"1.5px solid "+(supportFeature===f?"var(--accent)":"var(--bd)"),
+                          background:supportFeature===f?"var(--glow)":"var(--sf2)",
+                          color:supportFeature===f?"var(--accent)":"var(--mt)"}}>
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="iw" style={{marginBottom:10}}>
+                  <div className="ilbl">Describe your problem *</div>
+                  <textarea value={supportProblem} onChange={e=>setSupportProblem(e.target.value)}
+                    placeholder="What happened? What were you trying to do?" rows={4}
+                    className="inp iarea" style={{resize:"none",lineHeight:1.6,fontSize:13}} />
+                </div>
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>Screenshot (optional)</div>
+                  {supportScreenshot ? (
+                    <div style={{position:"relative"}}>
+                      <img src={supportScreenshot} alt="ss" style={{width:"100%",borderRadius:10,border:"1px solid var(--bd)",maxHeight:150,objectFit:"cover"}} />
+                      <button onClick={()=>{setSupportScreenshot(null);setSupportScreenshotName("");}}
+                        style={{position:"absolute",top:6,right:6,background:"#ef4444",border:"none",borderRadius:"50%",width:24,height:24,color:"#fff",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                    </div>
+                  ) : (
+                    <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"var(--sf2)",border:"1.5px dashed var(--bd)",borderRadius:12,cursor:"pointer"}}>
+                      <span style={{fontSize:20}}>📸</span>
+                      <span style={{fontSize:12,color:"var(--mt)"}}>Tap to attach screenshot</span>
+                      <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                        const f=e.target.files[0]; if(!f) return;
+                        const r=new FileReader(); r.onload=ev=>{setSupportScreenshot(ev.target.result);setSupportScreenshotName(f.name);}; r.readAsDataURL(f);
+                      }} />
+                    </label>
+                  )}
+                </div>
+                <button className="btn btn-p" onClick={submitSupportTicket} disabled={supportLoading||!supportFeature||!supportProblem.trim()} style={{width:"100%",marginBottom:8}}>
+                  {supportLoading ? "Submitting..." : "📤 Submit Request"}
+                </button>
+                <button className="btn btn-s" onClick={()=>setShowSupportModal(false)} style={{width:"100%"}}>Cancel</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {showVoiceCall && (
         <div className="vpage">
           {/* Top: live transcript area */}
@@ -7049,12 +7253,14 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
       {page === "cmdcenter" && isAdmin && (() => {
         const QUICK_CMDS = [
           { label: "💰 Today Revenue", cmd: "Show today's revenue" },
-          { label: "👥 Total Users", cmd: "Show total users" },
+          { label: "👥 Total Users", cmd: "Show total users with emails" },
           { label: "⏳ Pending W/D", cmd: "Show pending withdrawals" },
           { label: "🏆 Top Agents", cmd: "Show top selling agents" },
           { label: "📊 Platform Stats", cmd: "Show complete platform statistics" },
           { label: "✅ Approve All W/D", cmd: "Approve all pending withdrawals" },
-          { label: "🔔 Notify Users", cmd: "Send notification to all users" },
+          { label: "🎫 Open Tickets", cmd: "Show all open support issues" },
+          { label: "📋 Today's Reports", cmd: "Show today's support reports" },
+          { label: "🤖 Pending Agents", cmd: "Show all agents pending approval" },
         ];
         return (
           <div className="page" style={{ display:"flex", flexDirection:"column", height:"100%" }}>
@@ -7066,10 +7272,16 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   <div style={{ fontSize:14, fontWeight:800, color:"#fff" }}>⚡ AI Command Center</div>
                   <div style={{ fontSize:11, color:"#ffffff80", marginTop:2 }}>Type commands — AI executes with your confirmation</div>
                 </div>
-                <button onClick={async () => { await generateDailyReport(); setShowReportModal(true); }} disabled={cmdReportLoading}
-                  style={{ padding:"8px 14px", borderRadius:12, background:"#ffffff25", border:"1px solid #ffffff50", color:"#fff", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter,sans-serif", flexShrink:0 }}>
-                  {cmdReportLoading ? "⏳ Loading..." : "📊 Full Report"}
-                </button>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={async () => { await loadAdminTickets(); }} title="Support Tickets"
+                    style={{ padding:"8px 12px", borderRadius:12, background:"#ffffff25", border:"1px solid #ffffff50", color:"#fff", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter,sans-serif" }}>
+                    🎫 Tickets
+                  </button>
+                  <button onClick={async () => { await generateDailyReport(); setShowReportModal(true); }} disabled={cmdReportLoading}
+                    style={{ padding:"8px 12px", borderRadius:12, background:"#ffffff25", border:"1px solid #ffffff50", color:"#fff", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter,sans-serif" }}>
+                    {cmdReportLoading ? "⏳" : "📊 Report"}
+                  </button>
+                </div>
               </div>
 
               {/* ── Email Search Box ── */}
@@ -7136,7 +7348,49 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
 
             {/* ── MIDDLE: Chat History ── */}
             <div style={{ flex:1, overflowY:"auto", padding:"0 14px", display:"flex", flexDirection:"column", gap:10 }}>
-              {cmdHistory.length === 0 && !cmdReportLoading && (
+              {/* ── Support Tickets Panel (shown when loaded) ── */}
+            {adminTicketsLoaded && adminTickets.length > 0 && (
+              <div style={{marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"var(--tx)"}}>🎫 Support Tickets ({adminTickets.filter(t=>t.status==="open").length} open)</div>
+                  <button onClick={()=>setAdminTicketsLoaded(false)} style={{background:"none",border:"none",color:"var(--mt)",fontSize:11,cursor:"pointer"}}>Hide</button>
+                </div>
+                {adminTickets.map(t=>(
+                  <div key={t.id} style={{background:"var(--sf)",border:"1px solid "+(t.status==="open"?"#ef444440":"#22c55e40"),borderRadius:14,padding:"12px 14px",marginBottom:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                      <div>
+                        <span style={{fontSize:12,fontWeight:700,color:"var(--tx)"}}>{t.userName}</span>
+                        <span style={{fontSize:10,color:"var(--mt)",marginLeft:6}}>{t.userEmail}</span>
+                      </div>
+                      <span style={{fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:20,
+                        background:t.status==="open"?"#ef444420":"#22c55e20",
+                        color:t.status==="open"?"#ef4444":"#22c55e",
+                        border:"1px solid "+(t.status==="open"?"#ef444440":"#22c55e40")}}>
+                        {t.status==="open"?"🔴 Open":"✅ Resolved"}
+                      </span>
+                    </div>
+                    <div style={{fontSize:11,color:"var(--accent)",fontWeight:600,marginBottom:4}}>{t.feature}</div>
+                    <div style={{fontSize:12,color:"var(--mt)",lineHeight:1.6,marginBottom:6}}>{t.problem}</div>
+                    {t.screenshot && (
+                      <img src={t.screenshot} alt="screenshot"
+                        onClick={()=>setViewerSrc(t.screenshot)}
+                        style={{width:"100%",borderRadius:8,maxHeight:120,objectFit:"cover",cursor:"zoom-in",marginBottom:6,border:"1px solid var(--bd)"}} />
+                    )}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:10,color:"var(--mt)"}}>{t.createdAt?.seconds?new Date(t.createdAt.seconds*1000).toLocaleString("en-IN",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):"N/A"}</span>
+                      {t.status==="open"&&(
+                        <button onClick={()=>resolveTicket(t.id,t.userId,t.userName,t.userEmail,t.feature)}
+                          style={{padding:"5px 12px",borderRadius:10,border:"1px solid #22c55e50",background:"#22c55e15",color:"#22c55e",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                          ✅ Mark Resolved
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {cmdHistory.length === 0 && !cmdReportLoading && !adminTicketsLoaded && (
                 <div style={{ textAlign:"center", padding:"30px 20px", color:"var(--mt)" }}>
                   <div style={{ fontSize:48, marginBottom:12 }}>⚡</div>
                   <div style={{ fontSize:15, fontWeight:700, color:"var(--tx)", marginBottom:6 }}>AI Command Center</div>
