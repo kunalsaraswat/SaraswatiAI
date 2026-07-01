@@ -4,7 +4,8 @@ import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, onAuthStateChanged, updateProfile, sendPasswordResetEmail,
   updatePassword, reauthenticateWithCredential, EmailAuthProvider, deleteUser,
-  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+  sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, getDoc, collection, addDoc, query,
@@ -248,31 +249,52 @@ async function webSearch(q) {
 
   return null;
 }
+// ── Smart Image Generation Detection ───────────────────────────────────
+// Instead of matching rigid exact phrases (which missed cases like
+// "youtube logo create kro"), this checks for ANY combination of a
+// creation-verb + a visual-noun anywhere in the sentence, in any order,
+// in Hinglish or English. Much more reliable for natural phrasing.
+const IMG_VERBS = [
+  "create","generate","make","draw","design","sketch","paint","render","illustrate",
+  "banao","banaiye","banado","bana do","bnao","bnado"
+];
+const IMG_NOUNS = [
+  "image","photo","picture","pic","logo","poster","wallpaper","illustration","drawing",
+  "sketch","painting","design","banner","thumbnail","avatar","icon","graphic","artwork",
+  "tasveer","tasvir","chitra","photo banao"
+];
+// Phrases that are unambiguous on their own (no verb+noun pairing needed)
+const IMG_DIRECT_PHRASES = [
+  "image banao","photo banao","tasveer banao","picture banao","generate image","logo banao",
+  "ai image","render an image","paint a","painting of","draw me","draw a"
+];
+
 function needsImageGen(t) {
-  const lower = t.toLowerCase();
-  const keywords = [
-    "image banao","photo banao","tasveer banao","picture banao","draw","generate image",
-    "sketch","wallpaper","logo banao","poster","create an image","create image","make an image",
-    "make image","design a logo","design logo","design a poster","illustration","illustrate",
-    "generate a picture","generate photo","create a poster","create a logo","create a design",
-    "create an illustration","draw me","paint","painting of","render an image","ai image",
-    "photo of","picture of","banaiye","banado","bana do","chitra banao"
-  ];
-  return keywords.some(k => lower.includes(k));
+  const lower = " " + t.toLowerCase() + " ";
+  // 1) Direct unambiguous phrases
+  if (IMG_DIRECT_PHRASES.some(k => lower.includes(k))) return true;
+  // 2) Any creation-verb present AND any visual-noun present, anywhere in the sentence
+  const hasVerb = IMG_VERBS.some(v => lower.includes(" " + v) || lower.includes(v + " "));
+  const hasNoun = IMG_NOUNS.some(n => lower.includes(n));
+  return hasVerb && hasNoun;
 }
+
 function extractPrompt(t) {
-  let p = t.toLowerCase();
-  [
-    "image banao","photo banao","tasveer banao","picture banao","generate image of","generate image",
-    "generate a picture of","generate a picture","generate photo of","generate photo",
-    "create an image of","create an image","create image of","create image","make an image of","make an image",
-    "make image of","make image","design a logo for","design a logo","design logo for","design logo",
-    "design a poster for","design a poster","create a poster of","create a poster","create a logo for","create a logo",
-    "create a design for","create a design","create an illustration of","create an illustration",
-    "draw a","draw me a","draw me","draw","sketch","wallpaper of","wallpaper","logo banao","poster",
-    "illustration of","illustrate","paint a","paint","painting of","painting","render an image of","render an image",
-    "ai image of","ai image","photo of","picture of","banaiye","banado","bana do","chitra banao","ki","ka","of"
-  ].forEach(k => { p = p.split(k).join(" "); });
+  let p = " " + t.toLowerCase() + " ";
+  // Strip the verbs and nouns/filler so what's left is the actual subject
+  // e.g. "youtube logo create kro logo name xyz game" -> "youtube name xyz game"
+  // Uses word-boundary regex so we don't accidentally chop mid-word
+  // (e.g. stripping "ke" must not turn "bakery" into "ba ry").
+  const stripWords = [
+    ...IMG_DIRECT_PHRASES, ...IMG_VERBS, ...IMG_NOUNS,
+    "kro","karo","kr do","kar do","kijiye","plz","please","ek","for me","mujhe",
+    "of","ki","ka","ke","liye","chahiye","a","an"
+  ];
+  stripWords.sort((a, b) => b.length - a.length); // longest phrases first
+  stripWords.forEach(k => {
+    const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    p = p.replace(new RegExp("\\b" + escaped + "\\b", "g"), " ");
+  });
   return p.replace(/\s+/g, " ").trim() || t;
 }
 // Pollinations is used only as an automatic fallback if the Gemini backend call fails.
@@ -1760,15 +1782,9 @@ export default function App() {
   const [forgot, setForgot] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", pass: "", newPass: "", confirmPass: "" });
   const [ferr, setFerr] = useState(""); const [fok, setFok] = useState(""); const [fload, setFload] = useState(false);
-  // ── Email OTP Login state ──
-  const [otpStep, setOtpStep] = useState("email"); // "email" | "otp"
-  const [otpEmail, setOtpEmail] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [otpSentAt, setOtpSentAt] = useState(null);
-  const [otpExpiresAt, setOtpExpiresAt] = useState(null);
-  const [otpResendCooldown, setOtpResendCooldown] = useState(0);
-  const [otpIsNewUser, setOtpIsNewUser] = useState(false);
-  const [otpName, setOtpName] = useState("");
+  // ── Magic Link (Email Link) Login state ──
+  const [mlStep, setMlStep] = useState("email");   // "email" | "sent" | "verifying"
+  const [mlEmail, setMlEmail] = useState("");
   const [themeKey, setThemeKey] = useState("dark");
   const [accentKey, setAccentKey] = useState("orange");
   const [fontSize, setFontSize] = useState(14);
@@ -1860,6 +1876,9 @@ export default function App() {
   const [notifTitle, setNotifTitle] = useState("");
   const [notifBody, setNotifBody] = useState("");
   const [notifLoading, setNotifLoading] = useState(false);
+  const [showNotifCenter, setShowNotifCenter] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notifsLoaded, setNotifsLoaded] = useState(false);
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
   const [sid, setSid] = useState(() => Date.now().toString());
@@ -1987,12 +2006,14 @@ export default function App() {
     return () => window.removeEventListener("beforeinstallprompt", h);
   }, []);
 
-  // ── OTP resend cooldown ticker (30s between resends) ──
+  // ── Check if page loaded from a Magic Link email ──────────────────
   useEffect(() => {
-    if (otpResendCooldown <= 0) return;
-    const t = setInterval(() => setOtpResendCooldown(c => Math.max(0, c - 1)), 1000);
-    return () => clearInterval(t);
-  }, [otpResendCooldown]);
+    if (!isSignInWithEmailLink(auth, window.location.href)) return;
+    const savedEmail = localStorage.getItem("saraswati_ml_email") || "";
+    setMlStep("verifying");
+    setMlEmail(savedEmail);
+    completeMagicLinkLogin(savedEmail, window.location.href);
+  }, []);
 
   useEffect(() => {
     let unsubUserDoc = null;
@@ -2317,159 +2338,87 @@ export default function App() {
     setFload(false);
   }
 
-  // ── EMAIL OTP LOGIN ──────────────────────────────────────────────
-  // Flow: Email -> Send OTP (stored in Firestore, 5 min expiry) -> Verify OTP -> Login/Signup
-  // New email = account created automatically. Existing email = logged in. No password needed by user.
-  function genOtp() { return String(Math.floor(100000 + Math.random() * 900000)); }
+  // ── EMAIL MAGIC LINK LOGIN ───────────────────────────────────────
+  // Flow: Email enter → Firebase sends a magic link → User clicks link
+  //       in Gmail → Page detects link → Auto login/signup. No password,
+  //       no OTP typing, no third-party email service needed.
 
-  // Derives a stable, secure-enough password from the OTP doc's secret salt + email,
-  // so the same Firebase Auth account is reused across OTP logins without ever
-  // exposing or asking the user for a password.
-  async function deriveOtpPassword(email, salt) {
-    const enc = new TextEncoder().encode(email.toLowerCase().trim() + ":" + salt + ":saraswati-otp-v1");
-    const buf = await crypto.subtle.digest("SHA-256", enc);
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 24) + "Aa1!";
-  }
-
-  async function sendOtp(email) {
+  async function sendMagicLink(email) {
     setFerr(""); setFok("");
     const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) { setFerr("Enter a valid email address!"); return false; }
-    setFload(true);
-    try {
-      const otp = genOtp();
-      const salt = crypto.randomUUID();
-      const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minute expiry
-      // Check if user already exists for this email
-      const existingQ = query(collection(db, "users"), where("email", "==", cleanEmail));
-      const existingSnap = await getDocs(existingQ);
-      const isNewUser = existingSnap.empty;
-
-      await setDoc(doc(db, "emailOtps", cleanEmail), {
-        otp, salt, expiresAt, createdAt: serverTimestamp(), verified: false, attempts: 0, isNewUser
-      });
-
-      // Send OTP via EmailJS (client-side email delivery)
-      try {
-        await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            service_id: "service_saraswati",
-            template_id: "template_otp",
-            user_id: "saraswati_ai_public_key",
-            template_params: {
-              to_email: cleanEmail,
-              otp_code: otp,
-              app_name: "Saraswati AI",
-              expiry_minutes: "5"
-            }
-          })
-        });
-      } catch { /* EmailJS may not be configured yet — OTP still works via fallback below */ }
-
-      setOtpEmail(cleanEmail);
-      setOtpIsNewUser(isNewUser);
-      setOtpSentAt(Date.now());
-      setOtpExpiresAt(expiresAt);
-      setOtpStep("otp");
-      setOtpResendCooldown(30);
-      setFok(`✅ OTP sent to ${cleanEmail}. Valid for 5 minutes.`);
-      setFload(false);
-      return true;
-    } catch (e) {
-      setFerr("Could not send OTP. Try again!");
-      setFload(false);
-      return false;
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setFerr("Please enter a valid email address!");
+      return;
     }
-  }
-
-  async function resendOtp() {
-    if (otpResendCooldown > 0) return;
-    await sendOtp(otpEmail);
-  }
-
-  async function verifyOtpAndLogin() {
-    setFerr(""); setFok("");
-    if (!otpCode || otpCode.length !== 6) { setFerr("Enter the 6-digit OTP!"); return; }
-    if (otpIsNewUser && !otpName.trim()) { setFerr("Enter your name to create account!"); return; }
     setFload(true);
     try {
-      const otpRef = doc(db, "emailOtps", otpEmail);
-      const otpSnap = await getDoc(otpRef);
-      if (!otpSnap.exists()) { setFerr("OTP expired. Please request a new one."); setFload(false); return; }
-      const otpData = otpSnap.data();
-
-      // 5-minute expiry check
-      if (Date.now() > otpData.expiresAt) {
-        setFerr("⏰ OTP expired! Please resend a new OTP.");
-        setFload(false);
-        return;
-      }
-      // Too many wrong attempts -> force resend
-      if ((otpData.attempts || 0) >= 5) {
-        setFerr("Too many invalid attempts. Please resend a new OTP.");
-        setFload(false);
-        return;
-      }
-      // Invalid OTP
-      if (otpData.otp !== otpCode.trim()) {
-        await updateDoc(otpRef, { attempts: (otpData.attempts || 0) + 1 });
-        setFerr("❌ Invalid OTP. Please check and try again.");
-        setFload(false);
-        return;
-      }
-
-      // OTP verified — sign in or create account
-      const derivedPass = await deriveOtpPassword(otpEmail, otpData.salt);
-      let cred;
-      if (otpData.isNewUser) {
-        cred = await createUserWithEmailAndPassword(auth, otpEmail, derivedPass);
-        await updateProfile(cred.user, { displayName: otpName.trim() });
-        await setDoc(doc(db, "users", cred.user.uid), {
-          name: otpName.trim(), email: otpEmail, premium: false,
-          createdAt: serverTimestamp(), usageCount: 0, theme: "dark", accent: "orange", fontSize: 14,
-          authMethod: "email_otp"
-        });
-        setUserData({ name: otpName.trim(), email: otpEmail, premium: false, usageCount: 0 });
-        setPName(otpName.trim());
-      } else {
-        try {
-          cred = await signInWithEmailAndPassword(auth, otpEmail, derivedPass);
-        } catch {
-          // Edge case: existing account was created via Google/password originally.
-          // Since we can't silently sign into it without that original credential,
-          // treat as new device login via account linking fallback: just look up
-          // their Firestore doc and proceed — Firebase session will pick up on
-          // next Google sign-in. For now show a clear message.
-          setFerr("This email is linked to Google Sign-In. Please use 'Continue with Google' instead.");
-          setFload(false);
-          return;
-        }
-        const d = await getDoc(doc(db, "users", auth.currentUser.uid));
-        if (d.exists()) {
-          const data = d.data(); setUserData(data);
-          if (data.theme) setThemeKey(data.theme);
-          if (data.accent) setAccentKey(data.accent);
-          if (data.fontSize) setFontSize(data.fontSize);
-          if (data.language) setLanguage(data.language);
-          if (data.memoryEnabled === false) setMemoryEnabled(false);
-        }
-      }
-
-      // Cleanup OTP doc + reset OTP UI state
-      await deleteDoc(otpRef).catch(() => {});
-      setOtpStep("email"); setOtpEmail(""); setOtpCode(""); setOtpName("");
-      setOtpSentAt(null); setOtpExpiresAt(null); setOtpResendCooldown(0);
-      setFok("");
+      const actionCodeSettings = {
+        url: window.location.origin + window.location.pathname, // redirect back to app
+        handleCodeInApp: true,
+      };
+      await sendSignInLinkToEmail(auth, cleanEmail, actionCodeSettings);
+      localStorage.setItem("saraswati_ml_email", cleanEmail);
+      setMlEmail(cleanEmail);
+      setMlStep("sent");
+      setFok("✅ Verification link sent!");
     } catch (e) {
-      setFerr(e.message || "Verification failed. Try again!");
+      if (e.code === "auth/operation-not-allowed") {
+        setFerr("Email link sign-in is not enabled. Please enable it in Firebase Console.");
+      } else {
+        setFerr("Could not send link. Please try again!");
+      }
     }
     setFload(false);
   }
 
-  function backToEmailStep() {
-    setOtpStep("email"); setOtpCode(""); setFerr(""); setFok("");
+  async function completeMagicLinkLogin(email, href) {
+    setFerr(""); setFload(true);
+    let useEmail = email;
+    try {
+      if (!useEmail) {
+        useEmail = window.prompt("Please enter your email to confirm login:") || "";
+      }
+      if (!useEmail) { setFerr("Email required to complete login."); setFload(false); return; }
+
+      const result = await signInWithEmailLink(auth, useEmail, href);
+      localStorage.removeItem("saraswati_ml_email");
+
+      // Clean URL so the link tokens don't stay in address bar
+      window.history.replaceState({}, document.title, window.location.pathname);
+
+      // New user — create Firestore profile
+      const userRef = doc(db, "users", result.user.uid);
+      const snap = await getDoc(userRef);
+      if (!snap.exists()) {
+        const name = useEmail.split("@")[0];
+        await setDoc(userRef, {
+          name, email: useEmail, premium: false,
+          createdAt: serverTimestamp(), usageCount: 0,
+          theme: "dark", accent: "orange", fontSize: 14,
+          authMethod: "email_link"
+        });
+        await updateProfile(result.user, { displayName: name });
+        setUserData({ name, email: useEmail, premium: false, usageCount: 0 });
+        setPName(name);
+      } else {
+        const data = snap.data(); setUserData(data);
+        if (data.theme) setThemeKey(data.theme);
+        if (data.accent) setAccentKey(data.accent);
+        if (data.fontSize) setFontSize(data.fontSize);
+        if (data.language) setLanguage(data.language);
+        if (data.memoryEnabled === false) setMemoryEnabled(false);
+      }
+      setMlStep("email"); setMlEmail("");
+    } catch (e) {
+      setFerr("Link verification failed. Please request a new link.");
+      setMlStep("email");
+    }
+    setFload(false);
+  }
+
+  function resetMagicLink() {
+    setMlStep("email"); setMlEmail(""); setFerr(""); setFok("");
+    localStorage.removeItem("saraswati_ml_email");
   }
 
   async function savePref(key, val) {
@@ -3635,7 +3584,7 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
     } catch { return null; }
   }
 
-  // ── Save New Agent ────────────────────────────────────────────
+  // ── Save New Agent (always saves as Draft first) ─────────────────
   async function saveNewAgent(name, category, genData) {
     if (!name.trim() || !category.trim()) return;
     setAgentSaving(true);
@@ -3644,7 +3593,7 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
         name: name.trim(), category: category.trim(),
         emoji: agentAvatarFile ? "" : (genData?.suggestedAvatar||"🤖"),
         avatarImg: agentAvatarFile || null,
-        pdfKnowledge: agentPdfText || null,   // optional — never required
+        pdfKnowledge: agentPdfText || null,
         pdfName: agentPdfName || null,
         description: genData?.description||"",
         instructions: genData?.instructions||"",
@@ -3655,7 +3604,9 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
         expertise: genData?.expertise||"",
         conversationStyle: genData?.conversationStyle||"",
         skills: genData?.skills||[],
-        status:"active", published:false,
+        status:"draft",       // ← always draft on create
+        published:false,      // ← never auto-publish
+        publishingFeePaid: false,
         userId: user.uid,
         creatorName: userData?.name||user?.displayName||"Creator",
         createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
@@ -3663,7 +3614,9 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
         totalChats:0, totalUsers:0, avgRating:0, reviewCount:0,
       };
       if (agentEditId) {
-        await updateDoc(doc(db,"agents",agentEditId), {...agentData, updatedAt:serverTimestamp()});
+        // On edit: don't reset publishingFeePaid or published status
+        const { status, published, publishingFeePaid, createdAt, ...editData } = agentData;
+        await updateDoc(doc(db,"agents",agentEditId), {...editData, updatedAt:serverTimestamp()});
         setAgentEditId(null);
       } else {
         await addDoc(collection(db,"agents"), agentData);
@@ -3679,10 +3632,51 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
     setAgentSaving(false);
   }
 
-  // ── Publish Fee Flow ──────────────────────────────────────────
+  // ── Publish Fee Flow (Razorpay ₹9) ───────────────────────────────
   function initiatePublishFee(agent, customPrice) {
     setPublishFeeAgent({...agent, customPrice: parseFloat(customPrice)||0});
     setPublishFeeDone(false); setPublishPayStatus(null); setPublishedSuccess(false); setShowPublishFee(true);
+  }
+
+  // Open Razorpay checkout for ₹9 publishing fee
+  async function openRazorpayPublish() {
+    if (!publishFeeAgent) return;
+    // Load Razorpay script dynamically if not already loaded
+    if (!window.Razorpay) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "https://checkout.razorpay.com/v1/checkout.js";
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    const options = {
+      key: import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_yourkeyhere",
+      amount: PUBLISH_FEE * 100, // paise
+      currency: "INR",
+      name: "Saraswati AI",
+      description: `Publish Fee — ${publishFeeAgent.name}`,
+      image: "/icon.png",
+      prefill: {
+        email: user?.email || "",
+        name: userData?.name || "",
+      },
+      theme: { color: "#f97316" },
+      handler: async function(response) {
+        // Payment successful — Razorpay calls this with payment_id
+        setPublishPayStatus("success");
+        setPublishFeeDone(true);
+      },
+      modal: {
+        ondismiss: function() {
+          // User closed without paying — show fail state
+          setPublishPayStatus("fail");
+        }
+      }
+    };
+    const rzp = new window.Razorpay(options);
+    rzp.on("payment.failed", () => setPublishPayStatus("fail"));
+    rzp.open();
   }
 
   async function confirmPublish() {
@@ -3690,27 +3684,65 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
     setPublishFeeLoading(true);
     try {
       await updateDoc(doc(db,"agents",publishFeeAgent.id), {
-        published:true, price: parseFloat(publishFeeAgent.customPrice)||0,
+        published:true,
+        status:"published",
+        price: parseFloat(publishFeeAgent.customPrice)||0,
         publishedAt:serverTimestamp(),
         creatorName: userData?.name||user?.displayName||"Creator",
         creatorId: user.uid, featured:false,
-        publishFeePaid:true,
+        publishingFeePaid:true,
       });
       await addDoc(collection(db,"platformEarnings"), {
         type:"publish_fee", amount:PUBLISH_FEE,
         userId:user.uid, agentId:publishFeeAgent.id,
         agentName:publishFeeAgent.name, createdAt:serverTimestamp()
       });
+      // Notify creator
+      await addDoc(collection(db,"notifications"),{
+        userId:user.uid,title:"🚀 Agent Published!",
+        body:`"${publishFeeAgent.name}" is now live on the Marketplace.`,
+        read:false,createdAt:serverTimestamp(),type:"admin"
+      });
       await loadAgents(user.uid);
       setPublishFeeDone(false);
-      setPublishedSuccess(true); // show final "Agent Published" screen
+      setPublishedSuccess(true);
     } catch(e){ alert("Publish failed: "+e.message); }
     setPublishFeeLoading(false);
   }
 
   async function toggleAgentPublish(id, cur) {
-    if (!cur) { const ag = agents.find(a=>a.id===id); if(ag) initiatePublishFee(ag, ag.price||0); return; }
-    try { await updateDoc(doc(db,"agents",id),{published:false,updatedAt:serverTimestamp()}); await loadAgents(user.uid); } catch {}
+    if (cur) {
+      // Unpublish
+      try {
+        await updateDoc(doc(db,"agents",id),{published:false,status:"draft",updatedAt:serverTimestamp()});
+        await loadAgents(user.uid);
+      } catch {}
+      return;
+    }
+    // Publish — check if fee already paid to prevent duplicate charges
+    const ag = agents.find(a=>a.id===id);
+    if (!ag) return;
+    if (ag.publishingFeePaid) {
+      // Fee already paid — publish directly, no payment needed
+      setPublishFeeLoading(true);
+      try {
+        await updateDoc(doc(db,"agents",id),{
+          published:true, status:"published",
+          publishedAt:serverTimestamp(), updatedAt:serverTimestamp()
+        });
+        await loadAgents(user.uid);
+        // Show brief success notification
+        await addDoc(collection(db,"notifications"),{
+          userId:user.uid,title:"🚀 Agent Re-published!",
+          body:`"${ag.name}" is live on the Marketplace again.`,
+          read:false,createdAt:serverTimestamp(),type:"admin"
+        });
+      } catch {}
+      setPublishFeeLoading(false);
+      return;
+    }
+    // Fee not paid — open publish fee modal with Razorpay
+    initiatePublishFee(ag, ag.price||0);
   }
 
   // ── Marketplace Functions ─────────────────────────────────────
@@ -3787,7 +3819,13 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
         const cd=await getDoc(doc(db,"creators",agent.userId));
         const cur=cd.exists()?(cd.data().walletBalance||0):0;
         await setDoc(doc(db,"creators",agent.userId),{walletBalance:cur+creator,updatedAt:serverTimestamp()},{merge:true});
+        // Notify creator: wallet credited
+        await addDoc(collection(db,"notifications"),{userId:agent.userId,title:"💰 Wallet Credited",body:`₹${creator} credited for sale of "${agent.name}"`,read:false,createdAt:serverTimestamp(),type:"wallet"});
+        // Notify creator: agent purchased
+        await addDoc(collection(db,"notifications"),{userId:agent.userId,title:"🛒 Agent Purchased",body:`Someone bought "${agent.name}" for ₹${total}`,read:false,createdAt:serverTimestamp(),type:"sale"});
       }
+      // Notify buyer: payment success
+      await addDoc(collection(db,"notifications"),{userId:user.uid,title:"✅ Payment Successful",body:`You now have access to "${agent.name}"`,read:false,createdAt:serverTimestamp(),type:"payment"});
       await updateDoc(doc(db,"agents",agent.id),{totalUsers:(agent.totalUsers||0)+1});
     } catch(e){console.error(e);}
   }
@@ -3943,6 +3981,8 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
   async function adminRejectAgent(id){
     await updateDoc(doc(db,"agents",id),{status:"rejected",published:false});
     setAdminAllAgents(p=>p.map(a=>a.id===id?{...a,status:"rejected",published:false}:a));
+    const ag=adminAllAgents.find(a=>a.id===id);
+    if(ag?.userId) await addDoc(collection(db,"notifications"),{userId:ag.userId,title:"❌ Agent Rejected",body:`"${ag.name}" was not approved. Please review and resubmit.`,read:false,createdAt:serverTimestamp(),type:"admin"});
   }
   async function adminSuspendAgent(id){
     await updateDoc(doc(db,"agents",id),{status:"suspended",published:false});
@@ -4367,6 +4407,41 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
 
   function newChat() { setSid(Date.now().toString()); setMsgs([]); setPage("chat"); setShowSb(false); setImgB64(null); setImgPrev(null); endVoice(); setReactions({}); setSessionTone(null); }
 
+  // ── Notifications ────────────────────────────────────────────────
+  async function loadNotifications() {
+    if (!user) return;
+    try {
+      const q = query(
+        collection(db, "notifications"),
+        where("userId", "==", user.uid)
+      );
+      const snap = await getDocs(q);
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => {
+          const ta = a.createdAt?.seconds || 0;
+          const tb = b.createdAt?.seconds || 0;
+          return tb - ta; // latest first
+        });
+      setNotifications(list);
+      setNotifsLoaded(true);
+    } catch {}
+  }
+
+  async function markAllRead() {
+    if (!user) return;
+    const unread = notifications.filter(n => !n.read);
+    setNotifications(p => p.map(n => ({ ...n, read: true })));
+    for (const n of unread) {
+      try { await updateDoc(doc(db, "notifications", n.id), { read: true }); } catch {}
+    }
+  }
+
+  async function markOneRead(id) {
+    setNotifications(p => p.map(n => n.id === id ? { ...n, read: true } : n));
+    try { await updateDoc(doc(db, "notifications", id), { read: true }); } catch {}
+  }
+
   // ── Search User by Email ─────────────────────────────────────────
   async function searchUserByEmail(email) {
     if (!email.trim()) return null;
@@ -4460,7 +4535,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             </>
           ) : (
             <>
-              <div className="card-head">{otpStep === "otp" ? (otpIsNewUser ? "Create Account ✨" : "Welcome Back 👋") : "Welcome 👋"}</div>
+              <div className="card-head">{mlStep === "sent" ? "Check Your Email 📧" : mlStep === "verifying" ? "Verifying..." : "Welcome 👋"}</div>
               {/* Google Sign-In Button */}
               <button
                 onClick={handleGoogleAuth}
@@ -4490,69 +4565,62 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 <div style={{ flex: 1, height: 1, background: "var(--bd)" }} />
               </div>
 
-              {/* ── EMAIL OTP LOGIN ── */}
-              {otpStep === "email" ? (
+              {/* ── EMAIL MAGIC LINK LOGIN ── */}
+              {mlStep === "verifying" ? (
+                <div style={{ textAlign: "center", padding: "20px 0" }}>
+                  <SaraswatiLogo size={32} animate={true} state="thinking" />
+                  <div style={{ fontSize: 14, color: "var(--tx)", marginTop: 12, fontWeight: 600 }}>Verifying your link...</div>
+                  <div style={{ fontSize: 12, color: "var(--mt)", marginTop: 4 }}>Please wait</div>
+                  {ferr && <div className="err" style={{ marginTop: 12 }}>{ferr}</div>}
+                </div>
+              ) : mlStep === "sent" ? (
                 <>
-                  <div className="iw">
-                    <div className="ilbl">Email</div>
-                    <input className="inp" type="email" placeholder="your@email.com" value={otpEmail}
-                      onChange={e => setOtpEmail(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && sendOtp(otpEmail)} />
+                  <div style={{ textAlign: "center", padding: "8px 0" }}>
+                    <div style={{ fontSize: 40, marginBottom: 8 }}>📧</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx)", marginBottom: 6 }}>Verification link sent!</div>
+                    <div style={{ fontSize: 12, color: "var(--mt)", lineHeight: 1.8 }}>
+                      We sent a login link to<br/>
+                      <strong style={{ color: "var(--tx)" }}>{mlEmail}</strong>
+                    </div>
+                  </div>
+                  <div style={{ background: "var(--sf2)", border: "1px solid var(--bd)", borderRadius: 14, padding: "12px 14px", margin: "4px 0" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--tx)", marginBottom: 6 }}>📋 Steps:</div>
+                    <div style={{ fontSize: 12, color: "var(--mt)", lineHeight: 2 }}>
+                      1. Open your Gmail app<br/>
+                      2. Find email from Saraswati AI<br/>
+                      3. Click <strong style={{ color: "var(--accent)" }}>"Sign in to Saraswati AI"</strong><br/>
+                      4. You'll be logged in automatically ✅
+                    </div>
                   </div>
                   {ferr && <div className="err">{ferr}</div>}
                   {fok && <div className="ok">{fok}</div>}
-                  <button className="btn btn-p" onClick={() => sendOtp(otpEmail)} disabled={fload}>
-                    {fload ? "Sending OTP..." : "Send OTP →"}
+                  <button className="btn btn-s" onClick={() => sendMagicLink(mlEmail)} disabled={fload} style={{ width: "100%" }}>
+                    {fload ? "Sending..." : "🔄 Resend Link"}
                   </button>
-                  <div style={{ textAlign: "center", fontSize: 11, color: "var(--mt)", marginTop: 6 }}>
-                    🔒 No password needed — secure login via email OTP
-                  </div>
+                  <button className="btn btn-s" onClick={resetMagicLink} style={{ width: "100%", marginTop: 4 }}>← Change Email</button>
                 </>
               ) : (
                 <>
-                  <div style={{ textAlign: "center", marginBottom: 10 }}>
-                    <div style={{ fontSize: 13, color: "var(--tx)", fontWeight: 600 }}>
-                      {otpIsNewUser ? "✨ Create your account" : "👋 Welcome back!"}
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--mt)", marginTop: 2 }}>
-                      OTP sent to <strong>{otpEmail}</strong>
-                    </div>
-                  </div>
-                  {otpIsNewUser && (
-                    <div className="iw">
-                      <div className="ilbl">Your Name</div>
-                      <input className="inp" placeholder="Enter your name" value={otpName}
-                        onChange={e => setOtpName(e.target.value)} />
-                    </div>
-                  )}
                   <div className="iw">
-                    <div className="ilbl">Enter 6-Digit OTP</div>
-                    <input className="inp" type="text" inputMode="numeric" maxLength={6}
-                      placeholder="• • • • • •" value={otpCode}
-                      style={{ letterSpacing: 6, fontSize: 20, fontWeight: 700, textAlign: "center" }}
-                      onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      onKeyDown={e => e.key === "Enter" && verifyOtpAndLogin()} />
+                    <div className="ilbl">Email</div>
+                    <input className="inp" type="email" placeholder="your@email.com" value={mlEmail}
+                      onChange={e => setMlEmail(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && sendMagicLink(mlEmail)} />
                   </div>
                   {ferr && <div className="err">{ferr}</div>}
                   {fok && <div className="ok">{fok}</div>}
-                  <button className="btn btn-p" onClick={verifyOtpAndLogin} disabled={fload}>
-                    {fload ? "Verifying..." : (otpIsNewUser ? "Verify & Create Account →" : "Verify & Login →")}
+                  <button className="btn btn-p" onClick={() => sendMagicLink(mlEmail)} disabled={fload}>
+                    {fload ? "Sending link..." : "Send Verification Link →"}
                   </button>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
-                    <span className="lnk" style={{ margin: 0 }} onClick={backToEmailStep}>← Change email</span>
-                    <span
-                      className="lnk"
-                      style={{ margin: 0, color: otpResendCooldown > 0 ? "var(--mt)" : "var(--accent)", cursor: otpResendCooldown > 0 ? "default" : "pointer", fontWeight: 600 }}
-                      onClick={resendOtp}>
-                      {otpResendCooldown > 0 ? `Resend OTP (${otpResendCooldown}s)` : "Resend OTP"}
-                    </span>
+                  <div style={{ textAlign: "center", fontSize: 11, color: "var(--mt)", marginTop: 6 }}>
+                    🔒 No password needed — secure login via email link
                   </div>
                 </>
               )}
             </>
           )}
         </div>
-        {!forgot && otpStep === "email" && <div className="lnk" style={{ color: "var(--mt)", fontSize: 12 }}>New email = account created automatically · Existing email = instant login</div>}
+        {!forgot && mlStep === "email" && <div className="lnk" style={{ color: "var(--mt)", fontSize: 12 }}>New email = account created automatically · Existing email = instant login</div>}
         {/* Terms / Privacy / Usage Policy */}
         <div style={{ textAlign: "center", fontSize: 11, color: "var(--mt)", marginTop: 16, lineHeight: 1.8, padding: "0 8px" }}>
           By continuing, you agree to Saraswati AI{"'"}s{" "}
@@ -4919,7 +4987,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             </div>
 
             <button className="btn btn-p" onClick={saveAgent} style={{ width: "100%", marginBottom: 8 }}>
-              {editingAgent ? "✅ Update Agent" : "🚀 Agent Banao"}
+              {editingAgent ? "✅ Update Agent" : "💾 Save as Draft"}
             </button>
             <button className="btn" onClick={() => setShowAgentBuilder(false)} style={{ width: "100%" }}>Cancel</button>
           </div>
@@ -5193,6 +5261,18 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             <button className="nbtn" onClick={newChat}>+ New</button>
           </>
         )}
+        {/* ── Notification Bell ── */}
+        <button className="dots" onClick={() => { setShowNotifCenter(true); loadNotifications(); }} style={{ position: "relative" }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+          {notifications.filter(n => !n.read).length > 0 && (
+            <div style={{ position:"absolute", top:-3, right:-3, background:"#ef4444", color:"#fff", fontSize:9, fontWeight:800, borderRadius:"50%", minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px", border:"2px solid var(--bg)", lineHeight:1 }}>
+              {notifications.filter(n => !n.read).length > 99 ? "99+" : notifications.filter(n => !n.read).length}
+            </div>
+          )}
+        </button>
         <button className="dots" onClick={() => setShowProfile(true)}>
           {pPhotoUrl
             ? <img src={pPhotoUrl} alt="" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", border: `2px solid ${accentColor}` }} />
@@ -5201,8 +5281,89 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
         </button>
       </div>
 
-      {/* ── VOICE PAGE ── */}
-      {/* ── VOICE CALL FULLSCREEN OVERLAY ── */}
+      {/* ── NOTIFICATION CENTER ── */}
+      {showNotifCenter && (
+        <div className="mbg" onClick={() => setShowNotifCenter(false)} style={{ zIndex: 200 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight:"85vh", padding:0, borderRadius:24, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+            {/* Header */}
+            <div style={{ background:"var(--grad)", padding:"16px 18px 12px", flexShrink:0 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <div style={{ fontSize:15, fontWeight:800, color:"#fff" }}>🔔 Notifications</div>
+                  <div style={{ fontSize:11, color:"#ffffff80", marginTop:1 }}>
+                    {notifications.filter(n=>!n.read).length > 0
+                      ? `${notifications.filter(n=>!n.read).length} unread`
+                      : "All caught up!"}
+                  </div>
+                </div>
+                <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                  {notifications.filter(n=>!n.read).length > 0 && (
+                    <button onClick={markAllRead}
+                      style={{ padding:"6px 12px", borderRadius:20, border:"1px solid #ffffff50", background:"#ffffff20", color:"#fff", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"Inter,sans-serif" }}>
+                      Mark all read
+                    </button>
+                  )}
+                  <button onClick={() => setShowNotifCenter(false)}
+                    style={{ width:28, height:28, borderRadius:"50%", background:"#ffffff20", border:"none", color:"#fff", cursor:"pointer", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* List */}
+            <div style={{ flex:1, overflowY:"auto", padding:"8px 0" }}>
+              {!notifsLoaded ? (
+                <div style={{ textAlign:"center", padding:"30px", color:"var(--mt)" }}>
+                  <SaraswatiLogo size={24} animate={true} state="thinking" />
+                  <div style={{ fontSize:13, marginTop:10 }}>Loading...</div>
+                </div>
+              ) : notifications.length === 0 ? (
+                <div style={{ textAlign:"center", padding:"40px 20px" }}>
+                  <div style={{ fontSize:40, marginBottom:10 }}>🔕</div>
+                  <div style={{ fontSize:14, fontWeight:600, color:"var(--tx)" }}>No notifications yet</div>
+                  <div style={{ fontSize:12, color:"var(--mt)", marginTop:4 }}>We'll notify you of important updates</div>
+                </div>
+              ) : notifications.map(n => {
+                const ICONS = {
+                  admin:"⚙️", wallet:"💰", sale:"🛒", payment:"✅",
+                  premium:"⭐", broadcast:"📢", review:"⭐", default:"🔔"
+                };
+                const icon = ICONS[n.type] || ICONS.default;
+                const ts = n.createdAt?.seconds
+                  ? (() => {
+                      const d = new Date(n.createdAt.seconds * 1000);
+                      const diff = Date.now() - d.getTime();
+                      if (diff < 60000) return "Just now";
+                      if (diff < 3600000) return Math.floor(diff/60000) + "m ago";
+                      if (diff < 86400000) return Math.floor(diff/3600000) + "h ago";
+                      return d.toLocaleDateString("en-IN", { day:"numeric", month:"short" });
+                    })()
+                  : "";
+                return (
+                  <div key={n.id} onClick={() => markOneRead(n.id)}
+                    style={{ display:"flex", gap:12, padding:"12px 16px", cursor:"pointer", borderBottom:"1px solid var(--bd)", background: n.read ? "transparent" : "var(--glow)", transition:"background .15s", position:"relative" }}>
+                    {/* Unread dot */}
+                    {!n.read && (
+                      <div style={{ position:"absolute", left:6, top:"50%", transform:"translateY(-50%)", width:6, height:6, borderRadius:"50%", background:"var(--accent)" }} />
+                    )}
+                    <div style={{ width:38, height:38, borderRadius:12, background:"var(--sf2)", border:"1px solid var(--bd)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
+                      {icon}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                        <div style={{ fontSize:13, fontWeight: n.read ? 500 : 700, color:"var(--tx)", lineHeight:1.3 }}>{n.title}</div>
+                        <div style={{ fontSize:10, color:"var(--mt)", flexShrink:0, marginTop:1 }}>{ts}</div>
+                      </div>
+                      <div style={{ fontSize:12, color:"var(--mt)", marginTop:3, lineHeight:1.5 }}>{n.body}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       {showVoiceCall && (
         <div className="vpage">
           {/* Top: live transcript area */}
@@ -5752,10 +5913,10 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                         </div>
                         {/* Status badge */}
                         <div style={{padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700,
-                          background:agent.published?"#22c55e20":"var(--sf2)",
-                          color:agent.published?"#22c55e":"var(--mt)",
-                          border:"1px solid "+(agent.published?"#22c55e50":"var(--bd)"),whiteSpace:"nowrap"}}>
-                          {agent.published?"🌐 Live":"⚪ Draft"}
+                          background:agent.published?"#22c55e20":agent.status==="draft"?"#f59e0b15":"var(--sf2)",
+                          color:agent.published?"#22c55e":agent.status==="draft"?"#f59e0b":"var(--mt)",
+                          border:"1px solid "+(agent.published?"#22c55e50":agent.status==="draft"?"#f59e0b40":"var(--bd)"),whiteSpace:"nowrap"}}>
+                          {agent.published ? "🌐 Live" : "📝 Draft"}
                         </div>
                       </div>
 
@@ -5803,8 +5964,8 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                           ✏️ Edit
                         </button>
                         <button onClick={()=>toggleAgentPublish(agent.id,agent.published)}
-                          style={{padding:"8px 12px",borderRadius:10,border:"1px solid "+(agent.published?"#22c55e50":"var(--bd)"),background:agent.published?"#22c55e15":"var(--sf2)",color:agent.published?"#22c55e":"var(--mt)",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
-                          {agent.published?"📤 Unpublish":"🌐 Publish"}
+                          style={{padding:"8px 12px",borderRadius:10,border:"1px solid "+(agent.published?"#22c55e50":"var(--accent)"),background:agent.published?"#22c55e15":"var(--glow)",color:agent.published?"#22c55e":"var(--accent)",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif",fontWeight:600}}>
+                          {agent.published ? "📤 Unpublish" : agent.publishingFeePaid ? "🚀 Re-publish" : "🌐 Publish ₹9"}
                         </button>
                         <button onClick={()=>askConfirm({title:"Delete Agent?",message:`"${agent.name}" will be permanently deleted.`,onConfirm:()=>deleteAgent(agent.id)})}
                           style={{padding:"8px 10px",borderRadius:10,border:"1px solid #ef444430",background:"none",color:"#ef4444",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
@@ -5970,8 +6131,13 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   <>
                     <button onClick={()=>saveNewAgent(agentCreateForm.name,agentCreateForm.category,agentGenData)} disabled={agentSaving}
                       style={{width:"100%",padding:"14px",borderRadius:14,border:"none",background:"var(--grad)",color:"#fff",fontSize:15,fontWeight:700,cursor:agentSaving?"not-allowed":"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 4px 20px var(--glow)",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                      {agentSaving?(<><SaraswatiLogo size={18} animate={true} state="thinking" /> Saving...</>):(agentEditId?"✅ Update Agent":"✅ Create Agent")}
+                      {agentSaving?(<><SaraswatiLogo size={18} animate={true} state="thinking" /> Saving...</>):(agentEditId?"✅ Update Agent":"💾 Save as Draft")}
                     </button>
+                    {!agentEditId && (
+                      <div style={{textAlign:"center",fontSize:11,color:"var(--mt)",marginBottom:8,lineHeight:1.6}}>
+                        📝 Agent saves as <strong>Draft</strong> — go to My Agents → tap <strong>Publish ₹9</strong> to go live on Marketplace
+                      </div>
+                    )}
                     <button onClick={()=>{setAgentGenData(null);setAgentCreateForm({name:"",category:""});setAgentEditId(null);setAgentCatSearch("");setAgentAvatarFile(null);setAgentAvatarPreview(null);setAgentPdfFile(null);setAgentPdfName("");setAgentPdfText("");}}
                       style={{width:"100%",padding:"11px",borderRadius:14,border:"1px solid var(--bd)",background:"none",color:"var(--mt)",fontSize:14,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
                       Cancel
@@ -6331,8 +6497,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 </div>
                 <button className="btn btn-p" onClick={()=>{
                   setPublishPayStatus(null);
-                  window.open("upi://pay?pa="+PLATFORM_UPI+"@upi&pn=SaraswatiAI&am="+PUBLISH_FEE+"&cu=INR&tn=AgentPublishFee","_blank");
-                  setTimeout(()=>setPublishPayStatus("success"),3000);
+                  openRazorpayPublish();
                 }} style={{width:"100%",marginBottom:8}}>🔄 Try Again</button>
                 <button className="btn btn-s" onClick={()=>setPublishPayStatus(null)} style={{width:"100%"}}>Back</button>
               </>
@@ -6403,13 +6568,13 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                     <div style={{fontSize:11,color:"var(--mt)",marginTop:2}}>Amount: ₹{PUBLISH_FEE} · Note: Agent Publish Fee</div>
                   </div>
                 </div>
-                <button className="btn btn-p" onClick={()=>{
-                  setPublishFeeAgent(p=>({...p, customPrice: parseFloat(agentPrice)||0}));
-                  window.open("upi://pay?pa="+PLATFORM_UPI+"@upi&pn=SaraswatiAI&am="+PUBLISH_FEE+"&cu=INR&tn=AgentPublishFee","_blank");
-                  setTimeout(()=>setPublishPayStatus("success"),4000);
-                }} style={{width:"100%",marginBottom:8}}>
-                  Pay ₹{PUBLISH_FEE} & Publish →
+                <button className="btn btn-p" onClick={openRazorpayPublish}
+                  style={{width:"100%",marginBottom:8}}>
+                  💳 Pay ₹{PUBLISH_FEE} via Razorpay →
                 </button>
+                <div style={{fontSize:11,color:"var(--mt)",textAlign:"center",marginBottom:4}}>
+                  Secured by Razorpay · UPI / Card / Net Banking
+                </div>
                 <button className="btn btn-s" onClick={()=>setShowPublishFee(false)} style={{width:"100%"}}>Cancel</button>
               </>
             )}
