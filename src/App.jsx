@@ -4050,10 +4050,29 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
     setNotifLoading(true);
     try {
       const us=await getDocs(collection(db,"users"));
-      for(const ud of us.docs.slice(0,200))
-        await addDoc(collection(db,"notifications"),{userId:ud.id,title:notifTitle.trim(),body:notifBody.trim(),read:false,createdAt:serverTimestamp(),type:"broadcast"});
+      const batch = us.docs.slice(0,200);
+      for(const ud of batch)
+        await addDoc(collection(db,"notifications"),{
+          userId:  ud.id,
+          title:   notifTitle.trim(),   // required
+          body:    notifBody.trim(),    // required
+          users:   "all",
+          type:    "broadcast",
+          read:    false,
+          sentBy:  user?.uid||"admin",
+          createdAt: serverTimestamp()
+        });
+      // Log broadcast in notifications collection (admin record)
+      await addDoc(collection(db,"notificationLogs"),{
+        title:      notifTitle.trim(),
+        body:       notifBody.trim(),
+        users:      "all",
+        sentCount:  batch.length,
+        sentBy:     user?.uid||"admin",
+        createdAt:  serverTimestamp()
+      });
       setNotifTitle("");setNotifBody("");
-      alert("✅ Notification sent to "+Math.min(us.size,200)+" users!");
+      alert("✅ Notification sent to "+batch.length+" users!");
     } catch(e){alert("Failed: "+e.message);}
     setNotifLoading(false);
   }
@@ -4231,12 +4250,44 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
           break;
         }
         case "send_notification": {
-          if (!params.title || !params.body) { resultMsg = "❌ Notification title and body required."; break; }
-          const uSnap2 = await getDocs(collection(db, "users"));
-          for (const ud of uSnap2.docs.slice(0, 100)) {
-            await addDoc(collection(db, "notifications"), { userId: ud.id, title: params.title, body: params.body, read:false, createdAt: serverTimestamp(), type:"broadcast" });
+          // Validate required fields: users, title, body
+          if (!params.title || !params.body) {
+            resultMsg = "❌ Title aur body dono zaroori hain notification ke liye.";
+            break;
           }
-          resultMsg = `✅ Notification sent to ${Math.min(uSnap2.size,100)} users!`;
+          const notifUsers = params.users || "all";
+          const notifType  = params.type  || "announcement";
+
+          const uSnap2 = await getDocs(collection(db, "users"));
+          let targetUsers = uSnap2.docs;
+
+          // Filter by target audience
+          if (notifUsers === "premium") {
+            targetUsers = targetUsers.filter(d => d.data().premium === true);
+          } else if (notifUsers === "creators") {
+            // creators = users who have at least one agent
+            const crSnap = await getDocs(collection(db, "agents"));
+            const creatorIds = new Set(crSnap.docs.map(d => d.data().userId).filter(Boolean));
+            targetUsers = targetUsers.filter(d => creatorIds.has(d.id));
+          }
+          // else "all" = send to everyone (max 200)
+
+          const batch = targetUsers.slice(0, 200);
+          for (const ud of batch) {
+            await addDoc(collection(db, "notifications"), {
+              userId:    ud.id,
+              title:     params.title,           // required
+              body:      params.body,            // required
+              users:     notifUsers,             // "all" | "premium" | "creators"
+              type:      notifType,              // "announcement" | "update" | "alert" etc.
+              read:      false,
+              sentBy:    user?.uid || "admin",
+              createdAt: serverTimestamp(),
+            });
+          }
+          resultMsg = `✅ Notification sent!
+📢 Title: ${params.title}
+👥 Sent to: ${batch.length} ${notifUsers} users`;
           break;
         }
         case "suspend_agent": {
@@ -4317,6 +4368,17 @@ PARAMS: <json params>
 CONFIRM: <user-friendly confirmation message>
 
 Action types: approve_withdraw, reject_withdraw, send_email, send_notification, suspend_agent, approve_agent
+
+NOTIFICATION FORMAT (critical — always use this exact structure for send_notification):
+ACTION: send_notification
+PARAMS: {"users":"all","title":"emoji + short title here","body":"detailed message body here","type":"announcement"}
+
+Example — if user says "notify users about marketplace":
+ACTION: send_notification
+PARAMS: {"users":"all","title":"🛍 Marketplace is Live!","body":"Browse, buy and use AI Agents on Saraswati AI Marketplace. Check it out now!","type":"announcement"}
+
+Always auto-generate a relevant title AND body based on the notification topic.
+Never send just a "message" field — always use "title" + "body" separately.
 
 For INFO queries, just answer clearly with the data.
 Keep responses concise, professional, and in English.`;
