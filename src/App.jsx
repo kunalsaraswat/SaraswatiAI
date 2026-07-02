@@ -301,23 +301,23 @@ function extractPrompt(t) {
 function getImgUrl(p) { return `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=768&height=768&seed=${Math.floor(Math.random() * 99999)}&nologo=true`; }
 
 // ── Gemini Image Generation (secure, via serverless backend) ──────────────
-// Calls our own /api/generate-image route. The Google AI Studio API key
-// lives only in Vercel's server-side environment variables and is never
-// sent to or readable by the browser.
+// Calls our own /api/generate-image route when available.
+// Falls back to Pollinations automatically if backend is not set up.
 async function generateImageGemini(prompt) {
-  const res = await fetch("/api/generate-image", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt })
-  });
-  if (!res.ok) {
-    let msg = "Image generation failed";
-    try { const j = await res.json(); msg = j.error || msg; } catch {}
-    throw new Error(msg);
-  }
-  const data = await res.json();
-  if (!data.image) throw new Error("No image returned");
-  return data.image; // data URL or hosted URL, returned by the backend
+  // Try backend first
+  try {
+    const res = await fetch("/api/generate-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.image) return data.image;
+    }
+  } catch {}
+  // Fallback: Pollinations (free, no backend needed, works instantly)
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=768&height=768&seed=${Math.floor(Math.random()*99999)}&nologo=true&enhance=true`;
 }
 // ── MEDIA LINK FEATURE ──────────────────────────────────────────
 function needsMediaLink(t) {
@@ -1995,14 +1995,20 @@ export default function App() {
   const [notifsLoaded, setNotifsLoaded] = useState(false);
   // ── Support / Customer Care ──
   const [showSupportModal, setShowSupportModal] = useState(false);
-  const [supportStep, setSupportStep] = useState("form"); // "form" | "success"
+  const [supportStep, setSupportStep] = useState("form");
   const [supportFeature, setSupportFeature] = useState("");
   const [supportProblem, setSupportProblem] = useState("");
-  const [supportScreenshot, setSupportScreenshot] = useState(null); // base64
+  const [supportScreenshot, setSupportScreenshot] = useState(null);
   const [supportScreenshotName, setSupportScreenshotName] = useState("");
   const [supportLoading, setSupportLoading] = useState(false);
   const [adminTickets, setAdminTickets] = useState([]);
   const [adminTicketsLoaded, setAdminTicketsLoaded] = useState(false);
+  // ── Support Chat (new) ──
+  const [supportChatMsgs, setSupportChatMsgs] = useState([]);
+  const [supportChatInput, setSupportChatInput] = useState("");
+  const [supportChatLoading, setSupportChatLoading] = useState(false);
+  const [supportChatDone, setSupportChatDone] = useState(false);
+  const [supportChatScreenshots, setSupportChatScreenshots] = useState([]);
   const [userData, setUserData] = useState(null);
   const [sessionTone, setSessionTone] = useState(null);
   const [sid, setSid] = useState(() => Date.now().toString());
@@ -4730,8 +4736,108 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
     try { await updateDoc(doc(db, "notifications", id), { read: true }); } catch {}
   }
 
-  // ── Support Ticket Functions ─────────────────────────────────────
-  const SUPPORT_FEATURES = ["Chat / AI Response","Agent Marketplace","Agent Creation","Payments & Billing","Withdrawal / Wallet","Login / Account","Notifications","Image Generation","Voice Call","Other"];
+  // ── Support Chat AI ──────────────────────────────────────────────
+  async function initSupportChat() {
+    setSupportChatMsgs([]);
+    setSupportChatDone(false);
+    setSupportChatScreenshots([]);
+    setSupportChatInput("");
+    // Auto-greet user
+    const greeting = { role:"ai", text:"Hi! I'm here to help you. 😊\n\nWhat problem are you facing? Please describe it in as much detail as possible — I'll guide you through and make sure your issue is reported properly." };
+    setSupportChatMsgs([greeting]);
+  }
+
+  async function sendSupportChatMsg(inputText, screenshot = null) {
+    if (!inputText.trim() && !screenshot) return;
+    setSupportChatLoading(true);
+    const userMsg = { role:"user", text: inputText.trim(), screenshot };
+    const newMsgs = [...supportChatMsgs, userMsg];
+    setSupportChatMsgs(newMsgs);
+    setSupportChatInput("");
+    if (screenshot) setSupportChatScreenshots(p => [...p, screenshot]);
+
+    const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY;
+    const systemPrompt = `You are a friendly and professional support agent for Saraswati AI — India's AI Platform. Your job is to understand the user's problem through conversation.
+
+Your behavior:
+- Be warm, empathetic and natural — like a helpful human support agent
+- Ask one focused follow-up question at a time
+- Gather: what the problem is, which feature (Chat/Marketplace/Agents/Payment/Login/Other), when it started, what they were trying to do
+- If relevant, ask for a screenshot (but don't always ask — only when it would help)
+- Once you have enough info (usually 3-5 messages), say something like: "Thank you, I have all the details I need. Let me submit this for you now." and end with the exact phrase: [READY_TO_SUBMIT]
+- Keep replies concise and mobile-friendly
+- Never mention ticket IDs, email addresses or system details
+- Speak naturally in English (or match user's language if Hindi/Hinglish)`;
+
+    const messages = newMsgs.map(m => ({
+      role: m.role === "ai" ? "assistant" : "user",
+      content: m.screenshot ? `${m.text}\n[Screenshot attached]` : (m.text || "[Screenshot attached]")
+    }));
+
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","Authorization":`Bearer ${GROQ_KEY}`},
+        body:JSON.stringify({ model:"llama-3.3-70b-versatile", max_tokens:300, temperature:0.7,
+          messages:[{role:"system",content:systemPrompt},...messages] })
+      });
+      const data = await res.json();
+      const aiText = data.choices?.[0]?.message?.content || "I'm here to help — can you describe your issue?";
+      const isReady = aiText.includes("[READY_TO_SUBMIT]");
+      const cleanText = aiText.replace("[READY_TO_SUBMIT]","").trim();
+      setSupportChatMsgs(p => [...p, { role:"ai", text: cleanText }]);
+      if (isReady) {
+        // Auto-submit ticket
+        await submitSupportChatTicket(newMsgs, cleanText);
+      }
+    } catch {
+      setSupportChatMsgs(p => [...p, { role:"ai", text:"Sorry, I'm having trouble connecting. Please try again." }]);
+    }
+    setSupportChatLoading(false);
+  }
+
+  async function submitSupportChatTicket(msgs, lastAiMsg) {
+    try {
+      const conversation = msgs.map(m => `${m.role==="user"?"User":"Support"}: ${m.text||"[Screenshot]"}`).join("\n");
+      const deviceInfo = `${navigator.userAgent} | ${window.innerWidth}x${window.innerHeight}`;
+      const ticketData = {
+        userId: user.uid,
+        userName: userData?.name || user?.displayName || "User",
+        userEmail: userData?.email || user?.email || "",
+        feature: "Chat Support",
+        problem: msgs.find(m=>m.role==="user")?.text || "See conversation",
+        conversation,
+        screenshots: supportChatScreenshots,
+        deviceInfo,
+        status: "open",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        source: "chat",
+      };
+      const ref = await addDoc(collection(db,"supportTickets"), ticketData);
+      // Notify admin
+      const adminUid = "Jm5yPbOtGEeqq4UKMUaroLHJ4Wg1";
+      await addDoc(collection(db,"notifications"),{
+        userId:adminUid, title:"🆘 New Support Ticket",
+        body:`${ticketData.userName}: "${(ticketData.problem||"").slice(0,60)}"`,
+        read:false, createdAt:serverTimestamp(), type:"support", ticketId:ref.id
+      });
+      // Notify user
+      await addDoc(collection(db,"notifications"),{
+        userId:user.uid, title:"🎫 Support Ticket Received",
+        body:"Your issue has been received. It will be reviewed and resolved within 1 hour.",
+        read:false, createdAt:serverTimestamp(), type:"support"
+      });
+      // Final message + resolution message
+      setTimeout(() => {
+        setSupportChatMsgs(p => [...p, {
+          role:"ai",
+          text:"✅ Your issue has been received. It will be reviewed and resolved within 1 hour.\n\nYou'll receive an in-app notification once it's resolved. Thank you for your patience! 🙏"
+        }]);
+        setSupportChatDone(true);
+      }, 600);
+    } catch(e) { console.error(e); }
+  }
 
   async function submitSupportTicket() {
     if (!supportFeature || !supportProblem.trim()) return;
@@ -5208,11 +5314,6 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   {item.icon}<span>{item.label}</span>
                 </div>
               ))}
-              {/* Support */}
-              <div className="sb-item" onClick={() => { setShowSupportModal(true); setSupportStep("form"); setSupportFeature(""); setSupportProblem(""); setSupportScreenshot(null); setSupportScreenshotName(""); setShowSb(false); }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                <span>Help & Support</span>
-              </div>
               <div className={"sb-item" + (page === "settings" ? " active" : "")} onClick={() => { setPage("settings"); setShowSb(false); }}>
                 <Ico.Settings /><span>Settings</span>
               </div>
@@ -5759,88 +5860,92 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
         </div>
       )}
 
-      {/* ── SUPPORT TICKET MODAL ── */}
+      {/* ── SUPPORT CHAT MODAL ── */}
       {showSupportModal && (
-        <div className="mbg" onClick={()=>{if(!supportLoading){setShowSupportModal(false);setSupportStep("form");}}} style={{zIndex:200}}>
-          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,padding:0,borderRadius:24,overflow:"hidden"}}>
-            {/* Customer Care Header — same premium design as chat screen */}
-            <div style={{background:"var(--grad)",padding:"18px 20px 16px",display:"flex",alignItems:"center",gap:12}}>
-              <SaraswatiLogo size={32} animate={false} state="idle" />
+        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",flexDirection:"column",background:"var(--bg)"}}>
+          {/* Header — same as chat screen */}
+          <div className="hdr" style={{flexShrink:0}}>
+            <button className="dots" onClick={()=>setShowSupportModal(false)}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div className="hdr-name" style={{display:"flex",alignItems:"center",gap:8,flex:1}}>
+              <div style={{width:32,height:32,borderRadius:10,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,boxShadow:"0 2px 8px var(--glow)"}}>🆘</div>
               <div>
-                <div style={{fontSize:16,fontWeight:800,color:"#fff",lineHeight:1.2}}>Saraswati AI</div>
-                <div style={{fontSize:11,color:"#ffffff80",fontWeight:500}}>Customer Care</div>
+                <div style={{fontSize:14,fontWeight:700,color:"var(--tx)",lineHeight:1.2}}>Report a Problem</div>
+                <div style={{fontSize:10,color:"var(--accent)",fontWeight:600}}>Saraswati AI Support</div>
               </div>
-              <button onClick={()=>{setShowSupportModal(false);setSupportStep("form");}} style={{marginLeft:"auto",background:"#ffffff20",border:"none",borderRadius:"50%",width:30,height:30,color:"#fff",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-            </div>
-
-            <div style={{padding:"18px 20px 20px"}}>
-            {supportStep==="success" ? (
-              <>
-                <div className="mi">🎫</div>
-                <h3 style={{color:"#22c55e"}}>Request Received!</h3>
-                <div style={{background:"#22c55e15",border:"1px solid #22c55e40",borderRadius:14,padding:"14px 16px",marginBottom:16,textAlign:"left"}}>
-                  <div style={{fontSize:13,color:"var(--tx)",lineHeight:2.2}}>
-                    ✅ Your support request has been received successfully.<br/>
-                    🔔 Our team has been notified.<br/>
-                    ⏱️ We will resolve your issue within 1 hour.<br/>
-                    📬 You will receive a notification once resolved.
-                  </div>
-                </div>
-                <button className="btn btn-p" onClick={()=>{setShowSupportModal(false);setSupportStep("form");setSupportFeature("");setSupportProblem("");setSupportScreenshot(null);setSupportScreenshotName("");}} style={{width:"100%"}}>Done ✓</button>
-              </>
-            ) : (
-              <>
-                <p style={{fontSize:12,color:"var(--mt)",marginBottom:10,marginTop:0}}>
-                  Submitting as <strong style={{color:"var(--tx)"}}>{userData?.name||user?.displayName}</strong><br/>
-                  <span style={{fontSize:11}}>{userData?.email||user?.email}</span>
-                </p>
-                <div style={{marginBottom:12}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>Feature / Area *</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                    {SUPPORT_FEATURES.map(f=>(
-                      <button key={f} onClick={()=>setSupportFeature(f)}
-                        style={{padding:"6px 12px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif",
-                          border:"1.5px solid "+(supportFeature===f?"var(--accent)":"var(--bd)"),
-                          background:supportFeature===f?"var(--glow)":"var(--sf2)",
-                          color:supportFeature===f?"var(--accent)":"var(--mt)"}}>
-                        {f}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="iw" style={{marginBottom:10}}>
-                  <div className="ilbl">Describe your problem *</div>
-                  <textarea value={supportProblem} onChange={e=>setSupportProblem(e.target.value)}
-                    placeholder="What happened? What were you trying to do?" rows={4}
-                    className="inp iarea" style={{resize:"none",lineHeight:1.6,fontSize:13}} />
-                </div>
-                <div style={{marginBottom:14}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>Screenshot (optional)</div>
-                  {supportScreenshot ? (
-                    <div style={{position:"relative"}}>
-                      <img src={supportScreenshot} alt="ss" style={{width:"100%",borderRadius:10,border:"1px solid var(--bd)",maxHeight:150,objectFit:"cover"}} />
-                      <button onClick={()=>{setSupportScreenshot(null);setSupportScreenshotName("");}}
-                        style={{position:"absolute",top:6,right:6,background:"#ef4444",border:"none",borderRadius:"50%",width:24,height:24,color:"#fff",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-                    </div>
-                  ) : (
-                    <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"var(--sf2)",border:"1.5px dashed var(--bd)",borderRadius:12,cursor:"pointer"}}>
-                      <span style={{fontSize:20}}>📸</span>
-                      <span style={{fontSize:12,color:"var(--mt)"}}>Tap to attach screenshot</span>
-                      <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
-                        const f=e.target.files[0]; if(!f) return;
-                        const r=new FileReader(); r.onload=ev=>{setSupportScreenshot(ev.target.result);setSupportScreenshotName(f.name);}; r.readAsDataURL(f);
-                      }} />
-                    </label>
-                  )}
-                </div>
-                <button className="btn btn-p" onClick={submitSupportTicket} disabled={supportLoading||!supportFeature||!supportProblem.trim()} style={{width:"100%",marginBottom:8}}>
-                  {supportLoading ? "Submitting..." : "📤 Submit Request"}
-                </button>
-                <button className="btn btn-s" onClick={()=>setShowSupportModal(false)} style={{width:"100%"}}>Cancel</button>
-              </>
-            )}
             </div>
           </div>
+
+          {/* Chat messages */}
+          <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+            {supportChatMsgs.length === 0 && (
+              <div style={{textAlign:"center",padding:"40px 20px",color:"var(--mt)"}}>
+                <div style={{fontSize:40,marginBottom:12}}>🆘</div>
+                <div style={{fontSize:14,fontWeight:600,color:"var(--tx)",marginBottom:6}}>How can we help?</div>
+                <button className="btn btn-p" onClick={initSupportChat} style={{marginTop:8}}>Start Support Chat</button>
+              </div>
+            )}
+            {supportChatMsgs.map((msg,i) => (
+              <div key={i} style={{display:"flex",flexDirection:"column",alignItems:msg.role==="user"?"flex-end":"flex-start",gap:4}}>
+                {msg.screenshot && (
+                  <div style={{alignSelf:msg.role==="user"?"flex-end":"flex-start"}}>
+                    <img src={msg.screenshot} alt="screenshot" style={{maxWidth:220,borderRadius:12,border:"1px solid var(--bd)",cursor:"zoom-in"}} onClick={()=>setViewerSrc(msg.screenshot)} />
+                  </div>
+                )}
+                {msg.text && (
+                  <div style={{
+                    maxWidth:"85%",padding:"10px 14px",borderRadius:msg.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",
+                    fontSize:14,lineHeight:1.7,whiteSpace:"pre-wrap",wordBreak:"break-word",
+                    background:msg.role==="user"?"var(--grad)":"var(--sf)",
+                    color:msg.role==="user"?"#fff":"var(--tx)",
+                    border:msg.role==="ai"?"1px solid var(--bd)":"none"
+                  }}>{msg.text}</div>
+                )}
+              </div>
+            ))}
+            {supportChatLoading && (
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
+                <div style={{width:32,height:32,borderRadius:10,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>🆘</div>
+                <div style={{padding:"10px 14px",background:"var(--sf)",borderRadius:"18px 18px 18px 4px",border:"1px solid var(--bd)"}}>
+                  <div style={{display:"flex",gap:4}}>
+                    {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:"var(--accent)",opacity:0.5,animation:`pulse ${0.5+i*0.15}s infinite alternate`}}/>)}
+                  </div>
+                </div>
+              </div>
+            )}
+            {supportChatDone && (
+              <div style={{textAlign:"center",padding:"12px 0"}}>
+                <button className="btn btn-s" onClick={()=>setShowSupportModal(false)} style={{margin:"0 auto"}}>Close Support Chat</button>
+              </div>
+            )}
+          </div>
+
+          {/* Input bar — same style as chat */}
+          {!supportChatDone && supportChatMsgs.length > 0 && (
+            <div style={{flexShrink:0,padding:"10px 12px 16px",borderTop:"1px solid var(--bd)",background:"var(--bg)"}}>
+              <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+                {/* Screenshot attach */}
+                <label style={{width:38,height:38,borderRadius:"50%",background:"var(--sf2)",border:"1px solid var(--bd)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                    const f=e.target.files[0]; if(!f) return;
+                    const r=new FileReader(); r.onload=ev=>{ sendSupportChatMsg("", ev.target.result); e.target.value=""; }; r.readAsDataURL(f);
+                  }} />
+                </label>
+                <textarea
+                  value={supportChatInput} onChange={e=>setSupportChatInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendSupportChatMsg(supportChatInput);}}}
+                  placeholder="Describe your problem..."
+                  rows={1} className="inp iarea"
+                  style={{flex:1,resize:"none",fontSize:14,padding:"10px 14px",lineHeight:1.5,maxHeight:80}} />
+                <button onClick={()=>sendSupportChatMsg(supportChatInput)} disabled={supportChatLoading||!supportChatInput.trim()}
+                  style={{width:38,height:38,borderRadius:"50%",background:"var(--grad)",border:"none",color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,opacity:(!supportChatInput.trim()||supportChatLoading)?0.5:1,boxShadow:"0 3px 10px var(--glow)"}}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -6284,6 +6389,17 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
               <div className="srow" style={{ cursor:"pointer" }} onClick={()=>{ setPage("agents"); setShowSb(false); }}>
                 <div className="sicon">🤖</div>
                 <div className="stxt"><div className="slbl">My Agents</div><div className="sdesc">Create and manage agents</div></div>
+                <div className="sright"><Ico.ChevRight /></div>
+              </div>
+            </div>
+
+            <div className="sec" style={{ marginTop: 8 }}>Support</div>
+            <div className="scard" style={{ marginBottom: 8 }}>
+              <div className="srow" style={{ cursor:"pointer" }} onClick={async()=>{ setShowSupportModal(true); setSupportChatMsgs([]); setSupportChatDone(false); setSupportChatScreenshots([]); setSupportChatInput(""); setTimeout(()=>{ setSupportChatMsgs([{role:"ai",text:"Hi! I'm here to help you. 😊\n\nWhat problem are you facing? Please describe it in as much detail as possible — I'll guide you through and make sure your issue is reported properly."}]); },200); }}>
+                <div className="sicon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                </div>
+                <div className="stxt"><div className="slbl">Help & Support</div><div className="sdesc">Report a problem or get help</div></div>
                 <div className="sright"><Ico.ChevRight /></div>
               </div>
             </div>
@@ -7055,14 +7171,10 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                     ))}
                   </div>
                   {parseFloat(agentPrice)>0&&(
-                    <div style={{marginTop:8,padding:"8px 12px",background:"var(--glow)",borderRadius:10,border:"1px solid var(--accent)"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                        <span style={{fontSize:12,color:"var(--mt)"}}>You Earn (80%)</span>
-                        <span style={{fontSize:13,fontWeight:700,color:"#22c55e"}}>₹{Math.round(parseFloat(agentPrice)*0.80)}</span>
-                      </div>
+                    <div style={{marginTop:8,padding:"8px 12px",background:"var(--sf2)",borderRadius:10,border:"1px solid var(--bd)"}}>
                       <div style={{display:"flex",justifyContent:"space-between"}}>
-                        <span style={{fontSize:12,color:"var(--mt)"}}>Commission Tax (20%)</span>
-                        <span style={{fontSize:12,color:"var(--mt)"}}>₹{Math.round(parseFloat(agentPrice)*0.20)}</span>
+                        <span style={{fontSize:12,color:"var(--mt)"}}>Selling Price</span>
+                        <span style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>₹{parseFloat(agentPrice)}</span>
                       </div>
                     </div>
                   )}
