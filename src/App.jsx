@@ -1771,6 +1771,120 @@ function ExpandRow({ icon, label, desc, children }) {
 }
 
 // ── MAIN APP ───────────────────────────────────────────────────
+// ── Reusable UPI Payment Sheet ─────────────────────────────────────────────
+// Shows clean payment UI — no UPI ID exposed. Tapping any app button
+// deep-links directly into that app with pre-filled payment details.
+function PaySheet({ amount, title, subtitle, note, onSuccess, onFail, onCancel }) {
+  const [step, setStep] = React.useState("pay"); // "pay" | "verifying" | "success" | "fail"
+  const UPI_APPS = [
+    { name:"PhonePe", icon:"https://upload.wikimedia.org/wikipedia/commons/thumb/7/71/PhonePe_Logo.png/120px-PhonePe_Logo.png", pkg:"phonepe" },
+    { name:"Google Pay", icon:"https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Google_Pay_Logo.svg/120px-Google_Pay_Logo.svg.png", pkg:"googlepay" },
+    { name:"Paytm", icon:"https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Paytm_Logo_%28standalone%29.svg/120px-Paytm_Logo_%28standalone%29.svg.png", pkg:"paytm" },
+    { name:"BHIM", icon:"https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/BHIM_SVG_Logo.svg/120px-BHIM_SVG_Logo.svg.png", pkg:"bhim" },
+  ];
+
+  function pay(pkg) {
+    const upiUrl = `upi://pay?pa=8126630980@upi&pn=Saraswati+AI&am=${amount}&cu=INR&tn=${encodeURIComponent(note || title)}`;
+    window.location.href = upiUrl;
+    setStep("verifying");
+    setTimeout(() => setStep("confirm"), 4000);
+  }
+
+  function payAny() {
+    const upiUrl = `upi://pay?pa=8126630980@upi&pn=Saraswati+AI&am=${amount}&cu=INR&tn=${encodeURIComponent(note || title)}`;
+    window.open(upiUrl, "_blank");
+    setStep("verifying");
+    setTimeout(() => setStep("confirm"), 4000);
+  }
+
+  if (step === "verifying") return (
+    <div style={{textAlign:"center",padding:"28px 0"}}>
+      <div style={{width:56,height:56,borderRadius:"50%",background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",boxShadow:"0 4px 20px var(--glow)"}}>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <div style={{fontSize:15,fontWeight:700,color:"var(--tx)",marginBottom:4}}>Verifying payment...</div>
+      <div style={{fontSize:12,color:"var(--mt)"}}>Please wait while we confirm your payment</div>
+      <div style={{display:"flex",justifyContent:"center",gap:5,marginTop:18}}>
+        {[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:"var(--accent)",animation:`pulse ${0.6+i*0.2}s infinite alternate`,opacity:0.5+i*0.25}} />)}
+      </div>
+    </div>
+  );
+
+  if (step === "confirm") return (
+    <div style={{textAlign:"center",padding:"8px 0"}}>
+      <div style={{fontSize:36,marginBottom:10}}>✅</div>
+      <div style={{fontSize:15,fontWeight:700,color:"var(--tx)",marginBottom:4}}>Did the payment go through?</div>
+      <div style={{fontSize:12,color:"var(--mt)",marginBottom:20}}>₹{amount} for {title}</div>
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={()=>setStep("fail")}
+          style={{flex:1,padding:"11px",borderRadius:14,border:"1.5px solid #ef444440",background:"#ef444410",color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+          ❌ Failed
+        </button>
+        <button onClick={()=>{setStep("success");if(onSuccess)onSuccess();}}
+          style={{flex:1,padding:"11px",borderRadius:14,border:"none",background:"var(--grad)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 4px 14px var(--glow)"}}>
+          ✅ Success
+        </button>
+      </div>
+    </div>
+  );
+
+  if (step === "fail") return (
+    <div style={{textAlign:"center",padding:"8px 0"}}>
+      <div style={{fontSize:36,marginBottom:10}}>❌</div>
+      <div style={{fontSize:15,fontWeight:700,color:"#ef4444",marginBottom:4}}>Payment Failed</div>
+      <div style={{fontSize:12,color:"var(--mt)",marginBottom:16}}>No worries — try again with a different app</div>
+      <button onClick={()=>setStep("pay")}
+        style={{width:"100%",padding:"12px",borderRadius:14,border:"none",background:"var(--grad)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",marginBottom:8,boxShadow:"0 4px 14px var(--glow)"}}>
+        🔄 Try Again
+      </button>
+      <button onClick={onCancel}
+        style={{width:"100%",padding:"11px",borderRadius:14,border:"1px solid var(--bd)",background:"none",color:"var(--mt)",fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+        Cancel
+      </button>
+    </div>
+  );
+
+  // Default: "pay" step — UPI app chooser
+  return (
+    <div>
+      {/* Amount pill */}
+      <div style={{textAlign:"center",marginBottom:18}}>
+        <div style={{display:"inline-flex",alignItems:"baseline",gap:4,background:"var(--grad)",borderRadius:20,padding:"8px 22px",boxShadow:"0 4px 16px var(--glow)"}}>
+          <span style={{fontSize:13,color:"#ffffff90",fontWeight:600}}>₹</span>
+          <span style={{fontSize:32,fontWeight:900,color:"#fff"}}>{amount}</span>
+        </div>
+        {subtitle && <div style={{fontSize:11,color:"var(--mt)",marginTop:8}}>{subtitle}</div>}
+      </div>
+
+      {/* UPI App buttons */}
+      <div style={{fontSize:11,fontWeight:700,color:"var(--mt)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Pay with UPI app</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        {UPI_APPS.map(app=>(
+          <button key={app.name} onClick={()=>pay(app.pkg)}
+            style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,border:"1.5px solid var(--bd)",background:"var(--sf2)",cursor:"pointer",fontFamily:"Inter,sans-serif",transition:"all .15s"}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--accent)";e.currentTarget.style.background="var(--glow)";}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--bd)";e.currentTarget.style.background="var(--sf2)";}}>
+            <img src={app.icon} alt={app.name} style={{width:28,height:28,objectFit:"contain",borderRadius:6}} onError={e=>e.target.style.display="none"} />
+            <span style={{fontSize:12,fontWeight:600,color:"var(--tx)"}}>{app.name}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Any UPI app */}
+      <button onClick={payAny}
+        style={{width:"100%",padding:"12px",borderRadius:14,border:"1.5px solid var(--bd)",background:"var(--sf)",color:"var(--mt)",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        Other UPI App
+      </button>
+
+      <div style={{textAlign:"center",fontSize:10,color:"var(--mt)",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Secured by UPI · NPCI Certified
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [pwaEvt, setPwaEvt] = useState(null);
   const [showPwa, setShowPwa] = useState(false);
@@ -3361,6 +3475,16 @@ export default function App() {
   const PLATFORM_CUT  = 0.20;
   const CREATOR_SHARE = 0.80;
 
+  // ── UPI Deep Link builder ─────────────────────────────────────────
+  // Opens native UPI app chooser (PhonePe/GPay/Paytm etc.) directly.
+  // No UPI ID shown to user — just tap → pick app → pay.
+  function openUPI({ amount, note, onReturn }) {
+    const upiUrl = `upi://pay?pa=${PLATFORM_UPI}@upi&pn=Saraswati+AI&am=${amount}&cu=INR&tn=${encodeURIComponent(note)}`;
+    window.open(upiUrl, "_blank");
+    // After user returns from payment app, show verification screen
+    if (onReturn) setTimeout(onReturn, 2500);
+  }
+
   const ALL_CATEGORIES = [
     "Farming & Agriculture","UPSC Preparation","NEET Preparation","JEE Preparation",
     "Coding & Programming","Finance & Banking","Business & Startup","Marketing & SEO",
@@ -3884,18 +4008,12 @@ Return ONLY valid JSON (no backticks, no markdown, no explanation):
   }
 
   const DEMO_AGENTS = [
-    {id:"d1",name:"Doctor AI",emoji:"👨‍⚕️",category:"Healthcare & Medicine",description:"Health questions, symptom analysis, and medical guidance in English.",avgRating:4.8,reviewCount:234,totalUsers:1250,price:0,creatorName:"Kunal S",published:true,featured:true,skills:["Symptom Analysis","Medicine Info","Diet Advice","Health Tips","First Aid"]},
-    {id:"d2",name:"Kisan Mitra",emoji:"👨‍🌾",category:"Farming & Agriculture",description:"Expert advice on crops, farming, weather, and agricultural best practices.",avgRating:4.9,reviewCount:567,totalUsers:3400,price:0,creatorName:"AgriTech India",published:true,featured:true,skills:["Crop Planning","Weather Tips","Pest Control","Market Rates","Soil Health"]},
-    {id:"d3",name:"Legal Eagle",emoji:"⚖️",category:"Legal & Law",description:"Indian law, RTI, consumer rights — explained in simple language.",avgRating:4.6,reviewCount:189,totalUsers:890,price:49,creatorName:"LegalTech Pro",published:true,skills:["RTI Filing","Consumer Rights","Property Law","Contract Review","Court Procedure"]},
-    {id:"d4",name:"Finance Guru",emoji:"💰",category:"Finance & Banking",description:"Investment, SIP, tax saving — grow your money the smart way.",avgRating:4.7,reviewCount:312,totalUsers:2100,price:0,creatorName:"MoneyWise AI",published:true,skills:["SIP Planning","Tax Saving","Stock Tips","Budget","Loan Advice"]},
-    {id:"d5",name:"Code Master",emoji:"🧑‍💻",category:"Coding & Programming",description:"Learn to write and debug Python, JS, React, and SQL code.",avgRating:4.9,reviewCount:890,totalUsers:6700,price:99,creatorName:"DevBot Pro",published:true,featured:true,skills:["Code Review","Bug Fix","Python","JavaScript","System Design"]},
-    {id:"d6",name:"Study Planner",emoji:"📖",category:"UPSC Preparation",description:"UPSC, JEE, NEET — exam strategy and personalized study schedules.",avgRating:4.8,reviewCount:567,totalUsers:7800,price:0,creatorName:"StudyAI",published:true,skills:["Study Schedule","Mock Tests","Revision Tips","Exam Strategy","Subject Help"]},
-    {id:"d7",name:"Chef AI",emoji:"🧑‍🍳",category:"Cooking & Recipes",description:"Indian and international recipes, nutrition tips, and meal planning.",avgRating:4.8,reviewCount:678,totalUsers:4200,price:0,creatorName:"FoodieBot",published:true,skills:["Recipes","Nutrition","Meal Planning","Cooking Tips","Diet Plans"]},
-    {id:"d8",name:"Fitness Pro",emoji:"💪",category:"Fitness & Exercise",description:"Workout plans, diet tips, and weight loss guidance.",avgRating:4.6,reviewCount:345,totalUsers:2800,price:29,creatorName:"FitLife AI",published:true,skills:["Workout Plans","Diet Planning","Weight Loss","Muscle Building","Yoga"]},
-    {id:"d9",name:"Astro Guide",emoji:"🔮",category:"Astrology & Horoscope",description:"Kundali, horoscope, vastu — insights from Vedic astrology.",avgRating:4.4,reviewCount:234,totalUsers:1800,price:0,creatorName:"Jyotish AI",published:true,skills:["Kundali Reading","Daily Horoscope","Vastu Tips","Gemstone Advice","Career"]},
-    {id:"d10",name:"Travel Buddy",emoji:"✈️",category:"Travel & Tourism",description:"Tours across India and the world, with budget travel tips.",avgRating:4.5,reviewCount:212,totalUsers:1560,price:0,creatorName:"TravelBot",published:true,skills:["Itinerary Planning","Budget Tips","Visa Help","Hotel Booking","Local Food"]},
-    {id:"d11",name:"Mental Coach",emoji:"🧠",category:"Mental Health & Therapy",description:"Stress, anxiety — emotional support and practical coping strategies.",avgRating:4.7,reviewCount:156,totalUsers:930,price:0,creatorName:"MindCare AI",published:true,skills:["Stress Relief","Anxiety Help","Meditation","CBT Techniques","Sleep Tips"]},
-    {id:"d12",name:"Business Advisor",emoji:"🏢",category:"Business & Startup",description:"Startup ideas, business planning, and marketing strategies.",avgRating:4.6,reviewCount:289,totalUsers:1670,price:79,creatorName:"BizAI Pro",published:true,skills:["Business Plan","Marketing","Funding","Team Building","Growth Hacks"]},
+    {id:"d1",name:"Doctor AI",emoji:"👨‍⚕️",category:"Healthcare & Medicine",description:"Health questions, symptom analysis, and medical guidance.",avgRating:4.8,reviewCount:234,totalUsers:1250,price:0,creatorName:"Saraswati AI",published:true,featured:true,skills:["Symptom Analysis","Medicine Info","Diet Advice","Health Tips","First Aid"]},
+    {id:"d2",name:"Kisan Mitra",emoji:"👨‍🌾",category:"Farming & Agriculture",description:"Expert advice on crops, farming, weather, and agricultural best practices.",avgRating:4.9,reviewCount:567,totalUsers:3400,price:0,creatorName:"Saraswati AI",published:true,featured:true,skills:["Crop Planning","Weather Tips","Pest Control","Market Rates","Soil Health"]},
+    {id:"d3",name:"Legal Eagle",emoji:"⚖️",category:"Legal & Law",description:"Indian law, RTI, consumer rights — explained in simple language.",avgRating:4.6,reviewCount:189,totalUsers:890,price:49,creatorName:"Saraswati AI",published:true,skills:["RTI Filing","Consumer Rights","Property Law","Contract Review","Court Procedure"]},
+    {id:"d4",name:"Code Master",emoji:"🧑‍💻",category:"Coding & Programming",description:"Learn to write and debug Python, JS, React, and SQL code.",avgRating:4.9,reviewCount:890,totalUsers:6700,price:99,creatorName:"Saraswati AI",published:true,featured:true,skills:["Code Review","Bug Fix","Python","JavaScript","System Design"]},
+    {id:"d5",name:"Finance Guru",emoji:"💰",category:"Finance & Banking",description:"SIP, mutual funds, tax saving — grow your money smartly.",avgRating:4.7,reviewCount:312,totalUsers:2100,price:199,creatorName:"Saraswati AI",published:true,skills:["SIP Planning","Tax Saving","Stock Tips","Budget","Loan Advice"]},
+    {id:"d6",name:"Business Advisor",emoji:"🏢",category:"Business & Startup",description:"Startup ideas, business planning, and marketing strategies.",avgRating:4.6,reviewCount:289,totalUsers:1670,price:499,creatorName:"Saraswati AI",published:true,skills:["Business Plan","Marketing","Funding","Team Building","Growth Hacks"]},
   ];
 
   // ── Creator Dashboard ─────────────────────────────────────────
@@ -5350,30 +5468,21 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
             ) : (
               <>
                 <div className="mi">⭐</div>
-                <h3>Saraswati AI {upgradePlan === "monthly" ? "Monthly" : "Weekly"} Premium</h3>
+                <h3>Saraswati AI Premium</h3>
                 <p>Unlimited chats · Voice Call · Faster AI · Ad-free</p>
-                <div className="pbox">
-                  <div className="pnum">{upgradePlan === "monthly" ? "₹99 / month" : "₹29 / week"}</div>
-                  <div className="pstep"><span style={{fontWeight:700,color:"var(--accent)"}}>1.</span><span>Pay via UPI: <strong>{UPI}@upi</strong></span></div>
-                  <div className="pstep"><span style={{fontWeight:700,color:"var(--accent)"}}>2.</span><span>Screenshot lo</span></div>
-                  <div className="pstep"><span style={{fontWeight:700,color:"var(--accent)"}}>3.</span><span>Send screenshot on WhatsApp for confirmation</span></div>
+                <div style={{display:"flex",gap:8,marginBottom:14}}>
+                  <button className="btn btn-s" style={{flex:1,opacity:upgradePlan==="monthly"?1:0.55,border:upgradePlan==="monthly"?"1.5px solid var(--accent)":"1px solid var(--bd)"}} onClick={()=>setUpgradePlan("monthly")}>Monthly ₹99</button>
+                  <button className="btn btn-s" style={{flex:1,opacity:upgradePlan==="weekly"?1:0.55,border:upgradePlan==="weekly"?"1.5px solid var(--accent)":"1px solid var(--bd)"}} onClick={()=>setUpgradePlan("weekly")}>Weekly ₹29</button>
                 </div>
-                <div style={{ display: "flex", gap: 8, marginBottom: 2 }}>
-                  <button className="btn btn-p" style={{ flex: 1 }} onClick={() => {
-                    window.open("upi://pay?pa=" + UPI + "@upi&pn=SaraswatiAI&am=" + (upgradePlan === "monthly" ? "99" : "29") + "&cu=INR", "_blank");
-                    // After 4s, show did payment go through prompt
-                    setTimeout(() => setPayStatus("success"), 4000);
-                  }}>💳 Pay Now</button>
-                </div>
-                <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
-                  <button className="btn btn-s" style={{ flex: 1, fontSize: 12 }} onClick={() => setPayStatus("fail")}>❌ Payment Failed?</button>
-                  <button className="btn btn-s" style={{ flex: 1, fontSize: 12 }} onClick={() => setPayStatus("success")}>✅ Payment Done?</button>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button className={"btn btn-s"} style={{ flex: 1, opacity: upgradePlan === "monthly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("monthly")}>Monthly ₹99</button>
-                  <button className="btn btn-s" style={{ flex: 1, opacity: upgradePlan === "weekly" ? 1 : 0.6 }} onClick={() => setUpgradePlan("weekly")}>Weekly ₹29</button>
-                </div>
-                <button className="btn btn-s" onClick={() => setShowUpgrade(false)}>Cancel</button>
+                <PaySheet
+                  amount={upgradePlan==="monthly"?99:29}
+                  title={`Premium ${upgradePlan==="monthly"?"Monthly":"Weekly"}`}
+                  subtitle="Unlimited chats, voice, faster AI"
+                  note={`Saraswati AI Premium ${upgradePlan==="monthly"?"Monthly":"Weekly"}`}
+                  onSuccess={()=>setPayStatus("success")}
+                  onFail={()=>setPayStatus("fail")}
+                  onCancel={()=>setShowUpgrade(false)}
+                />
               </>
             )}
           </div>
@@ -5499,22 +5608,46 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
         <button className="dots hide-desktop" onClick={() => { setShowSb(true); if (user) loadHists(); }}>
           <Ico.Menu />
         </button>
-        <div className="hdr-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <SaraswatiLogo size={26} animate={false} state="idle" />
-          {page === "chat" ? (activeAgent ? `${activeAgent.emoji} ${activeAgent.name}` : "Saraswati AI") : page === "history" ? "History" : page === "settings" ? "Settings" : page === "admin" ? "Admin" : page === "projects" ? "Projects" : page === "memory" ? "Memory" : page === "cmdcenter" ? "⚡ AI Command" : page === "agents" ? "🤖 Agents" : page === "marketplace" ? "🛍 Marketplace" : "Saraswati AI"}
+
+        {/* Header center content — changes per page/context */}
+        <div className="hdr-name" style={{ display:"flex", alignItems:"center", gap:8, flex:1, minWidth:0 }}>
+          {page === "chat" && activeAgent ? (
+            /* Agent Chat Header */
+            <>
+              <div style={{ width:32, height:32, borderRadius:10, background:"var(--grad)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0, overflow:"hidden", boxShadow:"0 2px 8px var(--glow)" }}>
+                {activeAgent.avatarImg
+                  ? <img src={activeAgent.avatarImg} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />
+                  : (activeAgent.emoji||"🤖")}
+              </div>
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:700, color:"var(--tx)", lineHeight:1.2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{activeAgent.name}</div>
+                <div style={{ fontSize:10, color:"var(--accent)", fontWeight:600, lineHeight:1 }}>{activeAgent.category}</div>
+              </div>
+            </>
+          ) : page === "chat" ? (
+            /* Default Chat Header */
+            <>
+              <SaraswatiLogo size={26} animate={false} state="idle" />
+              <span>Saraswati AI</span>
+            </>
+          ) : (
+            /* All other pages */
+            <>
+              <SaraswatiLogo size={22} animate={false} state="idle" />
+              <span style={{fontSize:15}}>
+                {page==="history"?"History":page==="settings"?"Settings":page==="admin"?"Admin":page==="projects"?"Projects":page==="memory"?"Memory":page==="cmdcenter"?"⚡ AI Command":page==="agents"?"Agents":page==="marketplace"?"Marketplace":"Saraswati AI"}
+              </span>
+            </>
+          )}
         </div>
+
         {page === "chat" && (
           <>
             {chatsLeft !== null && chatsLeft <= 10 && (
               <div style={{
-                fontSize: 11,
-                color: "#fff",
-                fontWeight: 700,
+                fontSize: 11, color: "#fff", fontWeight: 700,
                 background: chatsLeft <= 3 ? "#ef4444" : "var(--accent)",
-                borderRadius: 20,
-                padding: "2px 9px",
-                minWidth: 28,
-                textAlign: "center",
+                borderRadius: 20, padding: "2px 9px", minWidth: 28, textAlign: "center",
                 letterSpacing: 0.2,
                 boxShadow: chatsLeft <= 3 ? "0 0 8px #ef444460" : "0 0 8px var(--glow)",
               }}>{chatsLeft}</div>
@@ -5629,7 +5762,18 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
       {/* ── SUPPORT TICKET MODAL ── */}
       {showSupportModal && (
         <div className="mbg" onClick={()=>{if(!supportLoading){setShowSupportModal(false);setSupportStep("form");}}} style={{zIndex:200}}>
-          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,padding:0,borderRadius:24,overflow:"hidden"}}>
+            {/* Customer Care Header — same premium design as chat screen */}
+            <div style={{background:"var(--grad)",padding:"18px 20px 16px",display:"flex",alignItems:"center",gap:12}}>
+              <SaraswatiLogo size={32} animate={false} state="idle" />
+              <div>
+                <div style={{fontSize:16,fontWeight:800,color:"#fff",lineHeight:1.2}}>Saraswati AI</div>
+                <div style={{fontSize:11,color:"#ffffff80",fontWeight:500}}>Customer Care</div>
+              </div>
+              <button onClick={()=>{setShowSupportModal(false);setSupportStep("form");}} style={{marginLeft:"auto",background:"#ffffff20",border:"none",borderRadius:"50%",width:30,height:30,color:"#fff",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            </div>
+
+            <div style={{padding:"18px 20px 20px"}}>
             {supportStep==="success" ? (
               <>
                 <div className="mi">🎫</div>
@@ -5646,9 +5790,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
               </>
             ) : (
               <>
-                <div className="mi">🆘</div>
-                <h3>Report a Problem</h3>
-                <p style={{fontSize:12,color:"var(--mt)",marginBottom:10}}>
+                <p style={{fontSize:12,color:"var(--mt)",marginBottom:10,marginTop:0}}>
                   Submitting as <strong style={{color:"var(--tx)"}}>{userData?.name||user?.displayName}</strong><br/>
                   <span style={{fontSize:11}}>{userData?.email||user?.email}</span>
                 </p>
@@ -5697,6 +5839,7 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                 <button className="btn btn-s" onClick={()=>setShowSupportModal(false)} style={{width:"100%"}}>Cancel</button>
               </>
             )}
+            </div>
           </div>
         </div>
       )}
@@ -6624,74 +6767,58 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                   <div style={{fontSize:13}}>Try a different search or filter</div>
                 </div>
               ):(
-                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   {displayAgents.map(agent=>(
                     <div key={agent.id}
-                      style={{background:"var(--sf)",border:"1px solid "+(agent.featured?"var(--accent)":"var(--bd)"),borderRadius:20,padding:16,cursor:"pointer",transition:"border-color .2s,transform .15s",position:"relative"}}
-                      onClick={()=>{setMkDetail(agent);loadAgentReviews(agent.id);setMkReviewText("");setMkReviewRating(5);}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--accent)";e.currentTarget.style.transform="translateY(-1px)";}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor=agent.featured?"var(--accent)":"var(--bd)";e.currentTarget.style.transform="translateY(0)";}}>
+                      style={{background:"var(--sf)",border:"1px solid "+(agent.featured?"var(--accent)":"var(--bd)"),borderRadius:18,padding:14,display:"flex",flexDirection:"column",gap:10,position:"relative",transition:"border-color .2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor="var(--accent)"}
+                      onMouseLeave={e=>e.currentTarget.style.borderColor=agent.featured?"var(--accent)":"var(--bd)"}>
+
                       {/* Featured badge */}
-                      {agent.featured&&<div style={{position:"absolute",top:10,left:10,padding:"2px 8px",borderRadius:20,background:"var(--grad)",color:"#fff",fontSize:9,fontWeight:700}}>⭐ FEATURED</div>}
+                      {agent.featured&&<div style={{position:"absolute",top:8,left:8,padding:"2px 7px",borderRadius:20,background:"var(--grad)",color:"#fff",fontSize:8,fontWeight:700}}>⭐ TOP</div>}
+
                       {/* Price badge */}
-                      <div style={{position:"absolute",top:14,right:14,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
+                      <div style={{position:"absolute",top:10,right:10,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700,
                         background:(!agent.price||agent.price===0)?"#22c55e20":"var(--glow)",
                         color:(!agent.price||agent.price===0)?"#22c55e":"var(--accent)",
                         border:"1px solid "+((!agent.price||agent.price===0)?"#22c55e40":"var(--accent)")}}>
                         {(!agent.price||agent.price===0)?"FREE":"₹"+agent.price}
                       </div>
 
-                      <div style={{display:"flex",gap:14,alignItems:"flex-start",marginTop:agent.featured?10:0}}>
-                        <div style={{width:58,height:58,borderRadius:18,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,flexShrink:0,boxShadow:"0 4px 16px var(--glow)",overflow:"hidden"}}>
-                          {agent.avatarImg?<img src={agent.avatarImg} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />:(agent.emoji||"🤖")}
-                        </div>
-                        <div style={{flex:1,minWidth:0,paddingRight:60}}>
-                          <div style={{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:2}}>{agent.name}</div>
-                          <div style={{fontSize:11,color:"var(--accent)",fontWeight:600,marginBottom:4}}>{agent.category}</div>
-                          <div style={{fontSize:12,color:"var(--mt)",lineHeight:1.5,marginBottom:8,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{agent.description}</div>
-                          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-                            <div style={{display:"flex",alignItems:"center",gap:4}}>
-                              <span style={{color:"#f59e0b",fontSize:13}}>★</span>
-                              <span style={{fontSize:12,fontWeight:700,color:"var(--tx)"}}>{(agent.avgRating||4.5).toFixed(1)}</span>
-                              <span style={{fontSize:11,color:"var(--mt)"}}>({agent.reviewCount||0})</span>
-                            </div>
-                            <div style={{display:"flex",alignItems:"center",gap:4}}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--mt)" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                              <span style={{fontSize:11,color:"var(--mt)"}}>{(agent.totalUsers||0).toLocaleString()} users</span>
-                            </div>
-                            <span style={{fontSize:11,color:"var(--mt)"}}>by {agent.creatorName||"Creator"}</span>
-                          </div>
+                      {/* Avatar */}
+                      <div style={{width:52,height:52,borderRadius:16,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,boxShadow:"0 4px 14px var(--glow)",overflow:"hidden",marginTop:agent.featured?8:0}}>
+                        {agent.avatarImg?<img src={agent.avatarImg} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="" />:(agent.emoji||"🤖")}
+                      </div>
+
+                      {/* Name + Category */}
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:14,fontWeight:700,color:"var(--tx)",lineHeight:1.2,marginBottom:2}}>{agent.name}</div>
+                        <div style={{fontSize:10,color:"var(--accent)",fontWeight:600,lineHeight:1.3,marginBottom:6}}>{agent.category}</div>
+                        {/* Rating */}
+                        <div style={{display:"flex",alignItems:"center",gap:3}}>
+                          <span style={{color:"#f59e0b",fontSize:12}}>★</span>
+                          <span style={{fontSize:11,fontWeight:700,color:"var(--tx)"}}>{(agent.avgRating||4.5).toFixed(1)}</span>
+                          <span style={{fontSize:10,color:"var(--mt)"}}>({agent.reviewCount||0})</span>
                         </div>
                       </div>
 
-                      {agent.skills&&agent.skills.length>0&&(
-                        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:10}}>
-                          {agent.skills.slice(0,4).map((sk,si)=>(
-                            <span key={si} style={{padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:600,background:"var(--sf2)",border:"1px solid var(--bd)",color:"var(--mt)"}}>{sk}</span>
-                          ))}
-                        </div>
-                      )}
-
-                      <div style={{display:"flex",gap:6,marginTop:12}}>
+                      {/* Buttons */}
+                      <div style={{display:"flex",flexDirection:"column",gap:5}}>
                         <button onClick={e=>{e.stopPropagation();setMkDetail(agent);loadAgentReviews(agent.id);setMkReviewText("");setMkReviewRating(5);}}
-                          style={{flex:1,padding:"8px",borderRadius:10,border:"1px solid var(--bd)",background:"var(--sf2)",color:"var(--tx)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
-                          👁 Details
+                          style={{width:"100%",padding:"7px",borderRadius:10,border:"1px solid var(--bd)",background:"var(--sf2)",color:"var(--tx)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                          👁 View Details
                         </button>
                         {(!agent.price||agent.price===0)?(
                           <button onClick={e=>{e.stopPropagation();useMarketplaceAgent(agent);}}
-                            style={{flex:1,padding:"8px",borderRadius:10,border:"none",background:"var(--grad)",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 3px 12px var(--glow)"}}>
-                            ▶ Use Free
+                            style={{width:"100%",padding:"7px",borderRadius:10,border:"none",background:"var(--grad)",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 3px 12px var(--glow)"}}>
+                            ▶ Use Agent
                           </button>
                         ):(
                           <button onClick={e=>{e.stopPropagation();buyMarketplaceAgent(agent);}}
-                            style={{flex:1,padding:"8px",borderRadius:10,border:"none",background:"var(--grad)",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 3px 12px var(--glow)"}}>
-                            🛒 Buy ₹{agent.price}
+                            style={{width:"100%",padding:"7px",borderRadius:10,border:"none",background:"var(--grad)",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 3px 12px var(--glow)"}}>
+                            🛒 Buy Agent
                           </button>
                         )}
-                        <button onClick={e=>{e.stopPropagation();shareAgent(agent);}}
-                          style={{padding:"8px 10px",borderRadius:10,border:"1px solid var(--bd)",background:"var(--sf2)",color:"var(--mt)",fontSize:14,cursor:"pointer"}}>
-                          🔗
-                        </button>
                       </div>
                     </div>
                   ))}
@@ -6919,7 +7046,6 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                     <span style={{fontSize:18,fontWeight:700,color:"var(--tx)"}}>₹</span>
                     <input className="inp" type="number" min="0" placeholder="0 = FREE" value={agentPrice} onChange={e=>setAgentPrice(e.target.value)} style={{flex:1,fontSize:20,fontWeight:700,textAlign:"center"}}/>
                   </div>
-                  {/* Quick price presets */}
                   <div style={{display:"flex",gap:6,marginTop:8}}>
                     {[49,99,199,499].map(p=>(
                       <button key={p} onClick={()=>setAgentPrice(String(p))}
@@ -6941,25 +7067,22 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
                     </div>
                   )}
                 </div>
-                <div style={{background:"var(--sf2)",borderRadius:14,padding:"14px 16px",marginBottom:16,border:"1px solid var(--bd)"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                    <span style={{fontSize:13,fontWeight:600,color:"var(--tx)"}}>Publishing Fee</span>
-                    <span style={{fontSize:20,fontWeight:800,color:"var(--accent)"}}>₹{PUBLISH_FEE}</span>
-                  </div>
-                  <div style={{padding:"10px 12px",background:"#22c55e10",borderRadius:10,border:"1px solid #22c55e30"}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:4}}>Pay via UPI:</div>
-                    <div style={{fontSize:14,fontWeight:700,color:"var(--tx)"}}>{PLATFORM_UPI}@upi</div>
-                    <div style={{fontSize:11,color:"var(--mt)",marginTop:2}}>Amount: ₹{PUBLISH_FEE} · Note: Agent Publish Fee</div>
-                  </div>
+                <div style={{borderTop:"1px solid var(--bd)",paddingTop:14,marginBottom:4}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"var(--mt)",marginBottom:10,textTransform:"uppercase",letterSpacing:".05em"}}>Pay Publishing Fee — ₹{PUBLISH_FEE}</div>
+                  <PaySheet
+                    amount={PUBLISH_FEE}
+                    title="Agent Publishing Fee"
+                    subtitle="One-time fee to list your agent on Marketplace"
+                    note="Saraswati AI Agent Publish Fee"
+                    onSuccess={()=>{
+                      setPublishFeeAgent(p=>({...p,customPrice:parseFloat(agentPrice)||0}));
+                      setPublishPayStatus("success");
+                      setPublishFeeDone(true);
+                    }}
+                    onFail={()=>setPublishPayStatus("fail")}
+                    onCancel={()=>setShowPublishFee(false)}
+                  />
                 </div>
-                <button className="btn btn-p" onClick={openRazorpayPublish}
-                  style={{width:"100%",marginBottom:8}}>
-                  💳 Pay ₹{PUBLISH_FEE} via Razorpay →
-                </button>
-                <div style={{fontSize:11,color:"var(--mt)",textAlign:"center",marginBottom:4}}>
-                  Secured by Razorpay · UPI / Card / Net Banking
-                </div>
-                <button className="btn btn-s" onClick={()=>setShowPublishFee(false)} style={{width:"100%"}}>Cancel</button>
               </>
             )}
           </div>
@@ -6969,41 +7092,40 @@ Keep it professional, data-driven, and actionable. Use Indian Rupee ₹ symbol. 
       {/* BUY AGENT MODAL */}
       {showBuyModal&&buyModalAgent&&(
         <div className="mbg" onClick={()=>{setShowBuyModal(false);setBuyPayDone(false);}} style={{zIndex:1000}}>
-          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
-            {buyPayDone?(
-              <>
-                <div className="mi">🎉</div>
-                <h3>Payment Done!</h3>
-                <button className="btn btn-p" onClick={async()=>{await recordAgentSale(buyModalAgent);setShowBuyModal(false);setBuyPayDone(false);useMarketplaceAgent(buyModalAgent);}} style={{width:"100%",marginBottom:8}}>
-                  ✅ Confirm & Use Agent
-                </button>
-                <button className="btn btn-s" onClick={()=>{setShowBuyModal(false);setBuyPayDone(false);}} style={{width:"100%"}}>Cancel</button>
-              </>
-            ):(
-              <>
-                <div style={{textAlign:"center",marginBottom:14}}>
-                  <div style={{fontSize:48,marginBottom:6}}>{buyModalAgent.avatarImg?<img src={buyModalAgent.avatarImg} style={{width:56,height:56,borderRadius:16,objectFit:"cover"}} alt=""/>:(buyModalAgent.emoji||"🤖")}</div>
-                  <div style={{fontSize:17,fontWeight:700,color:"var(--tx)"}}>{buyModalAgent.name}</div>
-                  <div style={{fontSize:12,color:"var(--mt)"}}>{buyModalAgent.category}</div>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:400,padding:0,borderRadius:24,overflow:"hidden"}}>
+            {/* Agent header */}
+            <div style={{background:"var(--grad)",padding:"18px 20px 16px",display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:44,height:44,borderRadius:14,background:"#ffffff25",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0,overflow:"hidden"}}>
+                {buyModalAgent.avatarImg?<img src={buyModalAgent.avatarImg} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:14}} alt=""/>:(buyModalAgent.emoji||"🤖")}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:15,fontWeight:800,color:"#fff"}}>{buyModalAgent.name}</div>
+                <div style={{fontSize:11,color:"#ffffff80"}}>{buyModalAgent.category}</div>
+              </div>
+              <button onClick={()=>setShowBuyModal(false)} style={{background:"#ffffff20",border:"none",borderRadius:"50%",width:28,height:28,color:"#fff",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            </div>
+            <div style={{padding:"18px 20px 22px"}}>
+              {buyPayDone ? (
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:48,marginBottom:10}}>🎉</div>
+                  <div style={{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:6}}>You're in!</div>
+                  <div style={{fontSize:12,color:"var(--mt)",marginBottom:20}}>Access to {buyModalAgent.name} unlocked</div>
+                  <button className="btn btn-p" onClick={async()=>{await recordAgentSale(buyModalAgent);setShowBuyModal(false);setBuyPayDone(false);useMarketplaceAgent(buyModalAgent);}} style={{width:"100%"}}>
+                    ▶ Start Using Agent
+                  </button>
                 </div>
-                <div style={{background:"var(--sf2)",borderRadius:14,padding:"14px",marginBottom:14,border:"1px solid var(--bd)"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-                    <span style={{fontSize:14,fontWeight:600,color:"var(--tx)"}}>Price</span>
-                    <span style={{fontSize:24,fontWeight:800,color:"var(--accent)"}}>₹{buyModalAgent.price}</span>
-                  </div>
-                  <div style={{padding:"10px 12px",background:"#3b82f610",borderRadius:10,border:"1px solid #3b82f630"}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#3b82f6",marginBottom:3}}>Pay via UPI:</div>
-                    <div style={{fontSize:15,fontWeight:700,color:"var(--tx)"}}>{PLATFORM_UPI}@upi</div>
-                    <div style={{fontSize:11,color:"var(--mt)",marginTop:2}}>Amount: ₹{buyModalAgent.price} · Note: {buyModalAgent.name}</div>
-                  </div>
-                  <div style={{fontSize:11,color:"var(--mt)",marginTop:8}}>Creator earns ₹{Math.round(buyModalAgent.price*0.80)} · Commission Tax: ₹{Math.round(buyModalAgent.price*0.20)} (20%)</div>
-                </div>
-                <button className="btn btn-p" onClick={()=>{window.open("upi://pay?pa="+PLATFORM_UPI+"@upi&pn=SaraswatiAI&am="+buyModalAgent.price+"&cu=INR&tn="+encodeURIComponent(buyModalAgent.name),"_blank");setTimeout(()=>setBuyPayDone(true),1500);}} style={{width:"100%",marginBottom:8}}>
-                  Pay ₹{buyModalAgent.price} via UPI →
-                </button>
-                <button className="btn btn-s" onClick={()=>setShowBuyModal(false)} style={{width:"100%"}}>Cancel</button>
-              </>
-            )}
+              ) : (
+                <PaySheet
+                  amount={buyModalAgent.price}
+                  title={buyModalAgent.name}
+                  subtitle={`Unlock full access to ${buyModalAgent.name}`}
+                  note={`Buy Agent: ${buyModalAgent.name}`}
+                  onSuccess={async()=>{ await recordAgentSale(buyModalAgent); setBuyPayDone(true); }}
+                  onFail={()=>{}}
+                  onCancel={()=>setShowBuyModal(false)}
+                />
+              )}
+            </div>
           </div>
         </div>
       )}
